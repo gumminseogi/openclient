@@ -70,7 +70,7 @@ final class DirectoryStoreRegistry: ObservableObject {
     func recordV2LifecycleEvent(_ event: OpenCodeV2ManagedEvent) {
         if event.type.hasPrefix("project.") || event.type.hasPrefix("worktree.") { v2ProjectRevision &+= 1 }
         guard let id = event.sessionID,
-              ["session.created", "session.deleted", "session.moved", "session.renamed", "session.forked"].contains(event.type) else { return }
+              ["session.created", "session.deleted", "session.moved", "session.renamed", "session.forked", "session.viewed"].contains(event.type) else { return }
         if event.type == "session.deleted" {
             markV2SessionDeleted(id)
             return
@@ -815,6 +815,11 @@ final class DirectoryStore: ObservableObject {
             return true
         }
         switch event.type {
+        case "session.viewed":
+            guard let idle = data["idle"]?.doubleValue,
+                  let session = sessions.first(where: { $0.id == sessionID }) else { return false }
+            insertV2Session(session.markingViewed(idle: idle))
+            return true
         case "session.forked":
             // parentID identifies the fork source, not a subagent parent. Hydrate Session.Info.
             v2SessionRevision &+= 1
@@ -832,7 +837,9 @@ final class DirectoryStore: ObservableObject {
                 projectID: data["projectID"]?.stringValue ?? previous?.projectID,
                 parentID: data["parentID"]?.stringValue ?? previous?.parentID
             )
-            session.time = OpenCodeMessageTime(created: previous?.time?.created ?? event.created, updated: event.created)
+            session.time = OpenCodeMessageTime(created: previous?.time?.created ?? event.created, updated: event.created,
+                completed: previous?.time?.completed, archived: previous?.time?.archived, streamed: previous?.time?.streamed,
+                idle: previous?.time?.idle, viewed: previous?.time?.viewed)
             session.agent = previous?.agent
             session.model = previous?.model
             insertV2Session(session)

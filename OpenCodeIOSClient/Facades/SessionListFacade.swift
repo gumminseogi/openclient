@@ -655,6 +655,39 @@ final class SessionListFacade: ObservableObject {
         guard !snapshot.isReadOnly else { return }
         await viewModel.renameSession(session, title: title)
     }
+
+    var supportsMarkRead: Bool { viewModel.supportsMarkSessionRead }
+
+    @Published private(set) var isMarkingAllRead = false
+
+    private var readActionSessions: [OpenCodeSession] {
+        (snapshot.pinnedRows + snapshot.unpinnedRows + snapshot.workspaceSections.flatMap(\.rows)).map(\.session)
+    }
+
+    var canMarkAllRead: Bool {
+        supportsMarkRead && viewModel.currentProject != nil && !snapshot.isReadOnly && !isMarkingAllRead
+            && readActionSessions.contains(where: \.isUnread)
+    }
+
+    func markAllRead() {
+        guard canMarkAllRead, let projectID = viewModel.currentProject?.id else { return }
+        let observed = readActionSessions
+        let cutoff = Date().timeIntervalSince1970 * 1000
+        let connectionID = viewModel.backendConnection?.id
+        isMarkingAllRead = true
+        Task {
+            defer {
+                refreshSnapshot()
+                isMarkingAllRead = false
+            }
+            guard viewModel.backendConnection?.id == connectionID else { return }
+            await viewModel.markAllSessionsRead(projectIDs: [projectID], observed: observed, before: cutoff)
+        }
+    }
+
+    func markRead(_ session: OpenCodeSession) async {
+        await viewModel.markSessionRead(session)
+    }
     func delete(_ session: OpenCodeSession) async {
         guard !snapshot.isReadOnly else { return }
         let lifetime = viewModel.liveActivityFacade.currentLifetime

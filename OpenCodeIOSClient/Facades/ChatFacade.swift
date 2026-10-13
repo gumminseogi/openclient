@@ -1395,6 +1395,31 @@ final class ChatFacade: ObservableObject {
         )
     }
 
+    struct PresentedReadKey: Hashable {
+        let sessionID: String
+        let idle: Double
+        let connectionID: UUID
+    }
+
+    func presentedReadKey(for session: OpenCodeSession, isSceneActive: Bool) -> PresentedReadKey? {
+        guard isSceneActive, !isReadOnly, !isLoadingPresentation,
+              viewModel.supportsMarkSessionRead,
+              selectedSession?.id == session.id,
+              windowContext?.isCurrent != false,
+              !presentationMessages.isEmpty,
+              let idle = session.time?.idle,
+              let connectionID = viewModel.backendConnection?.id else { return nil }
+        // Deliberately exclude viewed: our own SSE acknowledgement must not cancel
+        // the task before it updates the other lists' read state.
+        return PresentedReadKey(sessionID: session.id, idle: idle, connectionID: connectionID)
+    }
+
+    func markPresentedSessionRead(_ session: OpenCodeSession, isSceneActive: Bool) async {
+        guard !Task.isCancelled, session.isUnread,
+              presentedReadKey(for: session, isSceneActive: isSceneActive) != nil else { return }
+        await viewModel.markSessionRead(session)
+    }
+
     func childPresentation(for session: OpenCodeSession) -> ChatFacade? {
         guard !isReadOnly, let connection = try? viewModel.requireBackendConnection(),
               let owner = viewModel.directoryStoreRegistry.ownerStore(forSessionID: session.id),

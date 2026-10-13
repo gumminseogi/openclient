@@ -97,6 +97,26 @@
     "Uncached Input Tokens": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Token di input non in cache"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Tokens de entrada fora do cache"}}}},
     "Variant": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Variante"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Variante"}}}},
     "Working Directory": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Directory di lavoro"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Diretório de trabalho"}}}},
+    "Mark All as Read": { "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Segna tutti come letti" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Marcar todas como lidas" } }
+    } },
+    "Session Actions": { "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Azioni della sessione" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Ações da sessão" } }
+    } },
+    "Activity Actions": { "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Azioni delle attività" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Ações da atividade" } }
+    } },
+    "Mark Read": { "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Segna come letto" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Marcar como lida" } }
+    } },
+    "Unread": { "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Non letto" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Não lida" } }
+    } },
     "Reading" : {
       "localizations" : {
         "it" : { "stringUnit" : { "state" : "translated", "value" : "Leggendo" } },

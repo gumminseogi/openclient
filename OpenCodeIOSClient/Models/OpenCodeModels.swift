@@ -108,6 +108,21 @@ struct OpenCodeSession: Codable, Identifiable, Hashable, Sendable {
         time?.archived != nil
     }
 
+    var isUnread: Bool {
+        guard let idle = time?.idle else { return false }
+        return idle > (time?.viewed ?? 0)
+    }
+
+    func markingViewed(idle: Double) -> OpenCodeSession {
+        guard let time, let latestIdle = time.idle,
+              idle > (time.viewed ?? 0) else { return self }
+        var result = self
+        result.time = OpenCodeMessageTime(created: time.created, updated: time.updated,
+            completed: time.completed, archived: time.archived, streamed: time.streamed,
+            idle: latestIdle, viewed: idle)
+        return result
+    }
+
     var isGlobalScopeSession: Bool {
         if projectID == "global" { return true }
         guard let directory, !directory.isEmpty else { return true }
@@ -881,13 +896,17 @@ struct OpenCodeMessageTime: Codable, Hashable, Sendable {
     let completed: Double?
     let archived: Double?
     let streamed: Double?
+    let idle: Double?
+    let viewed: Double?
 
-    init(created: Double? = nil, updated: Double? = nil, completed: Double? = nil, archived: Double? = nil, streamed: Double? = nil) {
+    init(created: Double? = nil, updated: Double? = nil, completed: Double? = nil, archived: Double? = nil, streamed: Double? = nil, idle: Double? = nil, viewed: Double? = nil) {
         self.created = created
         self.updated = updated
         self.completed = completed
         self.archived = archived
         self.streamed = streamed
+        self.idle = idle
+        self.viewed = viewed
     }
 }
 

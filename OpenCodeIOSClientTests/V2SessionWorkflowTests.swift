@@ -17,6 +17,172 @@ final class V2SessionWorkflowTests: XCTestCase {
         UserDefaults.standard.set(originalDraftData, forKey: OpenClientStorageKey.messageDraftsByChat)
     }
 
+    func testMarkReadAcknowledgesObservedCompletionAndKeepsNewerCompletionUnread() async throws {
+        let model = makeModel()
+        defer { model.stopEventStream() }
+        let connection = try model.requireBackendConnection()
+        var session = Self.session(id: "ses_read", directory: "/repo")
+        session.time = .init(created: 1, updated: 2, idle: 100)
+        var paths: [String] = []
+        V2SessionWorkflowURLProtocol.handler = { request in
+            let path = request.url!.path
+            paths.append(path)
+            if path.hasSuffix("/view") {
+                XCTAssertEqual(request.httpMethod, "POST")
+                let body = try JSONSerialization.jsonObject(with: Self.body(request)) as? [String: Double]
+                XCTAssertEqual(body, ["idle": 100])
+                return (204, "")
+            }
+            XCTAssertEqual(request.httpMethod, "GET")
+            return (200, #"{"data":{"id":"ses_read","projectID":"proj_root","location":{"directory":"/repo"},"time":{"created":1,"updated":2,"idle":200,"viewed":100}}}"#)
+        }
+        let updated = try await model.sessionCoordinator.markRead(session: session, connection: connection)
+        XCTAssertEqual(paths, ["/api/session/ses_read/view", "/api/session/ses_read"])
+        XCTAssertEqual(updated?.time?.viewed, 100)
+        XCTAssertEqual(updated?.time?.updated, 2)
+        XCTAssertEqual(updated?.isUnread, true)
+    }
+
+    func testViewedEventsAreMonotonicAndRenamePreservesUnreadState() throws {
+        let model = makeModel()
+        defer { model.stopEventStream() }
+        var session = Self.session(id: "ses_read", directory: "/repo")
+        XCTAssertFalse(session.isUnread)
+        session.time = .init(created: 1, updated: 2, idle: 200, viewed: 100)
+        model.directoryStore.insertV2Session(session)
+        func apply(_ type: String, _ data: String) throws {
+            let raw = #"{"type":"session.\#(type)","location":{"directory":"/repo"},"data":{"sessionID":"ses_read",\#(data)}}"#
+            let event = try XCTUnwrap(OpenCodeEventManager.decodeV2Event(from: raw))
+            XCTAssertTrue(model.directoryStore.applyV2Event(event))
+        }
+        try apply("renamed", #""title":"Renamed""#)
+        XCTAssertEqual(model.directoryStore.sessions.first?.isUnread, true)
+        try apply("viewed", #""idle":100"#)
+        XCTAssertEqual(model.directoryStore.sessions.first?.isUnread, true)
+        try apply("viewed", #""idle":200"#)
+        XCTAssertEqual(model.directoryStore.sessions.first?.isUnread, false)
+        try apply("viewed", #""idle":100"#)
+        XCTAssertEqual(model.directoryStore.sessions.first?.time?.viewed, 200)
+    }
+
+    func testMarkReadFailureLeavesSessionUnread() async throws {
+        let model = makeModel()
+        defer { model.stopEventStream() }
+        _ = try model.requireBackendConnection()
+        var session = Self.session(id: "ses_read", directory: "/repo")
+        session.time = .init(idle: 100)
+        model.directoryStore.insertV2Session(session)
+        V2SessionWorkflowURLProtocol.handler = { _ in (500, #"{"message":"Failed"}"#) }
+        await model.markSessionRead(session)
+        XCTAssertEqual(model.directoryStore.sessions.first?.isUnread, true)
+        XCTAssertNotNil(model.errorMessage)
+    }
+
+    func testVisibleChatMarksReadOnOpenAndNewCompletionButNotWhileInactiveOrLoading() async throws {
+        let model = makeModel()
+        defer { model.stopEventStream() }
+        var session = Self.session(id: "ses_read", directory: "/repo")
+        session.time = .init(idle: 100)
+        _ = model.beginSessionNavigation(session)
+        model.directoryStore.insertV2Session(session)
+        let facade = model.chatFacade
+        XCTAssertNil(facade.presentedReadKey(for: session, isSceneActive: true), "Do not mark a blank transcript read")
+        let message = try JSONDecoder().decode(OpenCodeMessageEnvelope.self,
+            from: Data(#"{"info":{"id":"msg_read","sessionID":"ses_read","role":"assistant"},"parts":[]}"#.utf8))
+        model.directoryStore.applyV2Messages([message], forSessionID: session.id)
+        model.chatStore.isLoadingSelectedSession = true
+        XCTAssertNil(facade.presentedReadKey(for: session, isSceneActive: true))
+        model.chatStore.isLoadingSelectedSession = false
+        XCTAssertNil(facade.presentedReadKey(for: session, isSceneActive: false))
+        let firstKey = try XCTUnwrap(facade.presentedReadKey(for: session, isSceneActive: true))
+        var acknowledgements: [Double] = []
+        V2SessionWorkflowURLProtocol.handler = { request in
+            if request.httpMethod == "POST" {
+                let body = try JSONSerialization.jsonObject(with: Self.body(request)) as? [String: Double]
+                acknowledgements.append(try XCTUnwrap(body?["idle"]))
+                return (204, "")
+            }
+            let idle = Int(acknowledgements.last ?? 0)
+            return (200, #"{"data":{"id":"ses_read","projectID":"proj_root","location":{"directory":"/repo"},"time":{"created":1,"updated":2,"idle":\#(idle),"viewed":\#(idle)}}}"#)
+        }
+        await facade.markPresentedSessionRead(session, isSceneActive: false)
+        XCTAssertTrue(acknowledgements.isEmpty)
+        await facade.markPresentedSessionRead(session, isSceneActive: true)
+        let read = try XCTUnwrap(model.directoryStore.sessions.first)
+        XCTAssertFalse(read.isUnread)
+        XCTAssertEqual(facade.presentedReadKey(for: read, isSceneActive: true), firstKey)
+        await facade.markPresentedSessionRead(read, isSceneActive: true)
+        session.time = .init(idle: 200, viewed: 100)
+        model.directoryStore.insertV2Session(session)
+        XCTAssertNotEqual(facade.presentedReadKey(for: session, isSceneActive: true), firstKey)
+        await facade.markPresentedSessionRead(session, isSceneActive: true)
+        XCTAssertEqual(acknowledgements, [100, 200])
+        _ = model.beginSessionNavigation(Self.session(id: "ses_other", directory: "/repo"))
+        await facade.markPresentedSessionRead(session, isSceneActive: true)
+        XCTAssertEqual(acknowledgements, [100, 200], "An old presentation cannot acknowledge after navigation")
+    }
+
+    func testMarkReadMergesAcknowledgementDespiteConcurrentSessionChangesAndClearsListCaches() async throws {
+        let model = makeModel()
+        defer { model.stopEventStream() }
+        _ = try model.requireBackendConnection()
+        var session = Self.session(id: "ses_read", directory: "/repo")
+        session.time = .init(created: 1, updated: 2, idle: 100)
+        model.directoryStore.insertV2Session(session)
+        model.sessionListStore.recentSessionsByDirectory["/repo"] = [session]
+        var workspace = OpenCodeWorkspaceSessionState()
+        workspace.sessions = [session]
+        model.sessionListStore.workspaceSessionsByDirectory["/repo"] = workspace
+        V2SessionWorkflowURLProtocol.handler = { request in
+            if request.httpMethod == "POST" {
+                let raw = #"{"type":"session.renamed","location":{"directory":"/repo"},"data":{"sessionID":"ses_read","title":"New title"}}"#
+                _ = model.directoryStore.applyV2Event(try XCTUnwrap(OpenCodeEventManager.decodeV2Event(from: raw)))
+                return (204, "")
+            }
+            return (200, #"{"data":{"id":"ses_read","title":"Old title","projectID":"proj_root","location":{"directory":"/repo"},"time":{"created":1,"updated":2,"idle":100,"viewed":100}}}"#)
+        }
+        await model.markSessionRead(session)
+        XCTAssertEqual(model.directoryStore.sessions.first?.title, "New title")
+        XCTAssertEqual(model.directoryStore.sessions.first?.isUnread, false)
+        XCTAssertEqual(model.sessionListStore.recentSessionsByDirectory["/repo"]?.first?.isUnread, false)
+        XCTAssertEqual(model.sessionListStore.workspaceSessionsByDirectory["/repo"]?.sessions.first?.isUnread, false)
+    }
+
+    func testMarkAllReadEnumeratesProjectPagesAndPreservesTapTimeWatermarks() async throws {
+        let model = makeModel()
+        defer { model.stopEventStream() }
+        let connection = try model.requireBackendConnection()
+        var observed = Self.session(id: "ses_observed", directory: "/repo")
+        observed.time = .init(idle: 100)
+        var alreadyRead = Self.session(id: "ses_read", directory: "/repo")
+        alreadyRead.time = .init(idle: 80, viewed: 80)
+        func record(_ id: String, idle: Int, viewed: Int = 0, directory: String = "/repo") -> String {
+            #"{"id":"\#(id)","projectID":"proj_root","location":{"directory":"\#(directory)"},"time":{"created":1,"updated":2,"idle":\#(idle),"viewed":\#(viewed)}}"#
+        }
+        let first = [record("ses_observed", idle: 300), record("ses_read", idle: 150)]
+            + (0..<98).map { record("ses_filler\($0)", idle: 50, viewed: 50) }
+        let second = [record("ses_workspace", idle: 90, directory: "/worktree"), record("ses_new", idle: 300)]
+        var cursors: [String?] = []
+        V2SessionWorkflowURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "GET", "Discovery must finish before acknowledgements begin")
+            XCTAssertEqual(request.url?.path, "/api/session")
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
+            let cursor = query.first { $0.name == "cursor" }?.value
+            cursors.append(cursor)
+            XCTAssertFalse(query.contains { $0.name == "directory" || $0.name == "workspace" })
+            if cursor == nil {
+                XCTAssertEqual(query.first { $0.name == "project" }?.value, "proj_root")
+                return (200, #"{"data":[\#(first.joined(separator: ","))],"cursor":{"next":"page2"}}"#)
+            }
+            return (200, #"{"data":[\#(second.joined(separator: ","))]}"#)
+        }
+        let targets = try await model.sessionCoordinator.unreadSessions(connection: connection,
+            projectIDs: ["proj_root", "proj_root"], observed: [observed, alreadyRead], before: 200)
+        XCTAssertEqual(targets.map(\.id), ["ses_observed", "ses_workspace"])
+        XCTAssertEqual(targets.map { $0.time?.idle }, [100, 90])
+        XCTAssertEqual(cursors, [nil, "page2", "page2"])
+    }
+
     func testSideQuestionUsesGenerateWhileIdleOrBusyWithoutMutatingChatOrDraft() async throws {
         let model = makeModel()
         defer { model.stopEventStream() }

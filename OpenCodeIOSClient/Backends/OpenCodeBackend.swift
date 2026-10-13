@@ -99,9 +99,16 @@ extension BackendConnection {
 }
 
 @MainActor
-final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsService, BackendChatService, BackendModelsService {
+final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsService, BackendChatService, BackendModelsService, BackendSessionViewingService {
     let client: OpenCodeAPIClient
     let profile: OpenCodeAPIProfile
+
+    var supportsSessionViewing: Bool { profile == .v2 }
+
+    func viewSession(id: String, idle: Double) async throws {
+        guard supportsSessionViewing else { return }
+        try await client.viewV2Session(sessionID: id, idle: idle)
+    }
 
     init(client: OpenCodeAPIClient, profile: OpenCodeAPIProfile) {
         self.client = client

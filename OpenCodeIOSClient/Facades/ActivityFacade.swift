@@ -462,6 +462,41 @@ final class ActivityFacade: ObservableObject {
         await viewModel.renameSession(row.recent.session, title: title)
     }
 
+    var supportsMarkRead: Bool { viewModel.supportsMarkSessionRead }
+
+    @Published private(set) var isMarkingAllRead = false
+
+    private func readActionSessions(excluding projectIDs: Set<String>) -> [OpenCodeSession] {
+        (snapshot.needsInputRows + snapshot.workingRows + snapshot.recentRows)
+            .filter { !projectIDs.contains($0.projectID) }.map(\.recent.session)
+    }
+
+    func canMarkAllRead(excluding projectIDs: Set<String>) -> Bool {
+        supportsMarkRead && !snapshot.isReadOnly && !isMarkingAllRead
+            && readActionSessions(excluding: projectIDs).contains(where: \.isUnread)
+    }
+
+    func markAllRead(excluding excludedProjectIDs: Set<String>) {
+        guard canMarkAllRead(excluding: excludedProjectIDs) else { return }
+        let projects = snapshot.projects.map(\.id).filter { !excludedProjectIDs.contains($0) }
+        let observed = readActionSessions(excluding: excludedProjectIDs)
+        let cutoff = Date().timeIntervalSince1970 * 1000
+        let connectionID = viewModel.backendConnection?.id
+        isMarkingAllRead = true
+        Task {
+            defer {
+                refreshSnapshot()
+                isMarkingAllRead = false
+            }
+            guard viewModel.backendConnection?.id == connectionID else { return }
+            await viewModel.markAllSessionsRead(projectIDs: projects, observed: observed, before: cutoff)
+        }
+    }
+
+    func markRead(_ row: RowSnapshot) async {
+        await viewModel.markSessionRead(row.recent.session)
+    }
+
     func toggleLiveActivity(_ row: RowSnapshot) async {
         guard allowsLiveActivities else { return }
         await viewModel.liveActivityFacade.toggle(session: row.recent.session)
