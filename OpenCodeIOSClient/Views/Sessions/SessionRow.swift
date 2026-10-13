@@ -230,6 +230,16 @@ struct SessionSelectionSurface: View {
     }
 }
 
+struct SessionUnreadDot: View {
+    var body: some View {
+        Circle()
+            .fill(.blue)
+            .frame(width: 8, height: 8)
+            .accessibilityLabel("Unread")
+            .accessibilityIdentifier("session.unread")
+    }
+}
+
 struct SessionRow: View, Equatable {
     @Environment(\.appAccentColor) private var appAccentColor
     enum Style: Equatable {
@@ -272,7 +282,8 @@ struct SessionRow: View, Equatable {
     }
 
     var body: some View {
-        Group {
+        HStack(spacing: 8) {
+            if session.isUnread { SessionUnreadDot() }
             switch style {
             case .regular:
                 regularContent

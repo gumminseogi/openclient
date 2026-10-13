@@ -123,6 +123,8 @@ private struct OpenCodeV2Session: Decodable, Sendable {
         let created: Double
         let updated: Double
         let archived: Double?
+        let idle: Double?
+        let viewed: Double?
     }
 
     let id: String
@@ -143,7 +145,7 @@ private struct OpenCodeV2Session: Decodable, Sendable {
             projectID: projectID,
             parentID: parentID
         )
-        session.time = OpenCodeMessageTime(created: time.created, updated: time.updated, archived: time.archived)
+        session.time = OpenCodeMessageTime(created: time.created, updated: time.updated, archived: time.archived, idle: time.idle, viewed: time.viewed)
         session.agent = agent
         session.model = model.map { OpenCodeMessageModelReference(providerID: $0.providerID, modelID: $0.id, variant: $0.variant) }
         return session
@@ -940,6 +942,11 @@ struct OpenCodeAPIClient: Sendable {
 
     func deleteV2Session(sessionID: String) async throws {
         try await sendNoContent(path: "/api/session/\(sessionID)", method: "DELETE")
+    }
+
+    func viewV2Session(sessionID: String, idle: Double) async throws {
+        struct ViewRequest: Encodable { let idle: Double }
+        try await sendNoContent(path: "/api/session/\(sessionID)/view", method: "POST", body: ViewRequest(idle: idle))
     }
 
     func updateV2SessionTitle(sessionID: String, title: String) async throws -> OpenCodeSession {

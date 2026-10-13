@@ -251,6 +251,21 @@ final class SessionListStore: ObservableObject {
         workspaceSessionsByDirectory[directory] = state
     }
 
+    func markSessionViewed(sessionID: String, idle: Double) {
+        recentSessionsByDirectory = recentSessionsByDirectory.mapValues { sessions in
+            sessions.map {
+                $0.id == sessionID ? $0.markingViewed(idle: idle) : $0
+            }
+        }
+        workspaceSessionsByDirectory = workspaceSessionsByDirectory.mapValues { state in
+            var state = state
+            state.sessions = state.sessions.map {
+                $0.id == sessionID ? $0.markingViewed(idle: idle) : $0
+            }
+            return state
+        }
+    }
+
     func upsertWorkspaceSession(_ session: OpenCodeSession) {
         guard let directory = session.directory, !directory.isEmpty else { return }
         var workspaceState = workspaceSessionsByDirectory[directory] ?? OpenCodeWorkspaceSessionState()

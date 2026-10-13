@@ -46,6 +46,16 @@ struct ActivityView: View {
         .navigationTitle("Activity")
         .opencodeInlineNavigationTitle()
         .toolbar {
+            if facade.canMarkAllRead(excluding: excludedProjectIDs) || facade.isMarkingAllRead {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Mark All as Read", systemImage: "envelope.open") {
+                        facade.markAllRead(excluding: excludedProjectIDs)
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(facade.isMarkingAllRead)
+                    .accessibilityIdentifier("activity.markAllRead")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     isShowingSettings = true
@@ -488,6 +498,7 @@ private struct ActivityContent: View, Equatable {
                 }
                 .contextMenu {
                     if !snapshot.isReadOnly {
+                        markReadButton(for: row)
                         deleteButton(for: row)
                         renameButton(for: row)
 #if !targetEnvironment(macCatalyst)
@@ -496,6 +507,9 @@ private struct ActivityContent: View, Equatable {
                         }
 #endif
                     }
+                }
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    markReadButton(for: row)
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     if !snapshot.isReadOnly {
@@ -514,6 +528,17 @@ private struct ActivityContent: View, Equatable {
             Label(title, systemImage: systemImage)
                 .font(.headline)
                 .textCase(nil)
+        }
+    }
+
+    @ViewBuilder
+    private func markReadButton(for row: ActivityFacade.RowSnapshot) -> some View {
+        if !snapshot.isReadOnly, facade.supportsMarkRead, row.recent.session.isUnread {
+            Button("Mark Read", systemImage: "envelope.open") {
+                Task { await facade.markRead(row) }
+            }
+            .tint(.blue)
+            .accessibilityIdentifier("activity.markRead.\(row.recent.session.id)")
         }
     }
 
@@ -649,7 +674,8 @@ struct ActivitySessionRow: View, Equatable {
     }
 
     var body: some View {
-        Group {
+        HStack(spacing: 8) {
+            if row.recent.session.isUnread { SessionUnreadDot() }
             switch presentation {
             case .fullContext:
                 ViewThatFits(in: .horizontal) {

@@ -134,6 +134,23 @@ struct SessionListView: View {
     }
 }
 
+struct SessionReadToolbar: ToolbarContent {
+    @ObservedObject var facade: SessionListFacade
+
+    var body: some ToolbarContent {
+        if facade.canMarkAllRead || facade.isMarkingAllRead {
+            ToolbarItem(placement: .opencodeTrailing) {
+                Button("Mark All as Read", systemImage: "envelope.open") {
+                    facade.markAllRead()
+                }
+                .labelStyle(.iconOnly)
+                .disabled(facade.isMarkingAllRead)
+                .accessibilityIdentifier("sessions.markAllRead")
+            }
+        }
+    }
+}
+
 private struct SessionListActionButton: View {
     @Environment(\.appAccentColor) private var appAccentColor
     @Environment(\.appAccentIsClear) private var accentIsClear
@@ -567,6 +584,7 @@ private struct SessionListContent: View, Equatable {
         .accessibilityIdentifier("session.row.\(row.session.id)")
         .contextMenu {
             pinButton(for: row.session)
+            markReadButton(for: row.session)
             if !snapshot.isReadOnly {
                 deleteButton(for: row.session)
                 renameButton(for: row.session)
@@ -576,6 +594,7 @@ private struct SessionListContent: View, Equatable {
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            markReadButton(for: row.session)
             pinButton(for: row.session)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -587,6 +606,17 @@ private struct SessionListContent: View, Equatable {
                 liveActivityButton(for: row.session)
 #endif
             }
+        }
+    }
+
+    @ViewBuilder
+    private func markReadButton(for session: OpenCodeSession) -> some View {
+        if !snapshot.isReadOnly, facade.supportsMarkRead, session.isUnread {
+            Button("Mark Read", systemImage: "envelope.open") {
+                Task { await facade.markRead(session) }
+            }
+            .tint(.blue)
+            .accessibilityIdentifier("session.markRead.\(session.id)")
         }
     }
 

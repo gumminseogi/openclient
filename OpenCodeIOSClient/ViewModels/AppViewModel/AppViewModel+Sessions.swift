@@ -3208,6 +3208,57 @@ extension AppViewModel {
         return accepted
     }
 
+    var supportsMarkSessionRead: Bool {
+        !isBrowsingLocalCache && (backendConnection?.sessions as? any BackendSessionViewingService)?.supportsSessionViewing == true
+    }
+
+    func markAllSessionsRead(projectIDs: [String], observed: [OpenCodeSession], before cutoff: Double) async {
+        guard supportsMarkSessionRead, let connection = try? requireBackendConnection() else { return }
+        let generation = directoryStoreRegistry.generation
+        do {
+            let targets = try await sessionCoordinator.unreadSessions(connection: connection,
+                projectIDs: projectIDs, observed: observed, before: cutoff)
+            for session in targets {
+                guard isCurrentBackendConnection(connection), directoryStoreRegistry.generation == generation else { return }
+                await markSessionRead(session)
+            }
+        } catch {
+            if isCurrentBackendConnection(connection), directoryStoreRegistry.generation == generation {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func markSessionRead(_ session: OpenCodeSession) async {
+        guard supportsMarkSessionRead, session.isUnread,
+              let connection = try? requireBackendConnection() else { return }
+        let generation = directoryStoreRegistry.generation
+        let owner = directoryStoreRegistry.targetStore(forV2Session: session)
+        do {
+            guard let updated = try await sessionCoordinator.markRead(session: session, connection: connection),
+                  isCurrentBackendConnection(connection), directoryStoreRegistry.generation == generation,
+                  directoryStoreRegistry.key(for: owner) != nil,
+                  !directoryStoreRegistry.isV2SessionDeleted(session.id),
+                  let viewed = updated.time?.viewed else { return }
+            // The acknowledgement's own SSE event can advance revisions while the
+            // request is in flight. Merge just the monotonic watermark into live
+            // state rather than dropping it or replacing newer session metadata.
+            for store in directoryStoreRegistry.allStores {
+                if let current = store.sessions.first(where: { $0.id == session.id }) {
+                    store.insertV2Session(current.markingViewed(idle: viewed))
+                }
+            }
+            sessionListStore.markSessionViewed(sessionID: session.id, idle: viewed)
+            if let current = selectedSession, current.id == session.id {
+                selectedSession = current.markingViewed(idle: viewed)
+            }
+        } catch {
+            if isCurrentBackendConnection(connection), directoryStoreRegistry.generation == generation {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
     func renameSession(_ session: OpenCodeSession, title: String, windowContext: ChatWindowContext? = nil) async {
         if let windowContext {
             guard windowContext.isCurrent, windowContext.session.id == session.id else { return }

@@ -8,6 +8,22 @@ import RealityKit
 import UIKit
 #endif
 
+private struct ChatSessionReadObserver: View {
+    @ObservedObject var facade: ChatFacade
+    @Environment(\.scenePhase) private var scenePhase
+    let session: OpenCodeSession
+    let isEnabled: Bool
+
+    var body: some View {
+        let isActive = isEnabled && scenePhase == .active
+        Color.clear
+            .frame(width: 0, height: 0)
+            .task(id: facade.presentedReadKey(for: session, isSceneActive: isActive)) {
+                await facade.markPresentedSessionRead(session, isSceneActive: isActive)
+            }
+    }
+}
+
 private extension ContinuousClock.Instant {
     var chatElapsedMilliseconds: Double {
         let duration = self.duration(to: ContinuousClock.now)
@@ -2773,6 +2789,9 @@ struct ChatView: View {
 
     private var chatPresentationContent: some View {
         chatTranscriptContent
+        .background {
+            ChatSessionReadObserver(facade: chatFacade, session: liveSession, isEnabled: !isScreenshotScene)
+        }
         .composerSubmitActionFan()
         .navigationTitle("")
         .opencodeInlineNavigationTitle()

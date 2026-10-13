@@ -2,6 +2,45 @@ import Foundation
 
 @MainActor
 final class SessionCoordinator {
+    /// Enumerate every workspace/page before sending acknowledgements. Known sessions
+    /// retain their tap-time watermark; unseen sessions are bounded by the tap time.
+    func unreadSessions(connection: BackendConnection, projectIDs: [String],
+                        observed: [OpenCodeSession], before cutoff: Double) async throws -> [OpenCodeSession] {
+        var known: [String: OpenCodeSession] = [:]
+        for session in observed { known[session.id] = session }
+        var result: [OpenCodeSession] = []
+        var seenIDs = Set<String>()
+        for projectID in Set(projectIDs).sorted() {
+            var cursor: String?
+            var cursors = Set<String>()
+            repeat {
+                try Task.checkCancellation()
+                guard !connection.isClosed else { throw BackendError.disconnected }
+                let page = try await connection.sessions.sessions(scope: .init(projectID: projectID),
+                    cursor: cursor, limit: 100, roots: true)
+                for session in page.sessions where session.isRootSession && !session.isArchived && session.isUnread {
+                    let observedSession = known[session.id] ?? session
+                    guard observedSession.isUnread, let idle = observedSession.time?.idle,
+                          idle <= cutoff, seenIDs.insert(session.id).inserted else { continue }
+                    result.append(observedSession)
+                }
+                cursor = page.nextCursor
+                if let cursor, !cursors.insert(cursor).inserted { throw OpenCodeV2TransportError.invalidTimelineRecord }
+            } while cursor != nil
+        }
+        return result
+    }
+
+    func markRead(session: OpenCodeSession, connection: BackendConnection) async throws -> OpenCodeSession? {
+        guard session.isUnread, let idle = session.time?.idle,
+              let viewing = connection.sessions as? any BackendSessionViewingService,
+              viewing.supportsSessionViewing else { return nil }
+        // Acknowledge only the completion the user saw, never a newer turn.
+        try await viewing.viewSession(id: session.id, idle: idle)
+        return try await connection.sessions.session(id: session.id,
+            scope: BackendScope(projectID: session.projectID, directory: session.directory, workspaceID: session.workspaceID))
+    }
+
     /// Open a cold chat with a small page; keep a warm chat's existing window where possible.
     /// V2 pages may contain only non-displayable records, so follow their cursors until
     /// there is a transcript to present or the server confirms the end of history.

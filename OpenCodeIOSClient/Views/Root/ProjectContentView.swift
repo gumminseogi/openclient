@@ -26,6 +26,9 @@ struct ProjectContentView: View {
         .navigationTitle(projectTitle)
         .opencodeInlineNavigationTitle()
         .toolbar {
+            if snapshot.selectedTab == .sessions {
+                SessionReadToolbar(facade: shell.sessions)
+            }
             if showsBrowserToolbarAction {
                 ToolbarItem(placement: .opencodeTrailing) {
                     Button {

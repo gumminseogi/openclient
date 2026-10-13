@@ -13,6 +13,11 @@ enum BackendCapability: Hashable, Sendable {
     case worktrees, interactions, bridge, localCache, liveActivities
 }
 
+@MainActor protocol BackendSessionViewingService: Sendable {
+    var supportsSessionViewing: Bool { get }
+    func viewSession(id: String, idle: Double) async throws
+}
+
 enum BackendError: Error, Equatable {
     case unsupported(BackendCapability)
     case disconnected

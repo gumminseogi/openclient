@@ -1,6 +1,26 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Mark All as Read": { "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Segna tutti come letti" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Marcar todas como lidas" } }
+    } },
+    "Session Actions": { "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Azioni della sessione" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Ações da sessão" } }
+    } },
+    "Activity Actions": { "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Azioni delle attività" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Ações da atividade" } }
+    } },
+    "Mark Read": { "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Segna come letto" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Marcar como lida" } }
+    } },
+    "Unread": { "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Non letto" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Não lida" } }
+    } },
     "Reading" : {
       "localizations" : {
         "it" : { "stringUnit" : { "state" : "translated", "value" : "Leggendo" } },
