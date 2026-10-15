@@ -1,65 +1,50 @@
-OpenClient brings native iPhone and iPad integration for OpenCode to your own self-hosted server.
+OpenClient brings your self-hosted OpenCode server to iPhone and iPad with a native interface for projects, chats, and ongoing agent work.
 
-Keep coding sessions within reach when you are away from your desk. Browse projects, resume chats, review tool activity, answer permission and question prompts, and follow ongoing work from a fast native interface built around the way iOS and iPadOS actually work.
+Pick up a coding session away from your desk. Follow live responses and tool activity, review file changes, answer permissions and questions, and keep work moving from your phone or tablet.
 
-OpenClient is designed for developers who already run OpenCode and want more than a remote chat window. It is a mobile command center for active agent work, long-running tasks, quick follow-ups, and remote check-ins.
+Your projects and sessions
+- Connect to OpenCode v1 or v2 and reconnect quickly to saved servers
+- Browse projects, workspaces, and conversation history
+- Rename v2 projects and customize their colors and images
+- Organize Activity as a list or board with custom workflow statuses
+- Mark sessions read or unread, individually or all at once; read state and session statuses sync on supported servers
+- Switch workspaces from chat and move sessions between workspaces on v2
 
-Free vs Pro
+A chat that works your way
+- Stream assistant responses with an animated 3D status indicator
+- Load older messages as you scroll back through a conversation
+- Review per-response file diffs on v2 when recorded file snapshots are available
+- Customize line height, tool grouping, reasoning, and context visibility
+- Choose the Messenger or Assistant composer on iPhone; iPad uses Assistant
+- Queue prompts, steer ongoing work, or ask a Side Question on v2
+- Use your server’s commands, skills, agents, and models
+- Attach compatible files, dictate prompts, or sketch with the built-in Excalidraw board
+- Track session todos and respond to permission and question prompts
 
-Free lets you try OpenClient with your own OpenCode server: send up to 5 prompts per day and create one session.
+Stay informed
+- Inspect recorded token usage, response timing, and model details for loaded history
+- Track OpenAI subscription usage and OpenRouter spending with optional provider usage setup
+- Show usage bars or rings in Projects and Activity, plus usage snapshot widgets
+- Browse project files, source-control context, and supported MCP server status
 
-OpenClient Pro unlocks:
-- Unlimited prompts
-- Unlimited sessions
-- Project Actions
-- Support for continued development of the open-source App Store build
+Built for iOS and iPadOS
+- Multi-column iPad navigation for projects, sessions, and chat
+- Live Activities on the Lock Screen and Dynamic Island
+- Home Screen widgets for recent and pinned sessions
+- Shortcuts, control widgets, and deep links to the right session
+- Secure Keychain storage for saved server passwords
+- Widget snapshots shared without including your server password
+
+Optional notifications with OC Notify
+Receive Web Push alerts for completed sessions, permissions, and questions. Requires the OpenClient plugin, your own HTTPS endpoint, and the companion web app added to your Home Screen. No OpenClient-hosted notification relay is used.
+
+Free and Pro
+Free lets you try your own OpenCode server with up to 5 prompts per day and one session. OpenClient Pro unlocks unlimited prompts, unlimited sessions, and Project Actions, and supports continued development of this open-source app.
 
 Pro Lifetime is a one-time purchase and includes the Pro Life icon. Pro Monthly is an auto-renewing subscription billed monthly.
 
-Core OpenCode features:
-
-- Connect to your own self-hosted OpenCode v1 or v2 server
-- Save recent servers and reconnect quickly
-- Browse projects, workspaces, and session history
-- Track OpenAI subscription usage and OpenRouter spending with optional provider usage setup
-- Configure usage bars or rings in Projects and Activity, with usage snapshot widgets
-- Open existing sessions or start new ones
-- Continue chat conversations from iPhone or iPad
-- Stream assistant responses and tool activity live
-- Group tool calls and customize reasoning and context visibility
-- Send text prompts and attach supported files from iOS
-- Sketch ideas, UI notes, and architecture diagrams with the built-in Excalidraw drawing board
-- Dictate prompts by voice when typing is not convenient
-- Use commands, skills, agent mentions, and model choices supported by your server
-- Queue messages, steer ongoing work, or ask a Side Question with OpenCode v2
-- Track session-local todos while work is in progress
-- Respond to permission requests without returning to your computer
-- Answer multiple-choice and custom question prompts in a first-party UI
-- View and manage MCP server status when supported by your OpenCode setup
-- Inspect project files and source-control context from the app
-
-iOS and iPadOS integrations:
-
-- Native SwiftUI interface optimized for iPhone and iPad
-- Multi-column iPad layout for projects, sessions, and chat
-- Live Activities for following active sessions from the Lock Screen and Dynamic Island
-- Home Screen widgets for recent and pinned sessions
-- Shortcut and control widgets for faster access to common OpenClient actions
-- Secure Keychain storage for saved server passwords
-- App-group sharing for widget snapshots without storing your server password in widget data
-- Native file picker support for adding compatible attachments
-- Local Excalidraw-powered sketch attachments exported directly into chat
-- Voice dictation-friendly composer controls
-- Choose the Messenger or Assistant composer on iPhone; iPad uses the Assistant composer
-- Deep links from widgets back into the right server, project, and session
-
-Optional notifications with OC Notify:
-
-Get Web Push alerts for completed sessions, permissions, and questions. Requires the OpenClient plugin, your own HTTPS endpoint, and the companion web app added to your Home Screen. No OpenClient-hosted notification relay is used.
-
-Privacy and self-hosting:
-
-OpenClient is built for private, self-hosted use. You choose which OpenCode server it connects to, and your session data stays tied to your own OpenCode setup. Server credentials are stored securely on device, and OpenClient does not provide or proxy an OpenCode backend.
+Private and self-hosted
+You choose your OpenCode server. Session data stays tied to your own setup, and credentials are stored securely on device. OpenClient does not provide or proxy an OpenCode backend.
 
 Terms of Use (EULA):
 https://www.apple.com/legal/internet-services/itunes/dev/stdeula/

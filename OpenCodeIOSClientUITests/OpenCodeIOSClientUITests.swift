@@ -551,7 +551,13 @@ final class OpenCodeIOSClientUITests: XCTestCase {
         let provider = app.buttons["configurations.provider.models.openai"]
         let settingsForm = app.collectionViews["configurations.form"]
         let sheetTop = app.navigationBars["Connection Settings"].frame.minY
-        for _ in 0..<5 where !provider.isHittable { settingsForm.swipeUp() }
+        for _ in 0..<20 where !provider.isHittable {
+            let visibleFrame = settingsForm.frame.intersection(app.frame)
+            let start = app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: visibleFrame.midX, dy: visibleFrame.maxY - 60))
+            let end = start.withOffset(CGVector(dx: 0, dy: -80))
+            start.press(forDuration: 0.1, thenDragTo: end)
+        }
         XCTAssertTrue(provider.isHittable)
         XCTAssertEqual(app.navigationBars["Connection Settings"].frame.minY, sheetTop, accuracy: 5,
                        "Scrolling settings content must preserve the current sheet detent")
@@ -1283,7 +1289,7 @@ final class OpenCodeIOSClientUITests: XCTestCase {
 
         func reveal(_ element: XCUIElement) {
             for _ in 0..<8 where !element.isHittable {
-                let form = app.collectionViews.containing(.button, identifier: "configurations.addProvider").firstMatch
+                let form = app.collectionViews["configurations.form"]
                 if form.exists { form.swipeUp() }
                 else { app.swipeUp() }
             }
@@ -1303,7 +1309,7 @@ final class OpenCodeIOSClientUITests: XCTestCase {
         // Repeated visits exercise task cancellation as the root becomes covered.
         for _ in 0..<3 {
             let provider = app.buttons["configurations.provider.models.test"]
-            let form = app.collectionViews.containing(.button, identifier: "configurations.addProvider").firstMatch
+            let form = app.collectionViews["configurations.form"]
             for _ in 0..<5 where !provider.isHittable { form.swipeDown() }
             reveal(provider)
             provider.tap()

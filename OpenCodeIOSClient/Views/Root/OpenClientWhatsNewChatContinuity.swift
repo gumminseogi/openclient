@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OpenClientWhatsNewChatContinuity: View {
     let release: OpenClientReleaseNotes
+    let store: AppCustomizationStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 32) {
@@ -21,6 +22,10 @@ struct OpenClientWhatsNewChatContinuity: View {
                 Text("Curious? Give the pill a long press. It has a playful side.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
+
+            WhatsNewChatComfortSection(store: store)
+
+            WhatsNewSessionOrganizationSection()
 
             VStack(alignment: .leading, spacing: 12) {
                 Label("See what changed", systemImage: "doc.text.magnifyingglass").font(.title2.bold())
@@ -61,6 +66,56 @@ struct OpenClientWhatsNewChatContinuity: View {
             }
         }
         .accessibilityIdentifier("new-features.chat-continuity")
+    }
+}
+
+private struct WhatsNewSessionOrganizationSection: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Make room for your workflow.", systemImage: "rectangle.split.3x1")
+                .font(.title2.bold())
+            Text("Switch Activity between a list and a board, group sessions by status, and create custom statuses with your own colors and icons. Session statuses sync on supported servers.")
+                .foregroundStyle(.secondary)
+            Text("Mark sessions read or unread, or mark them all read at once. Read state syncs through supported servers so you can pick up on another device.")
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityIdentifier("new-features.session-organization")
+    }
+}
+
+private struct WhatsNewChatComfortSection: View {
+    @ObservedObject var store: AppCustomizationStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Find your comfort level.", systemImage: "text.line.spacing")
+                .font(.title2.bold())
+            Text("Give your transcript a little breathing room. Try a line height below; your choice is saved for your chats. You can change it anytime in Chat Appearance.")
+                .foregroundStyle(.secondary)
+
+            Picker("Line Height", selection: Binding(
+                get: { store.chatLineHeight },
+                set: { store.setChatLineHeight($0) }
+            )) {
+                ForEach(ChatLineHeight.allCases) { height in
+                    Text(height.title).tag(height)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("new-features.line-height")
+
+            Text("Choose comfortable spacing\nbetween the lines of your chats.")
+                .lineSpacing(3 + store.chatLineHeight.additionalSpacing)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(
+                    OpenCodePlatformColor.secondaryGroupedBackground,
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+                .accessibilityIdentifier("new-features.line-height-preview")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("new-features.chat-comfort")
     }
 }
 

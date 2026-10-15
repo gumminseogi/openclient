@@ -47,45 +47,13 @@ Build a release archive for device distribution
 
 Upload the current build to TestFlight
 
-### ios dsh_latest_testflight_build
-
-```sh
-[bundle exec] fastlane ios dsh_latest_testflight_build
-```
-
-Print the latest TestFlight build number for a version
-
-### ios dsh_archive
-
-```sh
-[bundle exec] fastlane ios dsh_archive
-```
-
-Archive DSHClient for App Store Connect
-
-### ios dsh_beta
-
-```sh
-[bundle exec] fastlane ios dsh_beta
-```
-
-Bump only DSHClient from ASC's latest build, archive, and upload to TestFlight
-
-### ios dsh_upload
-
-```sh
-[bundle exec] fastlane ios dsh_upload
-```
-
-Retry uploading the already-exported DSH IPA without rebuilding
-
 ### ios latest_testflight_build
 
 ```sh
 [bundle exec] fastlane ios latest_testflight_build
 ```
 
-Print the latest OpenClient TestFlight build number for a version
+Print the latest TestFlight build number for a version
 
 ### ios release
 

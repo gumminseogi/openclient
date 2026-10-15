@@ -1035,7 +1035,7 @@ private extension OpenCodePart {
         segments.append(state?.metadata?.truncated?.description ?? "false")
         segments.append(state?.metadata?.renderer ?? "")
         segments.append(state?.metadata?.schemaVersion?.description ?? "")
-        segments.append(ChatRenderSignatures.jsonSignature(from: state?.metadata?.payload))
+        segments.append(ChatRenderSignatures.payloadSignature(from: state?.metadata?.payload))
         return segments.joined(separator: "\u{1f}")
     }
 }
@@ -1056,23 +1056,14 @@ private enum ChatRenderSignatures {
             input.toolID,
         ]
         .map { $0 ?? "" }
-        values.append(jsonSignature(from: input.arguments.map(OpenCodeJSONValue.object)))
+        values.append(payloadSignature(from: input.arguments.map(OpenCodeJSONValue.object)))
         return values.joined(separator: "\u{1f}")
     }
 
-    static func jsonSignature(from value: OpenCodeJSONValue?) -> String {
-        guard let value,
-              let data = try? sortedJSONEncoder().encode(value),
-              let encoded = String(data: data, encoding: .utf8) else {
-            return ""
-        }
-        return encoded
-    }
-
-    private static func sortedJSONEncoder() -> JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        return encoder
+    /// Signatures are only ever compared within one process, so hashing the value is enough.
+    /// Encoding every tool payload to sorted JSON on each stream flush was a measurable per-row cost.
+    static func payloadSignature(from value: OpenCodeJSONValue?) -> String {
+        value.map { String($0.hashValue) } ?? ""
     }
 }
 
@@ -1827,6 +1818,19 @@ private struct ChatDisplaySnapshot {
     }
 }
 
+/// A presentation-only cache for a transcript covered by a modal. Reducers keep
+/// consuming events; revealing the chat always rebuilds from their current state.
+final class CoveredTranscriptSnapshotCache<Value> {
+    private var cached: (key: String, value: Value)?
+
+    func snapshot(key: String, isCovered: Bool, build: () -> Value) -> Value {
+        if isCovered, let cached, cached.key == key { return cached.value }
+        let value = build()
+        cached = (key, value)
+        return value
+    }
+}
+
 private struct TimedChatDisplaySnapshot {
     let snapshot: ChatDisplaySnapshot
 }
@@ -2411,6 +2415,7 @@ struct ChatView: View {
     @State private var animatedBottomScrollToken = 0
     @State private var largeMessageChunkCache = OpenCodeLargeMessageChunkCache()
     @State private var chatDisplayItemCache = ChatDisplayItemCache()
+    @State private var coveredTranscriptSnapshotCache = CoveredTranscriptSnapshotCache<TimedChatDisplaySnapshot>()
     @State private var responseActionsVisibility = ResponseActionsVisibility()
     @State private var turnChangesRequest: TurnChangesRequest?
     @State private var cachedContextMetrics: OpenCodeSessionContextMetrics?
@@ -2450,19 +2455,10 @@ struct ChatView: View {
         )
     }
 
-    private var todoIDs: String {
-        composerOverlaySnapshot.todos.map { $0.id }.joined(separator: "|")
-    }
-
-    private var permissionIDs: String {
-        composerOverlaySnapshot.permissions.map { $0.id }.joined(separator: "|")
-    }
-
-    private var questionIDs: String {
-        composerOverlaySnapshot.questions.map { $0.id }.joined(separator: "|")
-    }
-
     private var conversationBlockingInteractionSignature: String {
+        let overlaySnapshot = composerOverlaySnapshot
+        let permissionIDs = overlaySnapshot.permissions.map { $0.id }.joined(separator: "|")
+        let questionIDs = overlaySnapshot.questions.map { $0.id }.joined(separator: "|")
         let forms = chatFacade.sessionForms(forSessionID: sessionID)
             .map { "\($0.sessionID):\($0.id)" }.sorted().joined(separator: ",")
         return [permissionIDs, questionIDs, forms,
@@ -2510,11 +2506,8 @@ struct ChatView: View {
     }
 
     private var isSessionBusy: Bool {
-        directoryStore.sessionStatuses[liveSession.id] == "busy"
-    }
-
-    private var showsChatActivityShimmer: Bool {
-        isSessionBusy && appCustomizationStore.showsChatActivityShimmer
+        // liveSession.id is always sessionID; resolving the session here walked the list on every read.
+        directoryStore.sessionStatuses[sessionID] == "busy"
     }
 
     private var isComposerBusy: Bool {
@@ -2709,7 +2702,7 @@ struct ChatView: View {
                 historyLoadTask?.cancel()
                 historyLoadTask = nil
             }
-            .onChange(of: chatFacade.presentationMessages.count) { _, count in
+            .onChange(of: chatFacade.presentationMessageCount) { _, count in
                 if count == 0 {
                     additionalLeadingMessageCount = 0
                 }
@@ -2768,13 +2761,6 @@ struct ChatView: View {
          }
         .overlay(alignment: .top) {
             ZStack(alignment: .top) {
-                if showsChatActivityShimmer {
-                    ChatStatusBarStateShimmer(tint: activeSessionTint)
-                        .ignoresSafeArea(.container, edges: .top)
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
-
                 if let presentation = chatFacade.sessionSwitcherPresentation {
                     OpenClientSessionSwitcherOverlay(presentation: presentation)
                         .padding(.horizontal, 16)
@@ -2782,7 +2768,6 @@ struct ChatView: View {
                         .transition(.scale(scale: 0.96, anchor: .top).combined(with: .opacity))
                 }
             }
-            .animation(.easeOut(duration: 0.22), value: showsChatActivityShimmer)
             .animation(.snappy(duration: 0.2), value: chatFacade.sessionSwitcherPresentation)
         }
     }
@@ -2997,7 +2982,7 @@ struct ChatView: View {
         .onChange(of: composerOverlaySnapshot.showsAccessoryArea) { _, _ in
             bottomContentInsetAnimationToken &+= 1
         }
-        .onChange(of: chatFacade.presentationMessages.count) { _, _ in
+        .onChange(of: chatFacade.presentationMessageCount) { _, _ in
             copiedTranscript = false
             pruneExpandedReasoningParts()
             if !isSessionBusy {
@@ -3938,7 +3923,7 @@ struct ChatView: View {
     }
 
     private var showsScrollToBottomButton: Bool {
-        !isScrollGeometryAtBottom && !chatFacade.presentationMessages.isEmpty && !bottomRefreshRenderSnapshot.showsIndicator
+        !isScrollGeometryAtBottom && chatFacade.presentationMessageCount > 0 && !bottomRefreshRenderSnapshot.showsIndicator
     }
 
     @ViewBuilder
@@ -4166,7 +4151,7 @@ struct ChatView: View {
 
     private var delayedLoadingIndicatorSnapshot: DelayedLoadingIndicatorSnapshot {
         DelayedLoadingIndicatorSnapshot(
-            shouldDelay: chatFacade.isLoadingPresentation && chatFacade.presentationMessages.isEmpty && pendingOutgoingSend == nil
+            shouldDelay: chatFacade.isLoadingPresentation && chatFacade.presentationMessageCount == 0 && pendingOutgoingSend == nil
         )
     }
 
@@ -4181,6 +4166,15 @@ struct ChatView: View {
     private var messageBottomPadding: CGFloat { 20 }
 
     private var timedChatDisplaySnapshot: TimedChatDisplaySnapshot {
+        coveredTranscriptSnapshotCache.snapshot(
+            key: sessionID,
+            isCovered: chatFacade.isTranscriptCoveredByNewSessionSheet
+        ) {
+            OpenClientPerformanceSignposts.interval("ChatDisplaySnapshot") { makeTimedChatDisplaySnapshot() }
+        }
+    }
+
+    private func makeTimedChatDisplaySnapshot() -> TimedChatDisplaySnapshot {
         let recoveries = chatFacade.recoveryInputs(sessionID: sessionID)
         let projected = recoveries.isEmpty ? nil : SubmissionTranscriptPresentation.messages(
             canonical: transcriptSuffix(chatSourceMessageCount), recoveries: recoveries)
@@ -4459,9 +4453,7 @@ struct ChatView: View {
             metadataTruncated: part.state?.metadata?.truncated,
             metadataRenderer: part.state?.metadata?.renderer,
             metadataSchemaVersion: part.state?.metadata?.schemaVersion,
-            metadataPayloadHash: ChatRenderSignatures
-                .jsonSignature(from: part.state?.metadata?.payload)
-                .chatRenderSampleHash
+            metadataPayloadHash: part.state?.metadata?.payload?.hashValue ?? 0
         )
     }
 
@@ -5273,18 +5265,6 @@ struct ChatView: View {
         return sessionScopedFallbackMessages.last
     }
 
-    private var activeSessionTint: Color {
-        let agent: String?
-        if let latestSessionMessage,
-           (latestSessionMessage.info.role ?? "").lowercased() == "assistant",
-           latestSessionMessage.info.time?.completed == nil {
-            agent = latestSessionMessage.info.agent
-        } else {
-            agent = nil
-        }
-        return OpenCodeActivityTint.color(forAgent: agent)
-    }
-
     private var lastSessionMessageID: String? {
         latestSessionMessage?.id
     }
@@ -5576,7 +5556,7 @@ struct ChatView: View {
         let activity = expandedEarlierActivityMessageIDs.sorted().joined(separator: "|")
         let tools = appCustomizationStore.showsToolCalls
         let reasoningBlocks = appCustomizationStore.showsReasoningBlocks
-        return "reasoning:\(reasoning)#context:\(context)#activity:\(activity)#tools:\(tools)#reasoningBlocks:\(reasoningBlocks)#groupTools:\(appCustomizationStore.groupsToolCalls)#contextChanges:\(showsContextChanges)#historyRetry:\(historyLoadFailed)#voiceOver:\(isVoiceOverEnabled)"
+        return "reasoning:\(reasoning)#context:\(context)#activity:\(activity)#tools:\(tools)#reasoningBlocks:\(reasoningBlocks)#groupTools:\(appCustomizationStore.groupsToolCalls)#contextChanges:\(showsContextChanges)#historyRetry:\(historyLoadFailed)#voiceOver:\(isVoiceOverEnabled)#lineHeight:\(appCustomizationStore.chatLineHeight.rawValue)"
     }
 
     private var showsContextChanges: Bool {
@@ -5704,58 +5684,6 @@ private struct ShimmeringChatNavigationTitle: View {
     }
 }
 
-private struct ChatStatusBarStateShimmer: View {
-    let tint: Color
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                tint.opacity(0.14)
-
-                if reduceMotion {
-                    tint.opacity(0.06)
-                } else {
-                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                        let width = max(geometry.size.width, 1)
-                        let bandWidth = min(max(width * 0.42, 120), 260)
-                        let duration = max(1.4, min(3.0, Double(width * 1.8 / 900)))
-                        let phase = timeline.date.timeIntervalSinceReferenceDate
-                            .truncatingRemainder(dividingBy: duration) / duration
-                        let travel = width + bandWidth * 2
-                        let centerX = -bandWidth + CGFloat(phase) * travel
-
-                        LinearGradient(
-                            stops: [
-                                .init(color: tint.opacity(0), location: 0),
-                                .init(color: tint.opacity(0.18), location: 0.28),
-                                .init(color: tint.opacity(0.38), location: 0.5),
-                                .init(color: tint.opacity(0.18), location: 0.72),
-                                .init(color: tint.opacity(0), location: 1)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: bandWidth, height: geometry.size.height)
-                        .position(x: centerX, y: geometry.size.height / 2)
-                        .blendMode(.plusLighter)
-                    }
-                }
-            }
-        }
-        .frame(height: 78)
-        .mask(
-            LinearGradient(
-                colors: [.black, .clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-        .compositingGroup()
-    }
-}
-
 struct SessionContextUsageToolbarButton: View {
     let context: OpenCodeSessionContextSnapshot?
     let hitTargetSize: CGFloat
@@ -5799,7 +5727,7 @@ struct SessionContextUsageToolbarButton: View {
     }
 }
 
-private struct ContextUsageRing: View {
+struct ContextUsageRing: View {
     let progress: Double
     let tint: Color
     let lineWidth: CGFloat
@@ -5838,7 +5766,8 @@ private struct SessionContextMetricsSheet: View {
                     LabeledContent("Input Tokens", value: number(context.input))
                     LabeledContent("Output Tokens", value: number(context.output))
                     LabeledContent("Reasoning Tokens", value: number(context.reasoning))
-                    LabeledContent("Cache Tokens", value: "\(number(context.cacheRead)) / \(number(context.cacheWrite))")
+                    LabeledContent("Cache Read Tokens", value: number(context.cacheRead))
+                    LabeledContent("Cache Write Tokens", value: number(context.cacheWrite))
                     LabeledContent("Last Activity", value: time(context.messageCreatedAt))
                 } else {
                     Text("Context usage appears after the model returns token metrics for this chat.")
@@ -5846,13 +5775,20 @@ private struct SessionContextMetricsSheet: View {
                 }
             }
 
-            Section("Session") {
+            Section {
                 LabeledContent("Session", value: session.title?.nilIfEmpty ?? session.id)
                 LabeledContent("Messages", value: number(metrics.messageCount))
                 LabeledContent("User Messages", value: number(metrics.userMessageCount))
                 LabeledContent("Assistant Messages", value: number(metrics.assistantMessageCount))
                 LabeledContent("Total Cost", value: currency(metrics.totalCost))
+            } header: {
+                Text("Session")
+            } footer: {
+                Text("Message counts and cost cover loaded history.")
             }
+
+            SessionMetadataSectionsView(sections: metrics.responseMetadataSections)
+            SessionMetadataSectionsView(sections: [OpenCodeResponseMetadataBuilder.sessionSection(session)])
 
             if !metrics.breakdown.isEmpty {
                 Section("Estimated Input Breakdown") {
@@ -5945,9 +5881,10 @@ private struct SessionContextMetricsSheet: View {
         return "\(value.formatted(.number))%"
     }
 
-    private func currency(_ value: Double) -> String {
+    private func currency(_ value: Double?) -> String {
+        guard let value else { return String(localized: "Unavailable") }
         let fractionDigits = value > 0 && value < 0.01 ? 4 : 2
-        return "$" + String(format: "%.*f", fractionDigits, value)
+        return value.formatted(.currency(code: "USD").precision(.fractionLength(fractionDigits)))
     }
 
     private func time(_ value: Double?) -> String {
@@ -6688,11 +6625,19 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
         private var initialLayoutSample: InitialLayoutSample?
         private var openingHistorySignature: String?
 
+        private var initialPresentationHiddenAt: ContinuousClock.Instant?
+        private var initialPresentationSampleCount = 0
+        private var initialPresentationFillCount = 0
+
         func prepareInitialPresentation(in collectionView: UICollectionView) {
             awaitsInitialReveal = true
             initialLayoutSample = nil
             openingHistorySignature = nil
             collectionView.alpha = 0
+            initialPresentationHiddenAt = .now
+            initialPresentationSampleCount = 0
+            initialPresentationFillCount = 0
+            OpenClientSessionSwitchLog.log("transcript hidden rows=\(rows.count)")
         }
 
         func cancelInitialPresentation() {
@@ -6756,6 +6701,7 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
                 })
             let target = max(-collectionView.adjustedContentInset.top,
                 collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset.bottom)
+            initialPresentationSampleCount += 1
             guard sample == initialLayoutSample, abs(collectionView.contentOffset.y - target) < 1 else {
                 initialLayoutSample = sample
                 scheduleInitialPresentation(in: collectionView)
@@ -6764,9 +6710,14 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
             // Finish cached opening fill while hidden. After the reveal, history
             // expansion belongs to an upward gesture, never to opening catch-up.
             if requestHistoryIfNeeded(in: collectionView, beforeInitialReveal: true) {
+                initialPresentationFillCount += 1
                 isMeasuringInitialPresentation = false
                 initialLayoutSample = nil
                 return
+            }
+            if let hiddenAt = initialPresentationHiddenAt {
+                OpenClientSessionSwitchLog.log("transcript revealed after \(OpenClientSessionSwitchLog.elapsedMS(since: hiddenAt)) ms rows=\(rows.count) samples=\(initialPresentationSampleCount) fills=\(initialPresentationFillCount) content=\(Int(collectionView.contentSize.height)) viewport=\(Int(collectionView.bounds.height))")
+                initialPresentationHiddenAt = nil
             }
             awaitsInitialReveal = false
             initialPresentationHandoff.cancel()
@@ -6827,7 +6778,7 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
             self.onRequestOlderMessages = onRequestOlderMessages
             self.rowContent = rowContent
             self.rowIDs = self.rows.map(\.id)
-            self.rowSignaturesByID = Self.signaturesByID(for: self.rows)
+            self.rowSignaturesByID = Self.signaturesByID(for: self.rows, contentInvalidationToken: contentInvalidationToken)
         }
 
         func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
@@ -7054,7 +7005,9 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
                 }
             }
             #endif
-            let newSignaturesByID = Dictionary(uniqueKeysWithValues: newRows.map { ($0.id, rowContentRenderSignature(for: $0)) })
+            let newSignaturesByID = OpenClientPerformanceSignposts.interval("TranscriptRowSignatures", detail: "\(newRows.count) rows") {
+                Dictionary(uniqueKeysWithValues: newRows.map { ($0.id, rowContentRenderSignature(for: $0)) })
+            }
             let changedRowIDs = Set(newSignaturesByID.compactMap { id, signature in
                 rowSignaturesByID[id] == signature ? nil : id
             })
@@ -7099,6 +7052,8 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
             }
             let finish = { [weak self, weak collectionView] in
                 guard let self, let collectionView else { return }
+                let layoutSignpost = OpenClientPerformanceSignposts.begin("TranscriptApplyLayout",
+                    detail: "\(changedRowIDs.count) changed, \(difference.count) structural")
                 UIView.performWithoutAnimation {
                     restoreScrollingAnchor()
                     self.configureVisibleHostingCells(in: collectionView, changedRowIDs: changedRowIDs)
@@ -7115,6 +7070,7 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
                         }
                     }
                 }
+                OpenClientPerformanceSignposts.end("TranscriptApplyLayout", layoutSignpost)
                 self.isApplyingRows = false
                 self.applyPendingViewport(in: collectionView)
                 if self.userScrollGeneration != scrollGeneration {
@@ -7337,7 +7293,8 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
             let allowsAnimations = !awaitsInitialReveal && (row.id == ChatScrollTarget.bottomAnchor || row.id == ChatScrollTarget.thinkingRow || animatedRowIDs.contains(row.id))
             cell.configure(
                 rowID: row.id,
-                renderSignature: rowContentRenderSignature(for: row),
+                // applyRows already signed every row for this presentation; re-signing walks every part.
+                renderSignature: rowSignaturesByID[row.id] ?? rowContentRenderSignature(for: row),
                 AnyView(rowContent(row)),
                 disablesAnimations: !allowsAnimations
             )
@@ -7476,11 +7433,11 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
             collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
         }
 
-        private static func signaturesByID(for rows: [ChatTranscriptRow]) -> [String: String] {
+        private static func signaturesByID(for rows: [ChatTranscriptRow], contentInvalidationToken: String) -> [String: String] {
             var signatures: [String: String] = [:]
             signatures.reserveCapacity(rows.count)
             for row in rows {
-                signatures[row.id] = row.renderSignature
+                signatures[row.id] = "\(row.renderSignature)\u{1f}\(contentInvalidationToken)"
             }
             return signatures
         }

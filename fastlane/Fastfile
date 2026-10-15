@@ -212,10 +212,10 @@ platform :ios do
   end
 
   desc "Upload App Store metadata without uploading a binary"
-  lane :metadata do
+  lane :metadata do |options|
     api_key = asc_api_key
     metadata_path = metadata_path_for_upload(repo_root)
-    app_version = File.read(File.join(repo_root, "project.yml"))[/^\s+MARKETING_VERSION:\s*(\S+)\s*$/, 1]
+    app_version = options[:version] || File.read(File.join(repo_root, "project.yml"))[/^\s+MARKETING_VERSION:\s*(\S+)\s*$/, 1]
     UI.user_error!("Could not read MARKETING_VERSION from project.yml") if app_version.nil?
     skip_gallery = ENV["FASTLANE_SKIP_SCREENSHOTS"] == "1"
     gallery_upload = File.join(repo_root, "build", "app-store-gallery")

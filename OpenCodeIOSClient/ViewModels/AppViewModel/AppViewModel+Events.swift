@@ -399,14 +399,17 @@ extension AppViewModel {
                 scheduleV2TimelineReconciliation()
             }
         }
-        if let selected = selectedSession {
+        let isTextDelta = event.type == "session.text.delta" || event.type == "session.reasoning.delta"
+        if !isTextDelta, let selected = selectedSession {
             sessionInteractionStore.applySelectedSession(sessionID: selected.id, sessions: directoryStore.sessions, syncState: directoryStore.syncState)
-        } else if wasSelected {
+        } else if !isTextDelta, wasSelected {
             _ = sessionInteractionStore.applyVisibleInteractions(todos: [], permissions: [], questions: [])
         }
         sessionListFacade.invalidateWorkspaceSnapshot(transcriptOnly: event.affectsTranscript)
         liveActivityFacade.reducerDidCommit(sessionIDs: [sessionID])
-        objectWillChange.send()
+        // Transcript stores already publish the reduced content. Token deltas do not
+        // change root navigation or interactions, so don't invalidate the whole shell.
+        if !isTextDelta { objectWillChange.send() }
     }
 
     func scheduleV2InteractionRefresh(for sessionID: String) {
@@ -1052,12 +1055,18 @@ extension AppViewModel {
             return
         }
 
+        let flushSignpost = OpenClientPerformanceSignposts.begin("StreamFlush", detail: "\(reason) \(events.count) events -> \(reducerEvents.count)")
         let reduceStart = ContinuousClock.now
-        let application = eventSyncCoordinator.applyDirectoryEvents(reducerEvents.map(\.typedEvent), to: directoryEventState())
+        let application = OpenClientPerformanceSignposts.interval("StreamFlushReduce") {
+            eventSyncCoordinator.applyDirectoryEvents(reducerEvents.map(\.typedEvent), to: directoryEventState())
+        }
         let reduceElapsedMS = reduceStart.elapsedMilliseconds
         let publishStart = ContinuousClock.now
-        applyDirectoryEventState(application.state, updatesSelectedMessages: true)
+        OpenClientPerformanceSignposts.interval("StreamFlushPublish") {
+            applyDirectoryEventState(application.state, updatesSelectedMessages: true)
+        }
         let publishElapsedMS = publishStart.elapsedMilliseconds
+        OpenClientPerformanceSignposts.end("StreamFlush", flushSignpost)
 
         liveActivityFacade.reducerDidCommit(sessionIDs: Set(events.compactMap(\.sessionID)))
 

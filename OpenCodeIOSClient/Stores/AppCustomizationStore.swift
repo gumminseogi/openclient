@@ -1,5 +1,39 @@
 import Combine
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
+
+enum ChatLineHeight: String, Codable, CaseIterable, Identifiable {
+    case tight, standard, relaxed
+
+    var id: String { rawValue }
+    var title: LocalizedStringResource {
+        switch self {
+        case .tight: "Tight"
+        case .standard: "Standard"
+        case .relaxed: "Relaxed"
+        }
+    }
+
+    var additionalSpacing: CGFloat {
+        switch self {
+        case .tight: 0
+        case .standard: 3
+        case .relaxed: 6
+        }
+    }
+
+    @MainActor static var deviceDefault: Self {
+#if targetEnvironment(macCatalyst) || os(macOS)
+        .standard
+#elseif canImport(UIKit)
+        UIDevice.current.userInterfaceIdiom == .pad ? .standard : .tight
+#else
+        .tight
+#endif
+    }
+}
 
 enum SessionCardStyle: String, Codable, CaseIterable, Identifiable {
     case compact
@@ -79,8 +113,9 @@ enum AppAccentColor: String, Codable, CaseIterable, Identifiable {
 
 struct AppCustomizationPreferences: Codable, Equatable {
     var chatBubbleStyle: ChatBubbleStyle
+    // Nil preserves device-specific defaults for existing and new preferences.
+    var chatLineHeight: ChatLineHeight?
     var accentColor: AppAccentColor
-    var showsChatActivityShimmer: Bool
     var showsToolCalls: Bool
     var groupsToolCalls: Bool
     var showsReasoningBlocks: Bool
@@ -103,8 +138,8 @@ struct AppCustomizationPreferences: Codable, Equatable {
 
     init(
         chatBubbleStyle: ChatBubbleStyle = .glass,
+        chatLineHeight: ChatLineHeight? = nil,
         accentColor: AppAccentColor = .blue,
-        showsChatActivityShimmer: Bool = true,
         showsToolCalls: Bool = true,
         groupsToolCalls: Bool = true,
         showsReasoningBlocks: Bool = true,
@@ -118,8 +153,8 @@ struct AppCustomizationPreferences: Codable, Equatable {
         autoConnectLandingDestination: AutoConnectLandingDestination = .projects
     ) {
         self.chatBubbleStyle = chatBubbleStyle
+        self.chatLineHeight = chatLineHeight
         self.accentColor = accentColor
-        self.showsChatActivityShimmer = showsChatActivityShimmer
         self.showsToolCalls = showsToolCalls
         self.groupsToolCalls = groupsToolCalls
         self.showsReasoningBlocks = showsReasoningBlocks
@@ -135,8 +170,8 @@ struct AppCustomizationPreferences: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case chatBubbleStyle
+        case chatLineHeight
         case accentColor
-        case showsChatActivityShimmer
         case showsToolCalls
         case groupsToolCalls
         case showsReasoningBlocks
@@ -152,11 +187,12 @@ struct AppCustomizationPreferences: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        chatLineHeight = try container.decodeIfPresent(String.self, forKey: .chatLineHeight)
+            .flatMap(ChatLineHeight.init(rawValue:))
         chatBubbleStyle = try container.decodeIfPresent(String.self, forKey: .chatBubbleStyle)
             .flatMap(ChatBubbleStyle.init(rawValue:)) ?? .glass
         let storedAccent = try container.decodeIfPresent(String.self, forKey: .accentColor)
         accentColor = storedAccent == "gray" ? .clear : storedAccent.flatMap(AppAccentColor.init(rawValue:)) ?? .blue
-        showsChatActivityShimmer = try container.decodeIfPresent(Bool.self, forKey: .showsChatActivityShimmer) ?? true
         showsToolCalls = try container.decodeIfPresent(Bool.self, forKey: .showsToolCalls) ?? true
         groupsToolCalls = try container.decodeIfPresent(Bool.self, forKey: .groupsToolCalls) ?? true
         showsReasoningBlocks = try container.decodeIfPresent(Bool.self, forKey: .showsReasoningBlocks) ?? true
@@ -207,15 +243,18 @@ final class AppCustomizationStore: ObservableObject {
         ConnectionAppearanceRegistry(defaults: defaults, storageKey: storageKey + ".connections", legacyPreferences: preferences)
     }
 
-    var showsChatActivityShimmer: Bool {
-        preferences.showsChatActivityShimmer
-    }
-
     var showsToolCalls: Bool {
         preferences.showsToolCalls
     }
 
     var groupsToolCalls: Bool { preferences.groupsToolCalls }
+    var chatLineHeight: ChatLineHeight { preferences.chatLineHeight ?? .deviceDefault }
+
+    func setChatLineHeight(_ height: ChatLineHeight) {
+        guard preferences.chatLineHeight != height else { return }
+        preferences.chatLineHeight = height
+        persist()
+    }
     var showsContextChanges: Bool { preferences.showsContextChanges }
     var preferredStreamingDelivery: OpenCodePromptDelivery? { preferences.preferredStreamingDelivery }
 
@@ -263,12 +302,6 @@ final class AppCustomizationStore: ObservableObject {
 
     var composerStyle: ComposerStyle {
         preferences.composerStyle
-    }
-
-    func setShowsChatActivityShimmer(_ shows: Bool) {
-        guard preferences.showsChatActivityShimmer != shows else { return }
-        preferences.showsChatActivityShimmer = shows
-        persist()
     }
 
     func setShowsToolCalls(_ shows: Bool) {

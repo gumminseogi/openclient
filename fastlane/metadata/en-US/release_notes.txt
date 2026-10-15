@@ -6,5 +6,13 @@ Follow the work. See what changed. Pick up where you left off.
 • Switch workspaces from the chat header and enjoy more reliable session moves between workspaces on OpenCode v2.
 • Pending prompts on OpenCode v1 now appear below the status pill.
 • Improved OpenCode v1 bridge discovery behind reverse proxies.
+• Fixed OpenAI usage setup on OpenCode v2, provider settings navigation, and scrolling in half-height settings sheets.
+• Rename OpenCode v2 projects and customize their color and image. Project names now appear in the navigation bar.
+• Find more project logos with filename search and Show More batches of 48 images.
+• Explore recorded token usage, response timing, and model details in the context sheet.
+• Choose your chat line height in Chat Appearance, with a live preview in the announcement.
+• Organize Activity as a list or board, group sessions by status, and customize status names, colors, and icons.
+• Mark sessions read or unread, or mark all as read. Read state and session statuses sync on supported servers.
+• Smoother streaming and improved Mac performance, including a fix for the Mac paywall crash.
 
 OpenClient supports OpenCode v1 and v2. Per-response file changes require OpenCode v2 and recorded file snapshots.

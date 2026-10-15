@@ -1,34 +1,48 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Quarter-Filled Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio pieno per un quarto" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo preenchido em um quarto" } } } },
-    "Three-Quarter-Filled Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio pieno per tre quarti" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo preenchido em três quartos" } } } },
-    "Edit Status": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Modifica stato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Editar status" } } } },
-    "Delete Status": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Elimina stato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Excluir status" } } } },
-    "Move Sessions To": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Sposta le sessioni in" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Mover sessões para" } } } },
-    "Updating Sessions": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Aggiornamento delle sessioni" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Atualizando sessões" } } } },
-    "Moving Sessions": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Spostamento delle sessioni" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Movendo sessões" } } } },
-    "Sessions using this status will move to the selected status. Sessions on the connected server are updated before the status is deleted.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Le sessioni con questo stato verranno spostate nello stato selezionato. Le sessioni sul server connesso vengono aggiornate prima di eliminare lo stato." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "As sessões com este status serão movidas para o status selecionado. As sessões no servidor conectado são atualizadas antes da exclusão do status." } } } },
-    "In Progress": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "In corso" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Em andamento" } } } },
-    "Group By": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Raggruppa per" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Agrupar por" } } } },
-    "Layout": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Disposizione" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Layout" } } } },
-    "Board": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Bacheca" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Quadro" } } } },
-    "Show Archived": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Mostra archiviate" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Mostrar arquivadas" } } } },
-    "New Status": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Nuovo stato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Novo status" } } } },
-    "Activity Display": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Visualizzazione attività" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Visualização de atividade" } } } },
-    "No Sessions": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Nessuna sessione" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Nenhuma sessão" } } } },
-    "Status Name": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Nome dello stato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Nome do status" } } } },
-    "Color": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Colore" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Cor" } } } },
-    "Statuses are available across all projects. Session status is saved to metadata on supported servers.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Gli stati sono disponibili in tutti i progetti. Lo stato della sessione viene salvato nei metadati sui server compatibili." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Os status estão disponíveis em todos os projetos. O status da sessão é salvo nos metadados em servidores compatíveis." } } } },
-    "Yellow": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Giallo" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Amarelo" } } } },
-    "Gray": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Grigio" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Cinza" } } } },
-    "Dashed Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio tratteggiato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo tracejado" } } } },
-    "Dotted Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio punteggiato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo pontilhado" } } } },
-    "Half-Filled Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio riempito a metà" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo preenchido pela metade" } } } },
-    "Inset Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio con centro pieno" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo com centro preenchido" } } } },
-    "Filled Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio pieno" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo preenchido" } } } },
-    "Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo" } } } },
-    "Could Not Update Status": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Impossibile aggiornare lo stato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Não foi possível atualizar o status" } } } },
+    "Make room for your workflow." : { "localizations" : {
+      "it" : { "stringUnit" : { "state" : "translated", "value" : "Fai spazio al tuo flusso di lavoro." } },
+      "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Abra espaço para seu fluxo de trabalho." } }
+    } },
+    "Switch Activity between a list and a board, group sessions by status, and create custom statuses with your own colors and icons. Session statuses sync on supported servers." : { "localizations" : {
+      "it" : { "stringUnit" : { "state" : "translated", "value" : "Passa dall’elenco alla bacheca in Attività, raggruppa le sessioni per stato e crea stati personalizzati con colori e icone a tua scelta. Gli stati delle sessioni si sincronizzano sui server compatibili." } },
+      "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Alterne entre lista e quadro em Atividade, agrupe sessões por status e crie status personalizados com suas próprias cores e ícones. Os status das sessões são sincronizados em servidores compatíveis." } }
+    } },
+    "Mark sessions read or unread, or mark them all read at once. Read state syncs through supported servers so you can pick up on another device." : { "localizations" : {
+      "it" : { "stringUnit" : { "state" : "translated", "value" : "Segna le sessioni come lette o non lette, oppure segnale tutte come lette in una volta. Lo stato di lettura si sincronizza tramite i server compatibili per riprendere su un altro dispositivo." } },
+      "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Marque sessões como lidas ou não lidas, ou marque todas como lidas de uma vez. O estado de leitura é sincronizado por servidores compatíveis para você continuar em outro dispositivo." } }
+    } },
+    "Find your comfort level." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Find your comfort level." } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Trova la spaziatura che fa per te." } },
+        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Encontre seu nível de conforto." } }
+      }
+    },
+    "Give your transcript a little breathing room. Try a line height below; your choice is saved for your chats. You can change it anytime in Chat Appearance." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Give your transcript a little breathing room. Try a line height below; your choice is saved for your chats. You can change it anytime in Chat Appearance." } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Dai un po’ di respiro alla conversazione. Prova un’interlinea qui sotto: la tua scelta viene salvata per le chat. Puoi cambiarla in qualsiasi momento in Aspetto della chat." } },
+        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Dê mais espaço ao texto da conversa. Experimente uma altura de linha abaixo; sua escolha fica salva para seus chats. Você pode alterá-la a qualquer momento em Aparência do chat." } }
+      }
+    },
+    "Line Height": { "comment": "Chat appearance control for spacing between lines of text.", "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Interlinea" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Espaçamento entre linhas" } }
+    } },
+    "Tight": { "comment": "Smallest chat line spacing.", "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Compatta" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Compacto" } }
+    } },
+    "Relaxed": { "comment": "Largest chat line spacing.", "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Ampia" } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Amplo" } }
+    } },
+    "Choose comfortable spacing\nbetween the lines of your chats.": { "localizations": {
+      "it": { "stringUnit": { "state": "translated", "value": "Scegli una spaziatura confortevole\ntra le righe delle tue chat." } },
+      "pt-BR": { "stringUnit": { "state": "translated", "value": "Escolha um espaçamento confortável\nentre as linhas das suas conversas." } }
+    } },
     "Your projects, your names.": { "localizations": {
       "it": { "stringUnit": { "state": "translated", "value": "I tuoi progetti, i tuoi nomi." } },
       "pt-BR": { "stringUnit": { "state": "translated", "value": "Seus projetos, seus nomes." } }
@@ -61,6 +75,68 @@
       "it": { "stringUnit": { "state": "translated", "value": "Esplora l’utilizzo registrato dei token, i tempi di risposta e i dettagli del modello dal menu del contesto. Le metriche mancanti sono indicate come non disponibili e i totali si riferiscono chiaramente alla cronologia caricata." } },
       "pt-BR": { "stringUnit": { "state": "translated", "value": "Explore o uso registrado de tokens, os tempos de resposta e os detalhes do modelo pelo menu de contexto. Métricas ausentes aparecem como indisponíveis, e os totais se referem claramente ao histórico carregado." } }
     } },
+    "Archived": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Archiviata"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Arquivada"}}}},
+    "Average Time to First Token": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Tempo medio al primo token"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Tempo médio até o primeiro token"}}}},
+    "Cache Read Share": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Quota di lettura dalla cache"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Proporção de leitura do cache"}}}},
+    "Cache Read Tokens": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Token letti dalla cache"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Tokens lidos do cache"}}}},
+    "Cache Write Tokens": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Token scritti nella cache"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Tokens gravados no cache"}}}},
+    "Completed Responses": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Risposte completate"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Respostas concluídas"}}}},
+    "Context limit unavailable": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Limite del contesto non disponibile"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Limite de contexto indisponível"}}}},
+    "Context usage unavailable": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Utilizzo del contesto non disponibile"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Uso do contexto indisponível"}}}},
+    "Cost": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Costo"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Custo"}}}},
+    "Created": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Creata"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Criada"}}}},
+    "Decode Time": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Tempo di decodifica"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Tempo de decodificação"}}}},
+    "Decode Tokens": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Token di decodifica"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Tokens de decodificação"}}}},
+    "Decode Tokens per Second": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Token decodificati al secondo"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Tokens decodificados por segundo"}}}},
+    "Finish Reason": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Motivo di completamento"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Motivo da conclusão"}}}},
+    "First Token": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Primo token"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Primeiro token"}}}},
+    "First Token Samples": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Campioni del primo token"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Amostras do primeiro token"}}}},
+    "Input Limit": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Limite di input"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Limite de entrada"}}}},
+    "Latest Model Response": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Ultima risposta del modello"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Última resposta do modelo"}}}},
+    "Message counts and cost cover loaded history.": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Il conteggio dei messaggi e il costo si riferiscono alla cronologia caricata."}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "A contagem de mensagens e o custo incluem o histórico carregado."}}}},
+    "Output Limit": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Limite di output"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Limite de saída"}}}},
+    "Parent Session": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Sessione principale"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Sessão pai"}}}},
+    "Performance uses server timestamps for completed responses in loaded history. Decode speed includes output and reasoning tokens, measured from first stream to completion.": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Le prestazioni usano i timestamp del server per le risposte completate nella cronologia caricata. La velocità di decodifica include i token di output e ragionamento, misurati dall’inizio dello streaming al completamento."}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "O desempenho usa os horários do servidor para respostas concluídas no histórico carregado. A velocidade de decodificação inclui tokens de saída e raciocínio, medidos do início da transmissão até a conclusão."}}}},
+    "Project ID": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "ID progetto"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "ID do projeto"}}}},
+    "Recorded Token Usage": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Utilizzo dei token registrato"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Uso de tokens registrado"}}}},
+    "Response Time": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Tempo di risposta"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Tempo de resposta"}}}},
+    "Responses with Usage": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Risposte con dati di utilizzo"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Respostas com dados de uso"}}}},
+    "Session Details": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Dettagli della sessione"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Detalhes da sessão"}}}},
+    "Session Performance": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Prestazioni della sessione"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Desempenho da sessão"}}}},
+    "Time to First Token": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Tempo al primo token"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Tempo até o primeiro token"}}}},
+    "Total Input Tokens": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Token di input totali"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Total de tokens de entrada"}}}},
+    "Totals cover loaded assistant responses, excluding compaction summaries. They are separate from current context usage.": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "I totali comprendono le risposte dell’assistente caricate, esclusi i riepiloghi di compattazione. Sono separati dall’utilizzo attuale del contesto."}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Os totais incluem as respostas carregadas do assistente, exceto resumos de compactação. São separados do uso atual do contexto."}}}},
+    "Uncached Input Tokens": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Token di input non in cache"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Tokens de entrada fora do cache"}}}},
+    "Variant": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Variante"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Variante"}}}},
+    "Working Directory": {"localizations": {"it": {"stringUnit": {"state": "translated", "value": "Directory di lavoro"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Diretório de trabalho"}}}},
+    "Quarter-Filled Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio pieno per un quarto" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo preenchido em um quarto" } } } },
+    "Three-Quarter-Filled Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio pieno per tre quarti" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo preenchido em três quartos" } } } },
+    "Edit Status": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Modifica stato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Editar status" } } } },
+    "Delete Status": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Elimina stato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Excluir status" } } } },
+    "Move Sessions To": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Sposta le sessioni in" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Mover sessões para" } } } },
+    "Updating Sessions": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Aggiornamento delle sessioni" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Atualizando sessões" } } } },
+    "Moving Sessions": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Spostamento delle sessioni" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Movendo sessões" } } } },
+    "Sessions using this status will move to the selected status. Sessions on the connected server are updated before the status is deleted.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Le sessioni con questo stato verranno spostate nello stato selezionato. Le sessioni sul server connesso vengono aggiornate prima di eliminare lo stato." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "As sessões com este status serão movidas para o status selecionado. As sessões no servidor conectado são atualizadas antes da exclusão do status." } } } },
+    "In Progress": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "In corso" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Em andamento" } } } },
+    "Group By": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Raggruppa per" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Agrupar por" } } } },
+    "Layout": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Disposizione" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Layout" } } } },
+    "Board": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Bacheca" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Quadro" } } } },
+    "Show Archived": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Mostra archiviate" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Mostrar arquivadas" } } } },
+    "New Status": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Nuovo stato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Novo status" } } } },
+    "Activity Display": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Visualizzazione attività" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Visualização de atividade" } } } },
+    "No Sessions": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Nessuna sessione" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Nenhuma sessão" } } } },
+    "Status Name": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Nome dello stato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Nome do status" } } } },
+    "Color": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Colore" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Cor" } } } },
+    "Statuses are available across all projects. Session status is saved to metadata on supported servers.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Gli stati sono disponibili in tutti i progetti. Lo stato della sessione viene salvato nei metadati sui server compatibili." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Os status estão disponíveis em todos os projetos. O status da sessão é salvo nos metadados em servidores compatíveis." } } } },
+    "Yellow": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Giallo" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Amarelo" } } } },
+    "Gray": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Grigio" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Cinza" } } } },
+    "Dashed Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio tratteggiato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo tracejado" } } } },
+    "Dotted Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio punteggiato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo pontilhado" } } } },
+    "Half-Filled Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio riempito a metà" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo preenchido pela metade" } } } },
+    "Inset Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio con centro pieno" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo com centro preenchido" } } } },
+    "Filled Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio pieno" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo preenchido" } } } },
+    "Circle": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Cerchio" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Círculo" } } } },
+    "Could Not Update Status": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Impossibile aggiornare lo stato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Não foi possível atualizar o status" } } } },
     "Archived": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Archiviata" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Arquivada" } } } },
     "Mark All as Read": { "localizations": {
       "it": { "stringUnit": { "state": "translated", "value": "Segna tutti come letti" } },
@@ -4028,22 +4104,6 @@
         }
       }
     },
-    "Chat activity shimmer" : {
-      "localizations" : {
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Effetto shimmer attività chat"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Brilho da atividade de chat"
-          }
-        }
-      }
-    },
     "Chat Appearance" : {
       "localizations" : {
         "en" : {
@@ -4312,18 +4372,18 @@
         }
       }
     },
-    "Choose a new icon and decide whether chat activity gets a subtle shimmer." : {
+    "Choose a new icon to make OpenClient yours." : {
       "localizations" : {
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Scegli una nuova icona e decidi se l'attività della chat deve avere un effetto shimmer sottile."
+            "value" : "Scegli una nuova icona per rendere OpenClient davvero tuo."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Escolha um novo ícone e decida se a atividade do chat terá um brilho sutil."
+            "value" : "Escolha um novo ícone para deixar o OpenClient com a sua cara."
           }
         }
       }
@@ -19999,22 +20059,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mostrar controles do navegador"
-          }
-        }
-      }
-    },
-    "Show Chat Activity Shimmer" : {
-      "localizations" : {
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostra shimmer attività chat"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostrar brilho da atividade de chat"
           }
         }
       }

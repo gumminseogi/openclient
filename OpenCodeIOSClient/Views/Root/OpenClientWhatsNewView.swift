@@ -15,7 +15,7 @@ struct OpenClientWhatsNewView: View {
             ScrollView {
                 Group {
                     if release.hero == .chatContinuity {
-                        OpenClientWhatsNewChatContinuity(release: release)
+                        OpenClientWhatsNewChatContinuity(release: release, store: connection.appCustomizationStore)
                     } else if release.hero == .conversationControl {
                         OpenClientWhatsNewChatControls(release: release, delivery: Binding(
                             get: { connection.streamingDelivery }, set: { connection.setStreamingDelivery($0) }),
@@ -1269,17 +1269,6 @@ private struct OpenClientWhatsNewSetupSection: View {
             }
 
             OpenClientWhatsNewIconPicker(connection: connection)
-
-            Toggle(isOn: Binding(
-                get: { connection.showsChatActivityShimmer },
-                set: { connection.setShowsChatActivityShimmer($0) }
-            )) {
-                Label("Chat activity shimmer", systemImage: "sparkles.rectangle.stack")
-                    .font(.headline)
-            }
-            .tint(.purple)
-            .padding(16)
-            .background(OpenCodePlatformColor.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
             OpenClientWhatsNewAutoConnectPicker(connection: connection)
         }
