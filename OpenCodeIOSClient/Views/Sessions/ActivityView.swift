@@ -11,6 +11,7 @@ struct ActivityView: View {
     @State private var excludedProjectIDs: Set<String> = []
     @State private var isShowingSettings = false
     @State private var searchQuery = ""
+    @State private var isCreatingStatus = false
 
     var body: some View {
         activityContent
@@ -18,7 +19,9 @@ struct ActivityView: View {
 
     @ViewBuilder
     private var activityContent: some View {
-        ActivityContent(
+        Group {
+        if facade.workflow.layout == .recent {
+            ActivityContent(
             facade: facade,
             snapshot: facade.snapshot,
             excludedProjectIDs: excludedProjectIDs,
@@ -29,6 +32,11 @@ struct ActivityView: View {
             onSessionChosen: onSessionChosen
         )
         .equatable()
+        } else {
+            ActivityWorkflowContent(facade: facade, excludedProjectIDs: excludedProjectIDs,
+                searchQuery: searchQuery, onSessionChosen: onSessionChosen)
+        }
+        }
         .safeAreaInset(edge: .bottom) {
             OpenCodeConversationBottomBar(
                 query: $searchQuery,
@@ -46,6 +54,10 @@ struct ActivityView: View {
         .navigationTitle("Activity")
         .opencodeInlineNavigationTitle()
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ActivityWorkflowDisplayMenu(facade: facade, isCreatingStatus: $isCreatingStatus,
+                    projectFilter: projectFilterMenu)
+            }
             if facade.canMarkAllRead(excluding: excludedProjectIDs) || facade.isMarkingAllRead {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Mark All as Read", systemImage: "envelope.open") {
@@ -65,14 +77,22 @@ struct ActivityView: View {
                 .accessibilityLabel("Activity Settings")
                 .accessibilityIdentifier("activity.settings")
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                projectFilterMenu
-            }
         }
         .sheet(isPresented: $isShowingSettings) {
             ActivitySettingsSheet(facade: facade, connection: connection, configurations: configurations, bridge: bridge)
                 .presentationDetents([.medium, .large])
                 .presentationContentInteraction(.scrolls)
+        }
+        .sheet(isPresented: $isCreatingStatus) {
+            ActivityCreateStatusSheet(store: facade.workflow)
+        }
+        .alert("Could Not Update Status", isPresented: Binding(
+            get: { facade.workflowError != nil },
+            set: { if !$0 { facade.workflowError = nil } }
+        )) {
+            Button("OK", role: .cancel) { facade.workflowError = nil }
+        } message: {
+            Text(facade.workflowError ?? "")
         }
         .task {
             await facade.prepareForPresentation()
@@ -117,7 +137,7 @@ struct ActivityView: View {
                 }
             }
         } label: {
-            Image(systemName: allProjectsSelected ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+            Label("Projects", systemImage: allProjectsSelected ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
         }
         .disabled(facade.snapshot.projects.isEmpty)
         .accessibilityLabel("Filter Projects")
@@ -498,6 +518,7 @@ private struct ActivityContent: View, Equatable {
                     guard presentation == .fullContext else { return }
                     await facade.hydrateIfNeeded(row)
                 }
+                        ActivityWorkflowStatusMenu(facade: facade, row: row)
                 .contextMenu {
                     if !snapshot.isReadOnly {
                         markReadButton(for: row)
@@ -758,10 +779,10 @@ struct ActivitySessionRow: View, Equatable {
                     .accessibilityIdentifier("activity.session.\(row.recent.session.id).latest-user")
             }
 
-            if !isCompact {
-                activityDescription
-                activityMetadata
-            }
+            // Width changes the header arrangement, not whether an expanded card
+            // shows its preview. Only the explicit .summary presentation omits it.
+            activityDescription
+            activityMetadata
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -817,6 +838,7 @@ struct ActivitySessionRow: View, Equatable {
             ActivityTranscriptLine(
                 label: latestLabel,
                 text: assistantText,
+            .accessibilityIdentifier("activity.session.\(row.recent.session.id).latest-assistant")
                 tint: row.isWorking ? .primary : .secondary
             )
         } else {

@@ -464,10 +464,11 @@ final class OpenCodeIOSClientUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["screenshot.scene.activity"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["activity.newChat"].waitForExistence(timeout: 5))
         let filter = app.buttons["activity.projectFilter"]
-        XCTAssertTrue(filter.waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["activity.session.session-screenshot-release"].exists)
         XCTAssertTrue(app.buttons["activity.session.session-screenshot-docs"].exists)
 
+        app.buttons["activity.display"].tap()
+        XCTAssertTrue(filter.waitForExistence(timeout: 5))
         filter.tap()
 
         XCTAssertTrue(app.buttons["All Projects"].waitForExistence(timeout: 5))

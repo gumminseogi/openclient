@@ -10,12 +10,17 @@ struct BackendDescriptor: Equatable, Hashable, Sendable {
 
 enum BackendCapability: Hashable, Sendable {
     case commands, fork, compaction, files, terminal, mcp, providerConfiguration
-    case worktrees, interactions, bridge, localCache, liveActivities
+    case worktrees, interactions, bridge, localCache, liveActivities, sessionMetadata
 }
 
 @MainActor protocol BackendSessionViewingService: Sendable {
     var supportsSessionViewing: Bool { get }
     func viewSession(id: String, idle: Double) async throws
+}
+
+@MainActor protocol BackendSessionAnnotationsService: Sendable {
+    var supportsSessionAnnotations: Bool { get }
+    func setSessionMetadata(id: String, metadata: [String: OpenCodeJSONValue]) async throws -> OpenCodeSession
 }
 
 enum BackendError: Error, Equatable {

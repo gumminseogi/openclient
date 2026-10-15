@@ -43,6 +43,35 @@ final class V2SessionWorkflowTests: XCTestCase {
         XCTAssertEqual(updated?.isUnread, true)
     }
 
+    func testWorkflowAssignmentReadModifyWritesMetadataAndSurfacesFailure() async throws {
+        let model = makeModel()
+        defer { model.stopEventStream() }
+        let connection = try model.requireBackendConnection()
+        let session = Self.session(id: "ses_workflow", directory: "/repo")
+        var metadata: [String: OpenCodeJSONValue] = ["another-client": .object(["keep": .string("value")])]
+        var methods: [String] = []
+        V2SessionWorkflowURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/session/ses_workflow")
+            methods.append(request.httpMethod!)
+            if request.httpMethod == "PATCH" {
+                let body = try JSONDecoder().decode([String: [String: OpenCodeJSONValue]].self, from: Self.body(request))
+                metadata = try XCTUnwrap(body["metadata"])
+                XCTAssertEqual(metadata["another-client"], .object(["keep": .string("value")]))
+                return (204, "")
+            }
+            let raw = String(data: try JSONEncoder().encode(metadata), encoding: .utf8)!
+            return (200, #"{"data":{"id":"ses_workflow","projectID":"proj_root","location":{"directory":"/repo"},"time":{"created":1,"updated":2},"metadata":\#(raw)}}"#)
+        }
+        let updated = try await ActivityWorkflowCoordinator.assign(.inProgress, to: session, connection: connection)
+        XCTAssertEqual(ActivityWorkflowStatus.annotation(in: try XCTUnwrap(updated)), .inProgress)
+        XCTAssertEqual(methods, ["GET", "PATCH", "GET"])
+        V2SessionWorkflowURLProtocol.handler = { _ in (500, #"{"message":"Failed"}"#) }
+        do {
+            _ = try await ActivityWorkflowCoordinator.assign(.archived, to: session, connection: connection)
+            XCTFail("A failed server write must not become a local assignment")
+        } catch { }
+    }
+
     func testViewedEventsAreMonotonicAndRenamePreservesUnreadState() throws {
         let model = makeModel()
         defer { model.stopEventStream() }

@@ -135,6 +135,7 @@ private struct OpenCodeV2Session: Decodable, Sendable {
     let time: Time
     let agent: String?
     let model: OpenCodeV2ModelReference?
+    let metadata: [String: OpenCodeJSONValue]?
 
     func normalized() -> OpenCodeSession {
         var session = OpenCodeSession(
@@ -147,6 +148,7 @@ private struct OpenCodeV2Session: Decodable, Sendable {
         )
         session.time = OpenCodeMessageTime(created: time.created, updated: time.updated, archived: time.archived, idle: time.idle, viewed: time.viewed)
         session.agent = agent
+        session.metadata = metadata
         session.model = model.map { OpenCodeMessageModelReference(providerID: $0.providerID, modelID: $0.id, variant: $0.variant) }
         return session
     }
@@ -176,6 +178,7 @@ private struct OpenCodeV2CreateSessionRequest: Encodable, Sendable {
     let location: Location
     let agent: String?
     let model: OpenCodeV2ModelReference?
+    var metadata: [String: OpenCodeJSONValue]? = nil
 }
 
 private struct OpenCodeV2ModelReference: Codable, Sendable {
@@ -958,6 +961,12 @@ struct OpenCodeAPIClient: Sendable {
         return try await getV2Session(sessionID: sessionID)
     }
 
+    func updateV2SessionMetadata(sessionID: String, metadata: [String: OpenCodeJSONValue]) async throws -> OpenCodeSession {
+        struct Update: Encodable { let metadata: [String: OpenCodeJSONValue] }
+        try await sendNoContent(path: "/api/session/\(sessionID)", method: "PATCH", body: Update(metadata: metadata))
+        return try await getV2Session(sessionID: sessionID)
+    }
+
     func forkV2Session(sessionID: String, messageID: String? = nil) async throws -> OpenCodeSession {
         let response: OpenCodeV2SessionResponse
         if v2Contract == .preview17155 {
@@ -1267,13 +1276,14 @@ struct OpenCodeAPIClient: Sendable {
         return OpenCodeV2SessionPage(sessions: response.data.map { $0.normalized() }, nextCursor: nextCursor)
     }
 
-    func createV2Session(title: String?, directory: String, workspaceID: String? = nil, agent: String? = nil, model: OpenCodeModelReference? = nil, variant: String? = nil) async throws -> OpenCodeSession {
+    func createV2Session(title: String?, directory: String, workspaceID: String? = nil, agent: String? = nil, model: OpenCodeModelReference? = nil, variant: String? = nil, metadata: [String: OpenCodeJSONValue]? = nil) async throws -> OpenCodeSession {
         let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let request = OpenCodeV2CreateSessionRequest(
             title: trimmedTitle?.isEmpty == false ? trimmedTitle : nil,
             location: .init(directory: directory, workspaceID: workspaceID),
             agent: agent,
-            model: model.map { OpenCodeV2ModelReference(providerID: $0.providerID, id: $0.modelID, variant: variant) }
+            model: model.map { OpenCodeV2ModelReference(providerID: $0.providerID, id: $0.modelID, variant: variant) },
+            metadata: metadata
         )
         let response: OpenCodeV2SessionResponse = try await send(path: "/api/session", method: "POST", body: request)
         return response.data.normalized()

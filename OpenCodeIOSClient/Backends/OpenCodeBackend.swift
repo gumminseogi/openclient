@@ -99,7 +99,7 @@ extension BackendConnection {
 }
 
 @MainActor
-final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsService, BackendChatService, BackendModelsService, BackendSessionViewingService {
+final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsService, BackendChatService, BackendModelsService, BackendSessionViewingService, BackendSessionAnnotationsService {
     let client: OpenCodeAPIClient
     let profile: OpenCodeAPIProfile
 
@@ -148,7 +148,8 @@ final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsServi
         if profile == .v2 {
             guard let directory = request.scope.directory, !directory.isEmpty else { throw BackendError.invalidScope }
             return try await client.createV2Session(title: request.title, directory: directory,
-                workspaceID: request.scope.workspaceID, agent: request.agent, model: request.model, variant: request.variant)
+                workspaceID: request.scope.workspaceID, agent: request.agent, model: request.model, variant: request.variant,
+                metadata: supportsSessionAnnotations ? ActivityWorkflowStatus.inProgress.merging(into: nil) : nil)
         }
         return try await client.createSession(title: request.title, directory: request.scope.directory)
     }
@@ -195,6 +196,13 @@ final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsServi
         // Cancellation before transmission is not an uncertain admission.
         try Task.checkCancellation()
         do {
+    var supportsSessionAnnotations: Bool { profile == .v2 && client.v2Contract != .preview17155 }
+
+    func setSessionMetadata(id: String, metadata: [String: OpenCodeJSONValue]) async throws -> OpenCodeSession {
+        guard supportsSessionAnnotations else { throw BackendError.unsupported(.sessionMetadata) }
+        return try await client.updateV2SessionMetadata(sessionID: id, metadata: metadata)
+    }
+
             if profile == .v2 {
                 let receipt = try await client.admitV2TextPrompt(sessionID: request.sessionID, messageID: request.messageID,
                     text: request.text, attachments: request.attachments, agentMentions: request.agentMentions,

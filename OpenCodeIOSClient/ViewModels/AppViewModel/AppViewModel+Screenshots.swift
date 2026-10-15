@@ -334,6 +334,11 @@ extension AppViewModel {
             text: "Pinned checklist for every release candidate review.",
             date: Date().addingTimeInterval(-345_600)
         )
+        if ProcessInfo.processInfo.environment["OPENCLIENT_WORKFLOW_MUTATION_FIXTURE"] == "1" {
+            let backend = ActivityWorkflowScreenshotBackend(projects: viewModel.projects,
+                stores: viewModel.directoryStoreRegistry.allStores)
+            viewModel.backendConnection = backend.connection()
+        }
         return viewModel
     }
 
