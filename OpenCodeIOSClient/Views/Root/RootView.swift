@@ -495,7 +495,8 @@ struct ChatRouteView<Destination: View>: View, Equatable {
     }
 }
 
-private struct ConnectionSheetBackdrop: View {
+struct ConnectionSheetBackdrop: View {
+    var motionDuration: Double = 12
     @State private var phase = false
 
     var body: some View {
@@ -519,7 +520,7 @@ private struct ConnectionSheetBackdrop: View {
         .blur(radius: 18)
         .saturation(1.15)
         .onAppear {
-            withAnimation(.easeInOut(duration: 12).repeatForever(autoreverses: true)) {
+            withAnimation(.easeInOut(duration: motionDuration).repeatForever(autoreverses: true)) {
                 phase = true
             }
         }

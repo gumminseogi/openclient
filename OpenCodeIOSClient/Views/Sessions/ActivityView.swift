@@ -174,16 +174,12 @@ private struct ActivitySettingsSheet: View {
         NavigationStack(path: $navigationPath) {
             Form {
                 Section {
-                    NavigationLink {
-                        RootConfigurationsView(facade: connection)
-                    } label: {
+                    NavigationLink(value: ConfigurationRoute.globalSettings) {
                         Label("Global Settings", systemImage: "gearshape")
                     }
                     .accessibilityIdentifier("activity.settings.global-settings")
 
-                    NavigationLink {
-                        ConfigurationsView(viewModel: configurations, connection: connection, bridge: bridge, navigationPath: $navigationPath)
-                    } label: {
+                    NavigationLink(value: ConfigurationRoute.connectionSettings) {
                         Label("Connection Settings", systemImage: "slider.horizontal.3")
                     }
                     .accessibilityIdentifier("activity.settings.configurations")
@@ -205,6 +201,7 @@ private struct ActivitySettingsSheet: View {
                 }
             }
             .navigationTitle("Activity Settings")
+            .configurationDestinations(viewModel: configurations, connection: connection, bridge: bridge, navigationPath: $navigationPath)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -212,6 +209,7 @@ private struct ActivitySettingsSheet: View {
                 }
             }
         }
+        .configurationLifecycle(viewModel: configurations, navigationPath: $navigationPath)
     }
 }
 
@@ -517,9 +515,9 @@ private struct ActivityContent: View, Equatable {
                     guard presentation == .fullContext else { return }
                     await facade.hydrateIfNeeded(row)
                 }
-                        ActivityWorkflowStatusMenu(facade: facade, row: row)
                 .contextMenu {
                     if !snapshot.isReadOnly {
+                        ActivityWorkflowStatusMenu(facade: facade, row: row)
                         markReadButton(for: row)
                         deleteButton(for: row)
                         renameButton(for: row)
@@ -824,9 +822,9 @@ struct ActivitySessionRow: View, Equatable {
             ActivityTranscriptLine(
                 label: latestLabel,
                 text: assistantText,
-            .accessibilityIdentifier("activity.session.\(row.recent.session.id).latest-assistant")
                 tint: row.isWorking ? .primary : .secondary
             )
+            .accessibilityIdentifier("activity.session.\(row.recent.session.id).latest-assistant")
         } else {
             Text("Open the session to see the conversation.")
                 .font(.subheadline)

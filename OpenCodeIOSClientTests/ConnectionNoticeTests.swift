@@ -1,8 +1,65 @@
 import XCTest
 @testable import OpenClient
 
+private final class ConnectionSchemeURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url else { return }
+        if url.host == "plain.example", url.scheme == "https" {
+            client?.urlProtocol(self, didFailWithError: URLError(.secureConnectionFailed))
+            return
+        }
+        let status = url.host == "auth.example" && url.scheme == "https" ? 401 : 200
+        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"healthy":true,"version":"1.0.0"}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 @MainActor
 final class ConnectionNoticeTests: XCTestCase {
+    func testMissingSchemeResolvesHTTPSOrHTTPAndPreservesPath() async throws {
+        for (host, scheme) in [("tls.example", "https"), ("plain.example", "http")] {
+            let connection = try await schemeFactory(address: "  \(host):4096/proxy  ").connect()
+            defer { connection.close() }
+            XCTAssertEqual(connection.openCodeCompatibility?.client.config.baseURL, "\(scheme)://\(host):4096/proxy")
+        }
+    }
+
+    func testExplicitHTTPSDoesNotFallBack() async {
+        do {
+            let connection = try await schemeFactory(address: "https://plain.example:4096").connect()
+            connection.close()
+            XCTFail("Explicit HTTPS must not fall back")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .secureConnectionFailed)
+        }
+    }
+
+    func testAuthenticationFailureDoesNotFallBack() async {
+        do {
+            let connection = try await schemeFactory(address: "auth.example:4096").connect()
+            connection.close()
+            XCTFail("Authentication failure must not fall back")
+        } catch {
+            guard case OpenCodeAPIError.httpError(401, _) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
+    private func schemeFactory(address: String) -> OpenCodeBackendFactory {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ConnectionSchemeURLProtocol.self]
+        return OpenCodeBackendFactory(
+            client: OpenCodeAPIClient(config: .init(baseURL: address, apiPreference: .legacy), session: URLSession(configuration: configuration)),
+            eventManager: OpenCodeEventManager()
+        )
+    }
+
     func testV2NoticeIsArmedOnlyAfterSuccessfulBootstrapAndHiddenWhileLoading() async {
         let model = AppViewModel(backendFactory: HomeTestBackend())
         let facade = model.connectionFacade

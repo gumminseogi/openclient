@@ -8,6 +8,43 @@ struct OpenCodeBackendFactory: BackendFactory {
     let eventManager: OpenCodeEventManager
 
     func connect() async throws -> BackendConnection {
+        let address = client.config.trimmedBaseURL
+        guard !address.isEmpty, !address.contains("://") else {
+            return try await connectExplicitAddress()
+        }
+        let host = address.hasPrefix("//") ? String(address.dropFirst(2)) : address
+        for scheme in ["https", "http"] {
+            try Task.checkCancellation()
+            var config = client.config
+            config.baseURL = "\(scheme)://\(host)"
+            let candidate = Self(
+                client: OpenCodeAPIClient(config: config, session: client.session, v2Contract: client.v2Contract),
+                eventManager: eventManager
+            )
+            do {
+                return try await candidate.connectExplicitAddress()
+            } catch {
+                try Task.checkCancellation()
+                // An HTTP response (including authentication errors) means the scheme worked.
+                // Only transport failures should cause a second attempt over HTTP.
+                guard scheme == "https", Self.canRetryOverHTTP(error) else { throw error }
+            }
+        }
+        throw OpenCodeAPIError.invalidResponse
+    }
+
+    private static func canRetryOverHTTP(_ error: Error) -> Bool {
+        if case OpenCodeAPIError.timedOut = error { return true }
+        guard let error = error as? URLError else { return false }
+        switch error.code {
+        case .secureConnectionFailed, .cannotConnectToHost, .networkConnectionLost, .timedOut:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func connectExplicitAddress() async throws -> BackendConnection {
         let profile: OpenCodeAPIProfile
         let version: String
         let healthy: Bool
@@ -159,6 +196,13 @@ final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsServi
         return try await client.updateSessionTitle(sessionID: id, title: title, directory: scope.directory, workspaceID: scope.workspaceID)
     }
 
+    var supportsSessionAnnotations: Bool { profile == .v2 && client.v2Contract != .preview17155 }
+
+    func setSessionMetadata(id: String, metadata: [String: OpenCodeJSONValue]) async throws -> OpenCodeSession {
+        guard supportsSessionAnnotations else { throw BackendError.unsupported(.sessionMetadata) }
+        return try await client.updateV2SessionMetadata(sessionID: id, metadata: metadata)
+    }
+
     func deleteSession(id: String, scope: BackendScope) async throws {
         if profile == .v2 { try await client.deleteV2Session(sessionID: id) }
         else { try await client.deleteSession(sessionID: id, directory: scope.directory, workspaceID: scope.workspaceID) }
@@ -196,13 +240,6 @@ final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsServi
         // Cancellation before transmission is not an uncertain admission.
         try Task.checkCancellation()
         do {
-    var supportsSessionAnnotations: Bool { profile == .v2 && client.v2Contract != .preview17155 }
-
-    func setSessionMetadata(id: String, metadata: [String: OpenCodeJSONValue]) async throws -> OpenCodeSession {
-        guard supportsSessionAnnotations else { throw BackendError.unsupported(.sessionMetadata) }
-        return try await client.updateV2SessionMetadata(sessionID: id, metadata: metadata)
-    }
-
             if profile == .v2 {
                 let receipt = try await client.admitV2TextPrompt(sessionID: request.sessionID, messageID: request.messageID,
                     text: request.text, attachments: request.attachments, agentMentions: request.agentMentions,

@@ -102,6 +102,12 @@ struct BackendModelCatalog: Sendable {
     func searchSessions(query: String, scope: BackendScope, limit: Int) async throws -> [OpenCodeSession]
 }
 
+@MainActor protocol BackendSessionActivityService: Sendable {
+    /// Complete current statuses within the requested scope; live changes arrive
+    /// through the connection's existing event source.
+    func sessionStatuses(scope: BackendScope) async throws -> [String: String]
+}
+
 @MainActor protocol BackendChatService: Sendable {
     func transcript(sessionID: String, scope: BackendScope, cursor: String?, limit: Int) async throws -> BackendTranscriptPage
     func submit(_ request: BackendSubmission) async throws -> BackendAdmission
@@ -150,6 +156,7 @@ final class BackendConnection {
     let worktrees: (any BackendWorktreesService)?
     let worktreeReset: (any BackendWorktreeResetService)?
     let sessionSelection: (any BackendSessionSelectionService)?
+    let sessionActivity: (any BackendSessionActivityService)?
     private(set) var isClosed = false
     private var subscribers: [UUID: AsyncStream<BackendEvent>.Continuation] = [:]
     private var eventGeneration = 0
@@ -168,7 +175,8 @@ final class BackendConnection {
         projectLifecycle: (any BackendProjectLifecycleService)? = nil,
         worktrees: (any BackendWorktreesService)? = nil,
         worktreeReset: (any BackendWorktreeResetService)? = nil,
-        sessionSelection: (any BackendSessionSelectionService)? = nil
+        sessionSelection: (any BackendSessionSelectionService)? = nil,
+        sessionActivity: (any BackendSessionActivityService)? = nil
     ) {
         self.descriptor = descriptor
         self.capabilities = capabilities
@@ -184,6 +192,7 @@ final class BackendConnection {
         self.worktrees = worktrees
         self.worktreeReset = worktreeReset
         self.sessionSelection = sessionSelection
+        self.sessionActivity = sessionActivity
     }
 
     func require(_ capability: BackendCapability) throws {

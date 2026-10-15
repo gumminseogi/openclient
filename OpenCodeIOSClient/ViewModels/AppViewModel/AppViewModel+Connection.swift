@@ -98,6 +98,9 @@ extension AppViewModel {
             applyConnection: { connection in
                 guard self.isCurrentConnectionAttempt(attemptID), Task.isCancelled == false else { return }
                 backendConnection = connection
+                if let resolvedConfig = connection.openCodeCompatibility?.client.config {
+                    config.baseURL = resolvedConfig.baseURL
+                }
                 if connection.openCodeCompatibility == nil {
                     directoryStoreRegistry.reset()
                     modelConfigurationStore.reset()

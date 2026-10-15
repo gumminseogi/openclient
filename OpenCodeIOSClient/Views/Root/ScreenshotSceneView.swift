@@ -79,7 +79,9 @@ struct ScreenshotSceneView: View {
             }
         case .chat:
             #if os(iOS) && !targetEnvironment(macCatalyst)
-            if #available(iOS 18.0, *), ProcessInfo.processInfo.environment["OPENCLIENT_GLASS_PILL_PREVIEW"] == "1" {
+            if #available(iOS 18.0, *), ProcessInfo.processInfo.environment["OPENCLIENT_NATIVE_HARNESS_LOOP"] == "1" {
+                NativeHarnessLoopFixture()
+            } else if #available(iOS 18.0, *), ProcessInfo.processInfo.environment["OPENCLIENT_GLASS_PILL_PREVIEW"] == "1" {
                 GlassThinkingPillPreview()
             } else if ProcessInfo.processInfo.environment["OPENCLIENT_CHAT_CONTROLS_PREVIEW"] == "1" {
                 WhatsNewChatControlsFixture()
@@ -167,6 +169,167 @@ struct ScreenshotSceneView: View {
         }
     }
 
+}
+
+/// Marketing capture fixture: production transcript and RealityKit views, native animations.
+/// The tiny corner cue is outside the final center crop and synchronizes host video trimming.
+@available(iOS 18.0, *)
+private struct NativeHarnessLoopFixture: View {
+    @State private var showsMessage = false
+    @State private var scrollsMessage = false
+    @State private var showsThinking = false
+    @State private var cue = false
+    @State private var cycle = 0
+    @State private var statusIndex = 0
+    private let headerOnly = ProcessInfo.processInfo.environment["OPENCLIENT_NATIVE_HARNESS_HEADER"] == "1"
+    private let statuses: [ThinkingPillStatus] = [
+        ThinkingPillStatus(title: "Thinking", tint: .cyan),
+        ThinkingPillStatus(title: "Working", tint: .orange),
+        ThinkingPillStatus(title: "Needs Input", tint: .orange),
+        ThinkingPillStatus(title: "Ready", tint: .green)
+    ]
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                ConnectionSheetBackdrop(motionDuration: 6)
+                ZStack {
+                    if showsMessage && !headerOnly {
+                        NativeHarnessMovingMessage(scrollsAway: scrollsMessage)
+                            .id(cycle)
+                            .frame(width: 260)
+                            // Move the complete rendered bubble, including its text and glass.
+                            .geometryGroup()
+                            .compositingGroup()
+                            .scaleEffect(2.1)
+                            .offset(x: -36)
+                            .transition(.offset(y: 110).combined(with: .scale(scale: 0.86)).combined(with: .opacity))
+                    }
+                    // Keep RealityKit mounted and rendering before the reveal.
+                    GlassThinkingPill(title: statuses[statusIndex].title, tint: statuses[statusIndex].tint, maximumDimension: 108)
+                        .opacity(headerOnly || showsThinking ? 1 : 0)
+                        .scaleEffect(headerOnly || showsThinking ? 1 : 0.86)
+                        // The production camera is offset for the status text. Center
+                        // the visible capsule in the header and clear the store controls.
+                        .offset(x: headerOnly ? 22 : 0,
+                                y: headerOnly ? 20 : (showsThinking ? 0 : 55))
+                }
+                .frame(width: 720, height: 310)
+                .scaleEffect(geometry.size.width / 720)
+                .frame(width: geometry.size.width, height: geometry.size.height)
+            }
+            .overlay(alignment: .topLeading) {
+                (cue ? Color(red: 1, green: 0, blue: 1) : Color.black)
+                    .frame(width: 16, height: 16)
+                    .padding(40)
+                    .accessibilityIdentifier(cue ? "harness.cycle.start" : "harness.cycle.wait")
+            }
+            .clipped()
+        }
+        .ignoresSafeArea()
+        .statusBarHidden()
+        .persistentSystemOverlays(.hidden)
+        .preferredColorScheme(.dark)
+        .environment(\.appAccentColor, .blue)
+        .environment(\.appAccentForeground, .white)
+        .environment(\.chatBubbleStyle, .glass)
+        .task {
+            do {
+                try await Task.sleep(for: .seconds(5))
+                while !Task.isCancelled {
+                    cycle += 1
+                    cue = true
+                    if headerOnly {
+                        statusIndex = 0
+                        try await Task.sleep(for: .seconds(0.4))
+                        cue = false
+                        try await Task.sleep(for: .seconds(2.6))
+                        for index in 1..<statuses.count {
+                            statusIndex = index
+                            try await Task.sleep(for: .seconds(3))
+                        }
+                        continue
+                    }
+                    try await Task.sleep(for: .seconds(0.4))
+                    cue = false
+                    withAnimation(.spring(response: 0.65, dampingFraction: 0.82)) { showsMessage = true }
+                    try await Task.sleep(for: .seconds(3.6))
+                    withAnimation(.easeInOut(duration: 1.2)) { scrollsMessage = true }
+                    try await Task.sleep(for: .seconds(0.55))
+                    withAnimation(.spring(response: 0.8, dampingFraction: 0.85)) { showsThinking = true }
+                    try await Task.sleep(for: .seconds(5.0))
+                    withAnimation(.easeInOut(duration: 1.0)) { showsThinking = false }
+                    try await Task.sleep(for: .seconds(1.1))
+                    showsMessage = false
+                    scrollsMessage = false
+                    try await Task.sleep(for: .seconds(1.35))
+                }
+            } catch { /* The capture scene was dismissed. */ }
+        }
+    }
+}
+
+/// Animate the hosting surface as one UIKit layer so native glass and text cannot
+/// resolve the scrolling geometry independently.
+private struct NativeHarnessMovingMessage: UIViewRepresentable {
+    let scrollsAway: Bool
+
+    @MainActor final class Coordinator {
+        let host = UIHostingController(rootView: NativeHarnessMessage())
+        var scrollsAway = false
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView()
+        let hosted = context.coordinator.host.view!
+        hosted.backgroundColor = .clear
+        hosted.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(hosted)
+        NSLayoutConstraint.activate([
+            hosted.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            hosted.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            hosted.topAnchor.constraint(equalTo: container.topAnchor),
+            hosted.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+        return container
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIView, context: Context) -> CGSize? {
+        context.coordinator.host.sizeThatFits(in: CGSize(width: proposal.width ?? 260, height: 1000))
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        guard context.coordinator.scrollsAway != scrollsAway else { return }
+        context.coordinator.scrollsAway = scrollsAway
+        UIView.animate(withDuration: 1.2, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState]) {
+            context.coordinator.host.view.transform = self.scrollsAway
+                ? CGAffineTransform(translationX: 0, y: -420 / 2.1) : .identity
+        }
+    }
+}
+
+private struct NativeHarnessMessage: View {
+    @State private var images = OpenClientImageLoadingStore()
+    @State private var videos = OpenClientVideoPlaybackStore()
+    private let message = OpenCodeMessageEnvelope.local(
+        role: "user", text: "What if iOS had an AI Harness?",
+        messageID: "harness-prompt", sessionID: "harness-capture")
+
+    var body: some View {
+        MessageBubble(
+            message: message, detailedMessage: nil, currentSessionID: "harness-capture",
+            isStreamingMessage: false, animatesStreamingText: false, showsToolCalls: false,
+            hidesReasoningBlocks: true, reserveEntryFromComposer: false, animateEntryFromComposer: false,
+            expandedReasoningPartIDs: [], expandedContextGroupIDs: [], showsAllActivity: true,
+            resolveTaskSessionID: { _, _ in nil }, onSelectPart: { _ in }, onOpenTaskSession: { _ in },
+            onForkMessage: { _ in }, onInspectDebugMessage: { _ in }, onEntryAnimationStarted: { _ in },
+            onToggleReasoningPart: { _ in }, onToggleContextGroup: { _ in }, onShowEarlierActivity: {},
+            onOpenVisualHTML: { _ in }, imageContent: nil, imageLoadingStore: images,
+            videoStreams: nil, videoPlaybackStore: videos
+        )
+    }
 }
 
 private struct V2RecoveryWindowScreenshot: View {

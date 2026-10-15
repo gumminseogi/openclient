@@ -291,9 +291,11 @@ final class ActivityFacade: ObservableObject {
     private var preparedConnectionID: UUID?
     private var hasCompletedPreparation = false
 
-    // Status hydration is still an OpenCode compatibility service, not a core backend contract.
+    // Sessions and transcripts are core backend services. Optional interaction
+    // metadata is hydrated only when the backend exposes it.
     var isAvailable: Bool {
         viewModel.isBrowsingLocalCache || viewModel.compatibilityClient(for: .interactions) != nil
+            || (viewModel.isConnected && viewModel.backendConnection?.isClosed == false && viewModel.backendConnection?.sessionActivity != nil)
     }
     var allowsLiveActivities: Bool {
         !viewModel.isBrowsingLocalCache && viewModel.liveActivityFacade.supportsLiveActivities
@@ -302,17 +304,17 @@ final class ActivityFacade: ObservableObject {
 
     init(viewModel: AppViewModel, workflow: ActivityWorkflowStore? = nil) {
         self.viewModel = viewModel
-        snapshot = makeSnapshot()
-        presentationMetadata = makePresentationMetadata()
         #if DEBUG
         self.workflow = workflow ?? ActivityWorkflowStore(persists: ProcessInfo.processInfo.environment["OPENCLIENT_SCREENSHOT_SCENE"] == nil)
         #else
         self.workflow = workflow ?? ActivityWorkflowStore()
         #endif
-
-        Publishers.MergeMany([
+        snapshot = makeSnapshot()
+        presentationMetadata = makePresentationMetadata()
         self.workflow.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &observations)
+
+        Publishers.MergeMany([
             viewModel.sessionListStore.objectWillChange.eraseToAnyPublisher(),
             viewModel.projectActionStore.objectWillChange.eraseToAnyPublisher(),
             viewModel.projectStore.objectWillChange.eraseToAnyPublisher(),
@@ -333,8 +335,6 @@ final class ActivityFacade: ObservableObject {
         liveActivityBackgroundBridge = bridge
     }
 
-    func prepareForPresentation(force: Bool = false) async {
-        guard isAvailable else { return }
     func workflowDragToken(for row: RowSnapshot) -> String {
         "openclient-workflow:\(viewModel.backendConnection?.id.uuidString ?? "offline"):\(row.id)"
     }
@@ -347,6 +347,8 @@ final class ActivityFacade: ObservableObject {
         return true
     }
 
+    func prepareForPresentation(force: Bool = false) async {
+        guard isAvailable else { return }
         let connectionID = viewModel.backendConnection?.id
         if !force, let preparationTask {
             await preparationTask.value
@@ -667,8 +669,8 @@ final class ActivityFacade: ObservableObject {
         }
 
         guard isAvailable, viewModel.isConnected,
-              let connection = try? viewModel.requireBackendConnection(),
-              let client = try? connection.requireOpenCodeClient(for: .interactions) else { return }
+               let connection = try? viewModel.requireBackendConnection() else { return }
+        let client = try? connection.requireOpenCodeClient(for: .interactions)
         let directory = monitoringDirectory(for: session)
         let store = viewModel.directoryStoreRegistry.store(for: directory)
         let permissionRevision = store.permissionRevision
@@ -686,7 +688,7 @@ final class ActivityFacade: ObservableObject {
 
         async let canonicalSession = try? await connection.sessions.session(id: session.id, scope: scope)
         async let messages = try? await connection.chat.transcript(sessionID: session.id, scope: scope, cursor: nil, limit: 20)
-        async let todos: [OpenCodeTodo]? = isV2 ? nil : try? await client.getTodos(sessionID: session.id)
+        async let todos: [OpenCodeTodo]? = isV2 ? nil : try? await client?.getTodos(sessionID: session.id)
         async let metadata = directoryMetadata(directory: directory, connection: connection)
         let result = await (canonicalSession, messages, todos, metadata)
 
@@ -763,7 +765,10 @@ final class ActivityFacade: ObservableObject {
         }
 
         guard let client = try? connection.requireOpenCodeClient(for: .interactions) else {
-            return DirectoryMetadataResult(statuses: nil, permissions: nil, questions: nil)
+            let owner = viewModel.directoryStoreRegistry.store(for: directory)
+            let revision = owner.statusRevision
+            let statuses = try? await connection.sessionActivity?.sessionStatuses(scope: .init(directory: directory))
+            return DirectoryMetadataResult(statuses: statuses, permissions: nil, questions: nil, statusRevision: revision)
         }
         let isV2 = connection.openCodeCompatibility?.profile == .v2
         let owner = viewModel.directoryStoreRegistry.store(for: directory)
@@ -1003,12 +1008,12 @@ final class ActivityFacade: ObservableObject {
             parentID: session.parentID
         )
         attributed.time = session.time
+        attributed.metadata = session.metadata
         return attributed
     }
 
     private func latestText(in messages: [OpenCodeMessage], owner: DirectoryStore?, sessionID: String, role: String) -> String? {
         let key = PreviewKey(sessionID: sessionID, role: role)
-        attributed.metadata = session.metadata
         for message in messages.reversed() where message.role?.lowercased() == role {
             let parts = owner?.syncState.partsByMessageID[message.id] ?? []
             var textParts = parts.filter { $0.type == "text" }.compactMap(\.text)
