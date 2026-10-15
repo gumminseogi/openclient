@@ -99,6 +99,8 @@ struct OpenCodeSession: Codable, Identifiable, Hashable, Sendable {
     var time: OpenCodeMessageTime? = nil
     var agent: String? = nil
     var model: OpenCodeMessageModelReference? = nil
+    /// Opaque, durable annotations supplied by V2 clients.
+    var metadata: [String: OpenCodeJSONValue]? = nil
 
     var isRootSession: Bool {
         parentID == nil
@@ -162,6 +164,7 @@ struct OpenCodeSession: Codable, Identifiable, Hashable, Sendable {
         session.time = incoming.time ?? time
         session.agent = incoming.agent ?? agent
         session.model = incoming.model ?? model
+        session.metadata = incoming.metadata ?? metadata
         return session
     }
 }

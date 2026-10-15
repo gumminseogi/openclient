@@ -70,7 +70,7 @@ final class DirectoryStoreRegistry: ObservableObject {
     func recordV2LifecycleEvent(_ event: OpenCodeV2ManagedEvent) {
         if event.type.hasPrefix("project.") || event.type.hasPrefix("worktree.") { v2ProjectRevision &+= 1 }
         guard let id = event.sessionID,
-              ["session.created", "session.deleted", "session.moved", "session.renamed", "session.forked", "session.viewed"].contains(event.type) else { return }
+              ["session.created", "session.deleted", "session.moved", "session.renamed", "session.forked", "session.viewed", "session.metadata.updated"].contains(event.type) else { return }
         if event.type == "session.deleted" {
             markV2SessionDeleted(id)
             return
@@ -815,6 +815,16 @@ final class DirectoryStore: ObservableObject {
             return true
         }
         switch event.type {
+        case "session.metadata.updated":
+            guard let metadata = data["metadata"]?.objectValue,
+                  var session = sessions.first(where: { $0.id == sessionID }) else { return false }
+            session.metadata = metadata
+            let time = session.time
+            session.time = .init(created: time?.created, updated: event.created ?? time?.updated,
+                completed: time?.completed, archived: time?.archived, streamed: time?.streamed,
+                idle: time?.idle, viewed: time?.viewed)
+            insertV2Session(session)
+            return true
         case "session.viewed":
             guard let idle = data["idle"]?.doubleValue,
                   let session = sessions.first(where: { $0.id == sessionID }) else { return false }
@@ -842,6 +852,7 @@ final class DirectoryStore: ObservableObject {
                 idle: previous?.time?.idle, viewed: previous?.time?.viewed)
             session.agent = previous?.agent
             session.model = previous?.model
+            session.metadata = data["metadata"]?.objectValue ?? previous?.metadata
             insertV2Session(session)
             return true
         case "session.deleted":

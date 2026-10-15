@@ -130,6 +130,112 @@ final class ActivityFacade: ObservableObject {
     }
 
     @Published private(set) var snapshot = Snapshot.empty
+    let workflow: ActivityWorkflowStore
+    @Published private(set) var updatingWorkflowSessionIDs: Set<String> = []
+    @Published var workflowError: String?
+    @Published private(set) var isManagingWorkflowStatus = false
+
+    private var workflowServerID: String {
+        viewModel.backendConnection?.openCodeCompatibility?.client.config.recentServerID
+            ?? viewModel.backendConnection?.descriptor.id ?? viewModel.config.recentServerID
+    }
+
+    var workflowStatuses: [ActivityWorkflowStatus] {
+        workflow.statuses(in: workflowRows.map(\.recent.session), serverID: workflowServerID)
+    }
+
+    private var workflowRows: [RowSnapshot] {
+        (snapshot.needsInputRows + snapshot.workingRows + snapshot.recentRows)
+            .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+    }
+
+    func workflowStatus(for row: RowSnapshot) -> ActivityWorkflowStatus {
+        workflow.status(for: row.recent.session, serverID: workflowServerID)
+    }
+
+    struct WorkflowSection: Identifiable {
+        let status: ActivityWorkflowStatus
+        let rows: [RowSnapshot]
+        var id: String { status.id }
+    }
+
+    func workflowSections(excluding projects: Set<String>, search: String) -> [WorkflowSection] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        var seen = Set<String>()
+        let rows = workflowRows.filter { row in
+            guard seen.insert(row.id).inserted, !projects.contains(row.projectID) else { return false }
+            return query.isEmpty || [row.recent.session.title, row.recent.projectTitle,
+                row.latestUserText, row.latestAssistantText, row.statusTitle, workflowStatus(for: row).title]
+                .compactMap { $0 }.contains { $0.localizedCaseInsensitiveContains(query) }
+        }
+        return workflowStatuses.filter { workflow.showsArchived || $0.id != ActivityWorkflowStatus.archived.id }
+            .map { status in WorkflowSection(status: status, rows: rows.filter { workflowStatus(for: $0).id == status.id }) }
+    }
+
+    func setWorkflowStatus(_ status: ActivityWorkflowStatus, for row: RowSnapshot) async {
+        guard !snapshot.isReadOnly, !isManagingWorkflowStatus, let connection = viewModel.backendConnection,
+              updatingWorkflowSessionIDs.insert(row.recent.session.id).inserted else { return }
+        let serverID = workflowServerID
+        defer { updatingWorkflowSessionIDs.remove(row.recent.session.id) }
+        do {
+            let updated = try await ActivityWorkflowCoordinator.assign(status, to: row.recent.session, connection: connection)
+            guard viewModel.backendConnection?.id == connection.id, !connection.isClosed,
+                  !viewModel.directoryStoreRegistry.isV2SessionDeleted(row.recent.session.id) else { return }
+            if let updated {
+                viewModel.directoryStoreRegistry.targetStore(forV2Session: updated).insertV2Session(updated)
+                refreshSnapshot()
+            } else {
+                workflow.assignLocally(status, sessionID: row.recent.session.id, serverID: serverID)
+            }
+        } catch {
+            guard viewModel.backendConnection?.id == connection.id else { return }
+            workflowError = error.localizedDescription
+        }
+    }
+
+    func editWorkflowStatus(_ status: ActivityWorkflowStatus, name: String, symbol: String, color: String) async throws {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !status.isBuiltIn, !name.isEmpty, ActivityWorkflowStatus.symbols.contains(symbol),
+              ActivityWorkflowStatus.colors.contains(color) else { throw BackendError.invalidScope }
+        let updated = ActivityWorkflowStatus(id: status.id, name: name, symbol: symbol, color: color)
+        try await replaceWorkflowStatus(status, with: updated, deleting: false)
+    }
+
+    func deleteWorkflowStatus(_ status: ActivityWorkflowStatus, replacement: ActivityWorkflowStatus) async throws {
+        guard !status.isBuiltIn, workflow.resolve(replacement).id != status.id else { throw BackendError.invalidScope }
+        try await replaceWorkflowStatus(status, with: workflow.resolve(replacement), deleting: true)
+    }
+
+    private func replaceWorkflowStatus(_ source: ActivityWorkflowStatus, with target: ActivityWorkflowStatus, deleting: Bool) async throws {
+        guard !snapshot.isReadOnly, !isManagingWorkflowStatus, updatingWorkflowSessionIDs.isEmpty,
+              workflow.resolve(source).id == source.id,
+              let connection = viewModel.backendConnection, !connection.isClosed else { throw BackendError.disconnected }
+        isManagingWorkflowStatus = true
+        defer { isManagingWorkflowStatus = false }
+        let serverID = workflowServerID
+        let sessions = try await ActivityWorkflowCoordinator.sessions(connection: connection, scopes: viewModel.homeSessionScopes)
+        for session in sessions where workflow.status(for: session, serverID: serverID).id == source.id {
+            try Task.checkCancellation()
+            guard viewModel.backendConnection?.id == connection.id, !connection.isClosed else { throw BackendError.disconnected }
+            let updated = try await ActivityWorkflowCoordinator.assign(target, to: session, connection: connection) {
+                self.workflow.status(for: $0, serverID: serverID).id == source.id
+            }
+            guard viewModel.backendConnection?.id == connection.id, !connection.isClosed else { throw BackendError.disconnected }
+            if let updated {
+                guard !viewModel.directoryStoreRegistry.isV2SessionDeleted(updated.id) else { continue }
+                viewModel.directoryStoreRegistry.targetStore(forV2Session: updated).insertV2Session(updated)
+                refreshSnapshot()
+            } else {
+                workflow.assignLocally(target, sessionID: session.id, serverID: serverID)
+            }
+        }
+        guard viewModel.backendConnection?.id == connection.id, !connection.isClosed else { throw BackendError.disconnected }
+        // Commit the vocabulary only after all writes succeed. On failure, keep
+        // the source available; retry enumerates only sessions still using it.
+        if deleting { _ = workflow.deleteStatus(source, replacingWith: target) }
+        else { _ = workflow.updateStatus(target) }
+        refreshSnapshot()
+    }
 
     var sessionSwitcherCandidates: [OpenCodeSession] {
         recentChatRows.map(\.recent.session)
@@ -194,12 +300,19 @@ final class ActivityFacade: ObservableObject {
     }
     var allowsNewTalk: Bool { viewModel.projectFacade.allowsNewTalk }
 
-    init(viewModel: AppViewModel) {
+    init(viewModel: AppViewModel, workflow: ActivityWorkflowStore? = nil) {
         self.viewModel = viewModel
         snapshot = makeSnapshot()
         presentationMetadata = makePresentationMetadata()
+        #if DEBUG
+        self.workflow = workflow ?? ActivityWorkflowStore(persists: ProcessInfo.processInfo.environment["OPENCLIENT_SCREENSHOT_SCENE"] == nil)
+        #else
+        self.workflow = workflow ?? ActivityWorkflowStore()
+        #endif
 
         Publishers.MergeMany([
+        self.workflow.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &observations)
             viewModel.sessionListStore.objectWillChange.eraseToAnyPublisher(),
             viewModel.projectActionStore.objectWillChange.eraseToAnyPublisher(),
             viewModel.projectStore.objectWillChange.eraseToAnyPublisher(),
@@ -222,6 +335,18 @@ final class ActivityFacade: ObservableObject {
 
     func prepareForPresentation(force: Bool = false) async {
         guard isAvailable else { return }
+    func workflowDragToken(for row: RowSnapshot) -> String {
+        "openclient-workflow:\(viewModel.backendConnection?.id.uuidString ?? "offline"):\(row.id)"
+    }
+
+    func dropWorkflowSessions(_ tokens: [String], into status: ActivityWorkflowStatus) -> Bool {
+        guard !snapshot.isReadOnly, !isManagingWorkflowStatus else { return false }
+        let rows = workflowRows.filter { tokens.contains(workflowDragToken(for: $0)) }
+        guard !rows.isEmpty else { return false }
+        Task { for row in rows { await setWorkflowStatus(status, for: row) } }
+        return true
+    }
+
         let connectionID = viewModel.backendConnection?.id
         if !force, let preparationTask {
             await preparationTask.value
@@ -883,6 +1008,7 @@ final class ActivityFacade: ObservableObject {
 
     private func latestText(in messages: [OpenCodeMessage], owner: DirectoryStore?, sessionID: String, role: String) -> String? {
         let key = PreviewKey(sessionID: sessionID, role: role)
+        attributed.metadata = session.metadata
         for message in messages.reversed() where message.role?.lowercased() == role {
             let parts = owner?.syncState.partsByMessageID[message.id] ?? []
             var textParts = parts.filter { $0.type == "text" }.compactMap(\.text)

@@ -1,4 +1,5 @@
 import UIKit
+import SwiftUI
 import XCTest
 @testable import OpenClient
 
@@ -146,6 +147,27 @@ final class ActivityPreviewLayoutTests: XCTestCase {
         XCTAssertNotEqual(row, withFeedback)
         XCTAssertEqual(withFeedback, ActivitySessionRow(row: snapshot, showsLastUserMessage: true, selectionFeedback: feedback))
         XCTAssertNotEqual(withFeedback, ActivitySessionRow(row: snapshot, showsLastUserMessage: true, selectionFeedback: SessionSelectionFeedback()))
+    }
+
+    func testSameSessionExpandsFromSummaryAndKeepsPreviewAtNarrowWidths() {
+        let snapshot = makeRowSnapshot(text: "The latest assistant message must remain visible after reopening this work.")
+        let host = UIHostingController(rootView: ActivitySessionRow(
+            row: snapshot, showsLastUserMessage: false, presentation: .summary))
+        host.loadViewIfNeeded()
+        let archived = host.sizeThatFits(in: CGSize(width: 400, height: 1_000))
+
+        // Keep the same session identity while changing only its presentation.
+        host.rootView = ActivitySessionRow(row: snapshot, showsLastUserMessage: false, presentation: .fullContext)
+        let expanded = host.sizeThatFits(in: CGSize(width: 400, height: 1_000))
+        XCTAssertGreaterThan(expanded.height, archived.height + 30, "In Progress must make room for the two-line preview")
+
+        // Force ViewThatFits to use the stacked header. Narrowing an expanded
+        // card must not make it shorter by silently removing the message preview.
+        let narrow = host.sizeThatFits(in: CGSize(width: 180, height: 1_000))
+        XCTAssertGreaterThanOrEqual(narrow.height, expanded.height)
+
+        host.rootView = ActivitySessionRow(row: snapshot, showsLastUserMessage: false, presentation: .summary)
+        XCTAssertEqual(host.sizeThatFits(in: CGSize(width: 400, height: 1_000)).height, archived.height, accuracy: 1)
     }
 
     func testPerformanceLongGrowingAnswers() {
