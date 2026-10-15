@@ -159,6 +159,13 @@ final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsServi
         return try await client.updateSessionTitle(sessionID: id, title: title, directory: scope.directory, workspaceID: scope.workspaceID)
     }
 
+    var supportsSessionAnnotations: Bool { profile == .v2 && client.v2Contract != .preview17155 }
+
+    func setSessionMetadata(id: String, metadata: [String: OpenCodeJSONValue]) async throws -> OpenCodeSession {
+        guard supportsSessionAnnotations else { throw BackendError.unsupported(.sessionMetadata) }
+        return try await client.updateV2SessionMetadata(sessionID: id, metadata: metadata)
+    }
+
     func deleteSession(id: String, scope: BackendScope) async throws {
         if profile == .v2 { try await client.deleteV2Session(sessionID: id) }
         else { try await client.deleteSession(sessionID: id, directory: scope.directory, workspaceID: scope.workspaceID) }
@@ -196,13 +203,6 @@ final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsServi
         // Cancellation before transmission is not an uncertain admission.
         try Task.checkCancellation()
         do {
-    var supportsSessionAnnotations: Bool { profile == .v2 && client.v2Contract != .preview17155 }
-
-    func setSessionMetadata(id: String, metadata: [String: OpenCodeJSONValue]) async throws -> OpenCodeSession {
-        guard supportsSessionAnnotations else { throw BackendError.unsupported(.sessionMetadata) }
-        return try await client.updateV2SessionMetadata(sessionID: id, metadata: metadata)
-    }
-
             if profile == .v2 {
                 let receipt = try await client.admitV2TextPrompt(sessionID: request.sessionID, messageID: request.messageID,
                     text: request.text, attachments: request.attachments, agentMentions: request.agentMentions,

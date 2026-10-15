@@ -518,9 +518,9 @@ private struct ActivityContent: View, Equatable {
                     guard presentation == .fullContext else { return }
                     await facade.hydrateIfNeeded(row)
                 }
-                        ActivityWorkflowStatusMenu(facade: facade, row: row)
                 .contextMenu {
                     if !snapshot.isReadOnly {
+                        ActivityWorkflowStatusMenu(facade: facade, row: row)
                         markReadButton(for: row)
                         deleteButton(for: row)
                         renameButton(for: row)
@@ -838,9 +838,9 @@ struct ActivitySessionRow: View, Equatable {
             ActivityTranscriptLine(
                 label: latestLabel,
                 text: assistantText,
-            .accessibilityIdentifier("activity.session.\(row.recent.session.id).latest-assistant")
                 tint: row.isWorking ? .primary : .secondary
             )
+            .accessibilityIdentifier("activity.session.\(row.recent.session.id).latest-assistant")
         } else {
             Text("Open the session to see the conversation.")
                 .font(.subheadline)

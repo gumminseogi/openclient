@@ -302,17 +302,17 @@ final class ActivityFacade: ObservableObject {
 
     init(viewModel: AppViewModel, workflow: ActivityWorkflowStore? = nil) {
         self.viewModel = viewModel
-        snapshot = makeSnapshot()
-        presentationMetadata = makePresentationMetadata()
         #if DEBUG
         self.workflow = workflow ?? ActivityWorkflowStore(persists: ProcessInfo.processInfo.environment["OPENCLIENT_SCREENSHOT_SCENE"] == nil)
         #else
         self.workflow = workflow ?? ActivityWorkflowStore()
         #endif
-
-        Publishers.MergeMany([
+        snapshot = makeSnapshot()
+        presentationMetadata = makePresentationMetadata()
         self.workflow.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &observations)
+
+        Publishers.MergeMany([
             viewModel.sessionListStore.objectWillChange.eraseToAnyPublisher(),
             viewModel.projectActionStore.objectWillChange.eraseToAnyPublisher(),
             viewModel.projectStore.objectWillChange.eraseToAnyPublisher(),
@@ -333,8 +333,6 @@ final class ActivityFacade: ObservableObject {
         liveActivityBackgroundBridge = bridge
     }
 
-    func prepareForPresentation(force: Bool = false) async {
-        guard isAvailable else { return }
     func workflowDragToken(for row: RowSnapshot) -> String {
         "openclient-workflow:\(viewModel.backendConnection?.id.uuidString ?? "offline"):\(row.id)"
     }
@@ -347,6 +345,8 @@ final class ActivityFacade: ObservableObject {
         return true
     }
 
+    func prepareForPresentation(force: Bool = false) async {
+        guard isAvailable else { return }
         let connectionID = viewModel.backendConnection?.id
         if !force, let preparationTask {
             await preparationTask.value
@@ -1007,12 +1007,12 @@ final class ActivityFacade: ObservableObject {
             parentID: session.parentID
         )
         attributed.time = session.time
+        attributed.metadata = session.metadata
         return attributed
     }
 
     private func latestText(in messages: [OpenCodeMessage], owner: DirectoryStore?, sessionID: String, role: String) -> String? {
         let key = PreviewKey(sessionID: sessionID, role: role)
-        attributed.metadata = session.metadata
         for message in messages.reversed() where message.role?.lowercased() == role {
             let parts = owner?.syncState.partsByMessageID[message.id] ?? []
             var textParts = parts.filter { $0.type == "text" }.compactMap(\.text)

@@ -5,7 +5,7 @@ import Foundation
 /// moves in screenshot UI tests. It follows the same coordinator/store path as a server.
 @MainActor
 final class ActivityWorkflowScreenshotBackend: BackendProjectsService, BackendSessionsService,
-    BackendChatService, BackendModelsService, BackendEventSource, BackendSessionActivityService,
+    BackendChatService, BackendModelsService, BackendEventSource,
     BackendSessionAnnotationsService {
     private let projects: [OpenCodeProject]
     private var records: [String: OpenCodeSession]
@@ -28,7 +28,7 @@ final class ActivityWorkflowScreenshotBackend: BackendProjectsService, BackendSe
 
     func connection() -> BackendConnection {
         BackendConnection(descriptor: .init(id: "workflow-fixture", name: "Workflow Fixture", version: "1"),
-            projects: self, sessions: self, chat: self, models: self, events: self, sessionActivity: self)
+            projects: self, sessions: self, chat: self, models: self, events: self)
     }
 
     func projectsSnapshot() async throws -> BackendProjectsSnapshot { .init(projects: projects) }
@@ -54,7 +54,6 @@ final class ActivityWorkflowScreenshotBackend: BackendProjectsService, BackendSe
     func transcript(sessionID: String, scope: BackendScope, cursor: String?, limit: Int) async throws -> BackendTranscriptPage {
         .init(messages: messages[sessionID] ?? [])
     }
-    func sessionStatuses(scope: BackendScope) async throws -> [String: String] { records.mapValues { _ in "idle" } }
     func modelCatalog(scope: BackendScope) async throws -> BackendModelCatalog { .init() }
     func start(receive: @escaping @MainActor (BackendEvent) -> Void) { self.receive = receive }
     func stop() { receive = nil }
