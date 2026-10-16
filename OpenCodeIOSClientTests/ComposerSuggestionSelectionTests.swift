@@ -2,6 +2,42 @@ import XCTest
 @testable import OpenClient
 
 final class ComposerSuggestionSelectionTests: XCTestCase {
+    func testMentionsRankExactThenPrefixThenOtherMatchesAcrossAgentsAndSkills() {
+        let agents = ["misread", "read-zebra", "read"].map {
+            OpenCodeAgent(name: $0, description: nil, mode: "subagent", hidden: false, model: nil, variant: nil)
+        }
+        let skills = [
+            OpenCodeSkill(id: "z-display-exact", name: "READ", description: nil, autoinvoke: false),
+            OpenCodeSkill(id: "z-display-prefix", name: "Read-file", description: nil, autoinvoke: false),
+            OpenCodeSkill(id: "read-internal", name: "Internal prefix", description: nil, autoinvoke: false),
+            OpenCodeSkill(id: "description", name: "Aardvark", description: "Read a document", autoinvoke: false),
+            OpenCodeSkill(id: "substring", name: "Already-read", description: nil, autoinvoke: false),
+            OpenCodeSkill(id: "unrelated", name: "Unrelated", description: nil, autoinvoke: false),
+        ]
+        XCTAssertEqual(
+            ComposerMentionCandidate.candidates(agents: agents, skills: skills, query: "rEaD").map(\.id),
+            ["agent:read", "skill:z-display-exact", "skill:read-internal", "skill:z-display-prefix",
+             "agent:read-zebra", "skill:description", "skill:substring", "agent:misread"]
+        )
+        XCTAssertTrue(ComposerMentionCandidate.candidates(agents: agents, skills: skills, query: "missing").isEmpty)
+        XCTAssertTrue(ComposerMentionCandidate.candidates(agents: [], skills: [], query: "read").isEmpty)
+    }
+
+    func testEmptyMentionQuerySortsByDisplayNameAndPreservesTies() {
+        let agent = OpenCodeAgent(name: "alpha", description: nil, mode: "subagent", hidden: false, model: nil, variant: nil)
+        let skills = [
+            OpenCodeSkill(id: "a-id", name: "Zebra", description: nil, autoinvoke: false),
+            OpenCodeSkill(id: "z-id", name: "ALPHA", description: nil, autoinvoke: false),
+            OpenCodeSkill(id: "b-id", name: "Beta", description: nil, autoinvoke: false),
+        ]
+        for query in ["", "alpha"] {
+            XCTAssertEqual(
+                ComposerMentionCandidate.candidates(agents: [agent], skills: skills, query: query).map(\.id),
+                query.isEmpty ? ["agent:alpha", "skill:z-id", "skill:b-id", "skill:a-id"] : ["agent:alpha", "skill:z-id"]
+            )
+        }
+    }
+
     func testCommandsRankExactThenPrefixThenOtherMatchesAlphabetically() {
         let commands = [
             command("misread"),

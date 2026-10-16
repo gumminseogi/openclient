@@ -12,17 +12,26 @@ struct ComposerMentionCandidate: Identifiable, Equatable {
     static func candidates(agents: [OpenCodeAgent], skills: [OpenCodeSkill], query: String) -> [Self] {
         let entries = agents.map { Self(kind: .agent, name: $0.name, displayName: $0.name, description: $0.description) }
             + skills.map { Self(kind: .skill, name: $0.id, displayName: $0.name, description: $0.description) }
-        return entries.filter {
-            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
-                || $0.displayName.localizedCaseInsensitiveContains(query)
-                || ($0.description?.localizedCaseInsensitiveContains(query) ?? false)
+        return entries.enumerated().compactMap { index, entry -> (index: Int, entry: Self, rank: Int)? in
+            let names = [entry.name, entry.displayName]
+            guard query.isEmpty || names.contains(where: { $0.localizedCaseInsensitiveContains(query) })
+                || (entry.description?.localizedCaseInsensitiveContains(query) ?? false) else { return nil }
+
+            let rank: Int
+            if query.isEmpty || names.contains(where: { $0.localizedCaseInsensitiveCompare(query) == .orderedSame }) {
+                rank = 0
+            } else if names.contains(where: { $0.range(of: query, options: [.caseInsensitive, .anchored], locale: .current) != nil }) {
+                rank = 1
+            } else {
+                rank = 2
+            }
+            return (index, entry, rank)
         }.sorted {
-            let lhsExact = $0.name.caseInsensitiveCompare(query) == .orderedSame
-            let rhsExact = $1.name.caseInsensitiveCompare(query) == .orderedSame
-            if lhsExact != rhsExact { return lhsExact }
-            let order = $0.name.localizedCaseInsensitiveCompare($1.name)
-            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+            if $0.rank != $1.rank { return $0.rank < $1.rank }
+            let order = $0.entry.displayName.localizedCaseInsensitiveCompare($1.entry.displayName)
+            return order == .orderedSame ? $0.index < $1.index : order == .orderedAscending
         }
+        .map(\.entry)
     }
 }
 
