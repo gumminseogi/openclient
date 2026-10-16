@@ -105,7 +105,7 @@ struct ScreenshotSceneView: View {
             } else {
                 rootView
             }
-        case .projects, .newSession, .providerSetup, .funGames, .sessions, .terminal, .sessionActions, .sessionPinned, .permission, .findPlaceGame, .findBugGame, .composerActions:
+        case .projects, .newSession, .providerSetup, .funGames, .sessions, .terminal, .sessionActions, .sessionPinned, .permission, .findPlaceGame, .findBugGame, .composerActions, .composerMentions:
             rootView
         case .paywall:
             OpenClientPaywallView(

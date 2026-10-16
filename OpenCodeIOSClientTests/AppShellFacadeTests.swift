@@ -890,6 +890,82 @@ final class AppShellFacadeTests: XCTestCase {
         XCTAssertEqual(result.mentions, [OpenCodeAgentMention(name: "build", content: "@build", start: 0, end: 6)])
     }
 
+    func testComposerMentionDraftDecodesLegacyAndRoundTripsSkillIdentity() throws {
+        let legacy = Data(#"{"text":"@review","agentMentions":[{"name":"review","content":"@review","start":0,"end":7}]}"#.utf8)
+        let oldDraft = try JSONDecoder().decode(OpenCodeMessageDraft.self, from: legacy)
+        XCTAssertEqual(oldDraft.agentMentions.first?.kind, .agent)
+
+        let store = ComposerStore()
+        let skill = OpenCodeComposerMention(name: "review", content: "@review", start: 8, end: 15, kind: .skill)
+        store.saveDraft("@review @review", agentMentions: oldDraft.agentMentions + [skill], forKey: "chat")
+        let data = try JSONEncoder().encode(store.draft(forKey: "chat"))
+        let restored = try JSONDecoder().decode(OpenCodeMessageDraft.self, from: data)
+        store.resetActiveDraft()
+        store.draftsByChatKey["chat"] = restored
+        store.restoreDraft(forKey: "chat")
+        XCTAssertEqual(store.draftAgentMentions.map(\.kind), [.agent, .skill])
+        XCTAssertEqual(Set(store.draftAgentMentions.map(\.id)).count, 2)
+    }
+
+    func testSkillMentionSurvivesUnicodeRebaseAndDropsWhenDeleted() {
+        let mention = OpenCodeComposerMention(name: "review", content: "@review", start: 0, end: 7, kind: .skill)
+        let text = "🧑🏽‍💻 inspect @review"
+        let rebased = OpenCodeComposerMention.reconciled([mention], in: text)
+        XCTAssertEqual(rebased.first?.start, "🧑🏽‍💻 inspect ".utf16.count)
+        XCTAssertEqual(rebased.first?.kind, .skill)
+        XCTAssertTrue(OpenCodeComposerMention.reconciled(rebased, in: "🧑🏽‍💻 inspect ").isEmpty)
+        XCTAssertTrue(OpenCodeComposerMention.reconciled([mention], in: "@review-other").isEmpty)
+        XCTAssertTrue(OpenCodeComposerMention.reconciled([mention], in: "email@review").isEmpty)
+        let trimmed = OpenCodeComposerMention.trimmingTextAndMentions(text: "  @review  ", mentions: [mention.shifted(by: 2)!])
+        XCTAssertEqual(trimmed.mentions, [mention])
+    }
+
+    func testDeletingOneIdenticalMentionPreservesTheOtherKind() {
+        let agent = OpenCodeComposerMention(name: "review", content: "@review", start: 0, end: 7)
+        let skill = OpenCodeComposerMention(name: "review", content: "@review", start: 8, end: 15, kind: .skill)
+        XCTAssertEqual(OpenCodeComposerMention.reconciled([skill], in: "@review @review"), [skill])
+        let deletingFirst = OpenCodeComposerMention.applyingEdit([agent, skill], range: NSRange(location: 0, length: 8), replacement: "")
+        XCTAssertEqual(deletingFirst, [skill.shifted(by: -8)!])
+        let deletingSecond = OpenCodeComposerMention.applyingEdit([agent, skill], range: NSRange(location: 7, length: 8), replacement: "")
+        XCTAssertEqual(deletingSecond, [agent])
+        let inserted = OpenCodeComposerMention.applyingEdit([skill], range: NSRange(location: 0, length: 0), replacement: "🐛 ")
+        XCTAssertEqual(inserted, [skill.shifted(by: 3)!])
+    }
+
+    func testMentionCandidatesDistinguishAgentSkillCollisionsAndManualSkills() {
+        let agent = OpenCodeAgent(name: "review", description: nil, mode: "subagent", hidden: false, model: nil, variant: nil)
+        let skill = OpenCodeSkill(id: "review", name: "Code audit", description: "Check correctness", autoinvoke: false)
+        let candidates = ComposerMentionCandidate.candidates(agents: [agent], skills: [skill], query: "review")
+        XCTAssertEqual(Set(candidates.map(\.id)), ["agent:review", "skill:review"])
+        XCTAssertEqual(ComposerMentionCandidate.candidates(agents: [agent], skills: [skill], query: "audit").map(\.id), ["skill:review"])
+        XCTAssertEqual(ComposerMentionCandidate.candidates(agents: [], skills: [skill], query: "correctness").map(\.id), ["skill:review"])
+    }
+
+    func testSkillCatalogIsScopedToDirectoryAndWorkspaceAndClearedOnReset() {
+        let store = ModelConfigurationStore()
+        let skill = OpenCodeSkill(id: "review", name: "Review", description: nil, autoinvoke: false)
+        store.applySkills([skill], directory: "/repo", workspaceID: "one")
+        XCTAssertEqual(store.skills(directory: "/repo", workspaceID: "one"), [skill])
+        XCTAssertTrue(store.skills(directory: "/other", workspaceID: "one").isEmpty)
+        XCTAssertTrue(store.skills(directory: "/repo", workspaceID: "two").isEmpty)
+        store.reset()
+        XCTAssertTrue(store.skills(directory: "/repo", workspaceID: "one").isEmpty)
+    }
+
+    func testRetiringLegacySkillPinsPreservesRealCommandCollision() throws {
+        let suite = "ComposerSkillPins.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(try JSONEncoder().encode(["repo": ["review", "skill:review", "install", "unavailable-command"]]), forKey: "pins")
+        let store = PinnedCommandStore(storageKey: "pins", userDefaults: defaults)
+        let command = OpenCodeCommand(name: "review", description: nil, agent: nil, model: nil, source: nil, template: "", subtask: nil, hints: [])
+        store.removeLegacySkillPins(commands: [command], skills: [
+            .init(id: "review", name: "Review", description: nil, autoinvoke: nil),
+            .init(id: "install", name: "Install", description: nil, autoinvoke: nil)
+        ], scopeKey: "repo")
+        XCTAssertEqual(store.pinnedNames(for: "repo"), ["review", "unavailable-command"])
+    }
+
     func testProjectLoadingRouteAppliesOnlyToCompactEmptyDirectory() {
         let viewModel = AppViewModel()
         let shell = viewModel.appShellFacade

@@ -8,6 +8,7 @@ final class ModelConfigurationStore: ObservableObject {
     private static let visibilityDefaultsKey = "opencode.modelVisibility.v1"
 
     @Published var availableAgents: [OpenCodeAgent]
+    @Published private var skillsByScope: [BackendScope: [OpenCodeSkill]] = [:]
     @Published var allProviders: [OpenCodeProvider] {
         didSet { invalidateModelCaches() }
     }
@@ -75,6 +76,7 @@ final class ModelConfigurationStore: ObservableObject {
     }
 
     func reset() {
+        skillsByScope = [:]
         availableAgents = []
         allProviders = []
         availableProviders = []
@@ -173,6 +175,7 @@ final class ModelConfigurationStore: ObservableObject {
     }
 
     func clearComposerOptions() {
+        skillsByScope = [:]
         availableAgents = []
         allProviders = []
         availableProviders = []
@@ -180,6 +183,14 @@ final class ModelConfigurationStore: ObservableObject {
         providerAuthMethodsByProviderID = [:]
         defaultModelsByProviderID = [:]
         isProviderStateReady = false
+    }
+
+    func applySkills(_ skills: [OpenCodeSkill], directory: String?, workspaceID: String? = nil) {
+        skillsByScope[BackendScope(directory: directory, workspaceID: workspaceID)] = skills
+    }
+
+    func skills(directory: String?, workspaceID: String? = nil) -> [OpenCodeSkill] {
+        skillsByScope[BackendScope(directory: directory, workspaceID: workspaceID)] ?? []
     }
 
     func model(for reference: OpenCodeModelReference?) -> OpenCodeModel? {

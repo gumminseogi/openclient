@@ -1752,12 +1752,14 @@ final class V2SessionWorkflowTests: XCTestCase {
             }
         }
         let client = try XCTUnwrap(model.backendConnection?.openCodeCompatibility?.client)
-        let commands = try await client.listV2ComposerCommands(directory: "/repo")
-        XCTAssertEqual(commands.map(\.name), ["review", "skill:review", "install-iphone"])
-        XCTAssertEqual(commands.last?.skillID, "install-iphone")
+        let commands = try await client.listV2Commands(directory: "/repo")
+        let skills = try await client.listV2Skills(directory: "/repo")
+        XCTAssertEqual(commands.map(\.name), ["review"])
+        XCTAssertEqual(skills.map(\.id), ["review", "install-iphone"])
+        XCTAssertEqual(skills.first?.name, "Review skill")
         model.directoryCommands = commands
-        XCTAssertTrue(model.chatFacade.commands(forSessionID: session.id, canFork: false).contains { $0.name == "install-iphone" })
-        XCTAssertNotNil(model.chatFacade.slashCommandInput(from: "/install-iphone"))
+        XCTAssertFalse(model.chatFacade.commands(forSessionID: session.id, canFork: false).contains { $0.name == "install-iphone" })
+        XCTAssertNil(model.chatFacade.slashCommandInput(from: "/install-iphone"))
         XCTAssertNil(model.backendConnection?.commands)
     }
 
@@ -1774,18 +1776,26 @@ final class V2SessionWorkflowTests: XCTestCase {
                 posts += 1
                 let body = try XCTUnwrap(JSONSerialization.jsonObject(with: Self.body(request)) as? [String: Any])
                 XCTAssertEqual(body["name"] as? String, "review")
-                XCTAssertEqual(body["text"] as? String, "@general check")
+                XCTAssertEqual(body["text"] as? String, "@general @review check")
                 XCTAssertNil(body["id"])
                 let agents = try XCTUnwrap(body["agents"] as? [[String: Any]])
                 let mention = try XCTUnwrap(agents.first?["mention"] as? [String: Any])
                 XCTAssertEqual(mention["start"] as? Int, 0)
                 XCTAssertEqual(mention["end"] as? Int, 8)
+                let skills = try XCTUnwrap(body["skills"] as? [[String: Any]])
+                XCTAssertEqual(skills.first?["id"] as? String, "review")
+                let skillMention = try XCTUnwrap(skills.first?["mention"] as? [String: Any])
+                XCTAssertEqual(skillMention["start"] as? Int, 9)
+                XCTAssertEqual(skillMention["end"] as? Int, 16)
                 return (204, "")
             }
             return (503, #"{"message":"Reconciliation pending"}"#)
         }
         let accepted = await model.chatFacade.sendCommand(command, sessionID: session.id, userVisible: true,
-            arguments: "@general check", agentMentions: [.init(name: "general", content: "@general", start: 8, end: 16)])
+            arguments: "@general @review check", agentMentions: [
+                .init(name: "general", content: "@general", start: 8, end: 16),
+                .init(name: "review", content: "@review", start: 17, end: 24, kind: .skill)
+            ])
         XCTAssertTrue(accepted)
         XCTAssertEqual(posts, 1)
         XCTAssertFalse(model.chatFacade.hasPendingPromptAdmission(sessionID: session.id))
@@ -1797,16 +1807,20 @@ final class V2SessionWorkflowTests: XCTestCase {
         defer { model.disconnect() }
         let session = Self.session(id: "ses_v2", directory: "/repo")
         _ = model.beginSessionNavigation(session)
-        let skill = OpenCodeCommand(name: "install-iphone", description: nil, agent: nil, model: nil,
-            source: "skill", template: "", subtask: nil, hints: [], skillID: "install-iphone")
         var posted = false
         V2SessionWorkflowURLProtocol.handler = { request in
             switch request.url?.path {
             case "/api/session/ses_v2/prompt":
                 posted = true
                 let body = try XCTUnwrap(JSONSerialization.jsonObject(with: Self.body(request)) as? [String: Any])
-                XCTAssertEqual(body["skills"] as? [[String: String]], [["id": "install-iphone"]])
-                XCTAssertEqual(body["text"] as? String, "/install-iphone debug")
+                let skills = try XCTUnwrap(body["skills"] as? [[String: Any]])
+                XCTAssertEqual(skills.first?["id"] as? String, "install-iphone")
+                let mention = try XCTUnwrap(skills.first?["mention"] as? [String: Any])
+                XCTAssertEqual(mention["start"] as? Int, 0)
+                XCTAssertEqual(mention["end"] as? Int, 15)
+                XCTAssertEqual(mention["text"] as? String, "@install-iphone")
+                XCTAssertNil(body["agents"])
+                XCTAssertEqual(body["text"] as? String, "@install-iphone debug")
                 return (200, #"{"data":{"id":"msg_skill","sessionID":"ses_v2","time":{"created":1},"type":"user","payload":{},"delivery":"queue"}}"#)
             case "/api/experimental/session/ses_v2/wait": return (204, "")
             case "/api/session/ses_v2/message": return (200, Self.page("msg_skill"))
@@ -1815,10 +1829,37 @@ final class V2SessionWorkflowTests: XCTestCase {
                 throw URLError(.unsupportedURL)
             }
         }
-        let accepted = await model.chatFacade.sendCommand(skill, sessionID: session.id, userVisible: true,
-            arguments: "debug", messageID: "msg_skill")
+        let accepted = await model.chatFacade.sendV2TextPrompt("@install-iphone debug", in: session,
+            agentMentions: [
+                .init(name: "install-iphone", content: "@install-iphone", start: 0, end: 15, kind: .skill)
+            ], messageID: "msg_skill")
         XCTAssertTrue(accepted)
         XCTAssertTrue(posted)
+    }
+
+    func testV2PromptKeepsSkillsAgentsAndFilesSeparateAndDeduplicatesSkills() async throws {
+        let model = makeModel()
+        defer { model.disconnect() }
+        let client = try XCTUnwrap(model.backendConnection?.openCodeCompatibility?.client)
+        V2SessionWorkflowURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/session/ses_v2/prompt")
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: Self.body(request)) as? [String: Any])
+            let agents = try XCTUnwrap(body["agents"] as? [[String: Any]])
+            let skills = try XCTUnwrap(body["skills"] as? [[String: Any]])
+            XCTAssertEqual(agents.map { $0["name"] as? String }, ["review"])
+            XCTAssertEqual(skills.map { $0["id"] as? String }, ["review", "release"])
+            XCTAssertEqual((body["files"] as? [[String: String]])?.first?["name"], "notes.txt")
+            return (200, #"{"data":{"id":"msg_multi","sessionID":"ses_v2","time":{"created":1},"type":"user","payload":{},"delivery":"queue"}}"#)
+        }
+        _ = try await client.admitV2TextPrompt(sessionID: "ses_v2", messageID: "msg_multi",
+            text: "@review @review @release @review", attachments: [
+                .init(id: "file", kind: .file, filename: "notes.txt", mime: "text/plain", dataURL: "data:text/plain;base64,aGk=")
+            ], agentMentions: [
+                .init(name: "review", content: "@review", start: 0, end: 7),
+                .init(name: "review", content: "@review", start: 8, end: 15, kind: .skill),
+                .init(name: "release", content: "@release", start: 16, end: 24, kind: .skill),
+                .init(name: "review", content: "@review", start: 25, end: 32, kind: .skill)
+            ], skillIDs: ["review"])
     }
 
     func testSelectingV2ChatPresentsTranscriptWhileStatusesAreStillPending() async throws {

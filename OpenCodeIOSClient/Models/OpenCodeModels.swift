@@ -342,7 +342,7 @@ struct OpenCodeMessageEnvelope: Codable, Identifiable, Hashable, Sendable {
             )
         }
 
-        parts.append(contentsOf: agentMentions.map { mention in
+        parts.append(contentsOf: agentMentions.filter { $0.kind == .agent }.map { mention in
             OpenCodePart(
                 id: OpenCodeIdentifier.part(),
                 messageID: messageID,
@@ -2366,29 +2366,89 @@ struct OpenCodePartSourceText: Codable, Hashable, Sendable {
     let end: Int
 }
 
-struct OpenCodeAgentMention: Codable, Hashable, Sendable, Identifiable {
+struct OpenCodeSkill: Codable, Hashable, Sendable, Identifiable {
+    let id: String
+    let name: String
+    let description: String?
+    let autoinvoke: Bool?
+}
+
+// Keep the legacy name at existing draft/callback boundaries during migration.
+typealias OpenCodeAgentMention = OpenCodeComposerMention
+
+struct OpenCodeComposerMention: Codable, Hashable, Sendable, Identifiable {
+    enum Kind: String, Codable, Sendable { case agent, skill }
+
+    let kind: Kind
     let name: String
     let content: String
     let start: Int
     let end: Int
 
-    var id: String { "\(name):\(start):\(end):\(content)" }
+    var id: String { "\(kind.rawValue):\(name):\(start):\(end):\(content)" }
+
+    init(name: String, content: String, start: Int, end: Int, kind: Kind = .agent) {
+        self.kind = kind
+        self.name = name
+        self.content = content
+        self.start = start
+        self.end = end
+    }
+
+    enum CodingKeys: String, CodingKey { case kind, name, content, start, end }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .agent
+        name = try container.decode(String.self, forKey: .name)
+        content = try container.decode(String.self, forKey: .content)
+        start = try container.decode(Int.self, forKey: .start)
+        end = try container.decode(Int.self, forKey: .end)
+    }
 
     func shifted(by offset: Int) -> OpenCodeAgentMention? {
         let nextStart = start + offset
         let nextEnd = end + offset
         guard nextStart >= 0, nextEnd >= nextStart else { return nil }
-        return OpenCodeAgentMention(name: name, content: content, start: nextStart, end: nextEnd)
+        return OpenCodeAgentMention(name: name, content: content, start: nextStart, end: nextEnd, kind: kind)
+    }
+
+    /// Preserve occurrence identity when identical agent and skill tokens coexist.
+    /// Text search alone cannot tell which occurrence the user deleted.
+    static func applyingEdit(_ mentions: [Self], range: NSRange, replacement: String) -> [Self] {
+        let delta = replacement.utf16.count - range.length
+        return mentions.compactMap { mention in
+            if mention.end <= range.location { return mention }
+            if mention.start >= NSMaxRange(range) { return mention.shifted(by: delta) }
+            return nil
+        }
     }
 
     static func reconciled(_ mentions: [OpenCodeAgentMention], in text: String) -> [OpenCodeAgentMention] {
         var searchStart = text.startIndex
         var result: [OpenCodeAgentMention] = []
         for mention in mentions.sorted(by: { $0.start < $1.start }) {
-            guard let range = text.range(of: mention.content, range: searchStart ..< text.endIndex) else { continue }
+            guard !mention.content.isEmpty else { continue }
+            var cursor = searchStart
+            var match: Range<String.Index>?
+            if let exact = text.rangeFromUTF16Offsets(start: mention.start, end: mention.end),
+               exact.lowerBound >= searchStart, text[exact] == mention.content {
+                cursor = exact.lowerBound
+            }
+            while let range = text.range(of: mention.content, range: cursor ..< text.endIndex) {
+                let startsToken = range.lowerBound == text.startIndex || text[text.index(before: range.lowerBound)].isWhitespace
+                let endsToken = range.upperBound == text.endIndex || text[range.upperBound].isWhitespace
+                    || ".,!?;)]}".contains(text[range.upperBound])
+                if startsToken && endsToken {
+                    match = range
+                    break
+                }
+                cursor = range.upperBound
+            }
+            guard let range = match else { continue }
             let start = text.utf16Offset(of: range.lowerBound)
             let end = text.utf16Offset(of: range.upperBound)
-            result.append(OpenCodeAgentMention(name: mention.name, content: mention.content, start: start, end: end))
+            result.append(OpenCodeAgentMention(name: mention.name, content: mention.content, start: start, end: end, kind: mention.kind))
             searchStart = range.upperBound
         }
         return result

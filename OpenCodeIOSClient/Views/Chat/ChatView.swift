@@ -2118,6 +2118,7 @@ private struct EquatableMessageComposerHost: View, Equatable {
     let snapshot: MessageComposerSnapshot
     let commands: [OpenCodeCommand]
     let mentionableAgents: [OpenCodeAgent]
+    let mentionableSkills: [OpenCodeSkill]
     let pinnedCommands: [OpenCodeCommand]
     let pinnedCommandNames: Set<String>
     let attachmentCount: Int
@@ -2175,6 +2176,7 @@ private struct EquatableMessageComposerHost: View, Equatable {
             isAccessoryMenuOpen: isAccessoryMenuOpen,
             commands: commands,
             mentionableAgents: mentionableAgents,
+            mentionableSkills: mentionableSkills,
             pinnedCommands: pinnedCommands,
             pinnedCommandNames: pinnedCommandNames,
             attachmentCount: attachmentCount,
@@ -3514,7 +3516,10 @@ struct ChatView: View {
         let pinnedCommands = pinnedCommandStore.pinnedCommands(from: commands, scopeKey: commandScopeKey)
         let pinnedCommandNames = Set(pinnedCommandStore.pinnedNames(for: commandScopeKey))
         let pinnedCommandSignature = [commandScopeKey, pinnedCommands.map(\.name).joined(separator: ",")].joined(separator: "|")
-        let mentionableAgentSignature = mentionableAgents.map { "\($0.name):\($0.description ?? "")" }.joined(separator: "|")
+        let mentionableSkills = modelConfigurationStore.skills(directory: liveSession.directory ?? projectStore.selectedDirectory,
+            workspaceID: liveSession.workspaceID)
+        let mentionableAgentSignature = mentionableAgents.map { "agent:\($0.name):\($0.description ?? "")" }.joined(separator: "|")
+            + mentionableSkills.map { "skill:\($0.id):\($0.name):\($0.description ?? "")" }.joined(separator: "|")
         let snapshot = MessageComposerSnapshot(
             isAccessoryMenuOpenValue: isComposerMenuOpen,
             commands: commands,
@@ -3549,6 +3554,7 @@ struct ChatView: View {
             snapshot: snapshot,
             commands: commands,
             mentionableAgents: mentionableAgents,
+            mentionableSkills: mentionableSkills,
             pinnedCommands: pinnedCommands,
             pinnedCommandNames: pinnedCommandNames,
             attachmentCount: snapshot.attachmentCount,
@@ -3679,6 +3685,9 @@ struct ChatView: View {
 
         return composer
             .equatable()
+            .onChange(of: commandScopeKey + mentionableAgentSignature + commands.map(\.name).joined(separator: "|"), initial: true) { _, _ in
+                pinnedCommandStore.removeLegacySkillPins(commands: commands, skills: mentionableSkills, scopeKey: commandScopeKey)
+            }
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, activeComposerBottomPadding)

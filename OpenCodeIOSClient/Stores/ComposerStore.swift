@@ -1,6 +1,31 @@
 import Combine
 import Foundation
 
+struct ComposerMentionCandidate: Identifiable, Equatable {
+    let kind: OpenCodeComposerMention.Kind
+    let name: String
+    let displayName: String
+    let description: String?
+
+    var id: String { "\(kind.rawValue):\(name)" }
+
+    static func candidates(agents: [OpenCodeAgent], skills: [OpenCodeSkill], query: String) -> [Self] {
+        let entries = agents.map { Self(kind: .agent, name: $0.name, displayName: $0.name, description: $0.description) }
+            + skills.map { Self(kind: .skill, name: $0.id, displayName: $0.name, description: $0.description) }
+        return entries.filter {
+            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
+                || $0.displayName.localizedCaseInsensitiveContains(query)
+                || ($0.description?.localizedCaseInsensitiveContains(query) ?? false)
+        }.sorted {
+            let lhsExact = $0.name.caseInsensitiveCompare(query) == .orderedSame
+            let rhsExact = $1.name.caseInsensitiveCompare(query) == .orderedSame
+            if lhsExact != rhsExact { return lhsExact }
+            let order = $0.name.localizedCaseInsensitiveCompare($1.name)
+            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+        }
+    }
+}
+
 @MainActor
 final class ComposerStore: ObservableObject {
     @Published var draftMessage: String

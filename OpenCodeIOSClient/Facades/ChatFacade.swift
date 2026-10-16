@@ -1256,15 +1256,8 @@ final class ChatFacade: ObservableObject {
         mentions: [OpenCodeAgentMention], sessionID: String, messageID: String?, meterPrompt: Bool,
         reservedPromptDay: String?, connection: BackendConnection, client: OpenCodeAPIClient
     ) async -> Bool {
-        guard let session = selectedSession, session.id == sessionID,
+        guard selectedSession?.id == sessionID,
               viewModel.isCurrentBackendConnection(connection), !hasPendingPromptAdmission(sessionID: sessionID) else { return false }
-        if let skillID = command.skillID {
-            let text = "/\(command.name)" + (arguments.isEmpty ? "" : " " + arguments)
-            return await viewModel.sendV2TextPrompt(text, in: session, attachments: attachments,
-                agentMentions: OpenCodeAgentMention.reconciled(mentions, in: text), meterPrompt: meterPrompt,
-                messageID: messageID, reservedPromptDay: reservedPromptDay, windowContext: windowContext,
-                skillIDs: [skillID])
-        }
         // Release V2 commands are callbacks (204), not caller-ID prompt receipts.
         // Keep them out of durable-admission tracking and automated action evaluation.
         let root = viewModel.chatFacade

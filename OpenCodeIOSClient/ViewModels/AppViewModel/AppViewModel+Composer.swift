@@ -331,10 +331,13 @@ extension AppViewModel {
                   directoryStoreRegistry.generation == generation, sessionNavigationGeneration == navigationGeneration,
                   effectiveSelectedDirectory == directory else { return false }
             var commands: [OpenCodeCommand] = []
+            var skills: [OpenCodeSkill] = []
             var commandsAreAuthoritative = false
             if connection.commands == nil, let compatibility = connection.openCodeCompatibility, compatibility.profile == .v2,
                compatibility.client.v2Contract == .release {
-                commands = try await compatibility.client.listV2ComposerCommands(directory: commandScope.directory, workspaceID: commandScope.workspaceID)
+                async let loadedCommands = compatibility.client.listV2Commands(directory: commandScope.directory, workspaceID: commandScope.workspaceID)
+                async let loadedSkills = compatibility.client.listV2Skills(directory: commandScope.directory, workspaceID: commandScope.workspaceID)
+                (commands, skills) = try await (loadedCommands, loadedSkills)
                 commandsAreAuthoritative = true
             } else if let service = connection.commands {
                 commands = try await service.listCommands(scope: commandScope)
@@ -352,6 +355,7 @@ extension AppViewModel {
                   effectiveSelectedDirectory == directory else { return false }
             objectWillChange.send()
             modelConfigurationStore.applyComposerOptions(agents: catalog.agents, providers: catalog.providers, defaults: catalog.defaults)
+            modelConfigurationStore.applySkills(skills, directory: commandScope.directory, workspaceID: commandScope.workspaceID)
             directoryCommands = commands
             modelConfigurationStore.providerErrorMessage = nil
             modelConfigurationStore.markProvidersLoaded(for: providerScope)

@@ -29,6 +29,22 @@ final class PinnedCommandStore: ObservableObject {
         pinnedNames(for: scopeKey).contains(command.name)
     }
 
+    /// Retire shortcuts produced by the old V2 skill-as-command adapter, while
+    /// preserving real commands with the same name and unrelated saved pins.
+    func removeLegacySkillPins(commands: [OpenCodeCommand], skills: [OpenCodeSkill], scopeKey: String) {
+        var names = Set(commands.map(\.name) + ["btw", "compact", "fork"])
+        var legacyNames = Set<String>()
+        for skill in skills {
+            var name = skill.id
+            while names.contains(name) { name = "skill:" + name }
+            names.insert(name)
+            legacyNames.insert(name)
+        }
+        let current = pinnedNames(for: scopeKey)
+        let updated = current.filter { !legacyNames.contains($0) }
+        if current != updated { setPinnedNames(updated, scopeKey: scopeKey) }
+    }
+
     func pin(_ command: OpenCodeCommand, scopeKey: String) {
         var names = pinnedNames(for: scopeKey)
         guard !names.contains(command.name) else { return }

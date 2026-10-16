@@ -21,6 +21,7 @@ enum OpenClientScreenshotScene: String, CaseIterable {
     case findPlaceGame = "find-place-game"
     case findBugGame = "find-bug-game"
     case composerActions = "composer-actions"
+    case composerMentions = "composer-mentions"
     case providerSetup = "provider-setup"
     case paywall
     case recentWidget = "recent-widget"
@@ -145,6 +146,20 @@ extension AppViewModel {
             return screenshotFindBugGame()
         case .composerActions:
             return screenshotChat()
+        case .composerMentions:
+            let model = baseConnectedScreenshotViewModel(selectedSession: OpenClientScreenshotData.releaseSession, todos: [])
+            let busy = ProcessInfo.processInfo.environment["OPENCLIENT_MENTION_FIXTURE_BUSY"] == "1"
+            model.sessionStatuses = [OpenClientScreenshotData.releaseSession.id: busy ? "busy" : "idle"]
+            model.modelConfigurationStore.availableAgents = [
+                .init(name: "review", description: "Review with a subagent", mode: "subagent", hidden: false, model: nil, variant: nil)
+            ]
+            model.modelConfigurationStore.applySkills([
+                .init(id: "audit-xcode-security-settings", name: "Audit Xcode Security Settings", description: "Audit compiler settings", autoinvoke: true),
+                .init(id: "review", name: "Code Review", description: "Review changes for correctness", autoinvoke: false),
+                .init(id: "release", name: "Release Workflow", description: "Prepare a release", autoinvoke: true)
+            ], directory: OpenClientScreenshotData.releaseSession.directory)
+            model.composerStore.resetActiveDraft(text: "@")
+            return model
         case .providerSetup:
             return screenshotProviderSetup()
         case .paywall:

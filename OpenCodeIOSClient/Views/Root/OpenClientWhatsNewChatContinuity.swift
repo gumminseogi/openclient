@@ -28,6 +28,13 @@ struct OpenClientWhatsNewChatContinuity: View {
             WhatsNewSessionOrganizationSection()
 
             VStack(alignment: .leading, spacing: 12) {
+                Label("Keep composing while it works.", systemImage: "at").font(.title2.bold())
+                Text("In OpenCode v2, use @ to choose an agent or skill and / for commands. Suggestions stay available while the assistant is working, and long names stay on one line.")
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityIdentifier("new-features.composer-mentions")
+
+            VStack(alignment: .leading, spacing: 12) {
                 Label("See what changed", systemImage: "doc.text.magnifyingglass").font(.title2.bold())
                 Text("Tap a response, then the Changes button beside Copy to explore that turn’s file diffs. Unchanged lines start collapsed so the important bits stand out.")
                     .foregroundStyle(.secondary)

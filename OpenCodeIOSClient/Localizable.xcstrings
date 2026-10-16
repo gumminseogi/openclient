@@ -1,6 +1,30 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Keep composing while it works." : { "localizations" : {
+      "it" : { "stringUnit" : { "state" : "translated", "value" : "Continua a scrivere mentre lavora." } },
+      "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Continue escrevendo enquanto ele trabalha." } }
+    } },
+    "In OpenCode v2, use @ to choose an agent or skill and / for commands. Suggestions stay available while the assistant is working, and long names stay on one line." : { "localizations" : {
+      "it" : { "stringUnit" : { "state" : "translated", "value" : "In OpenCode v2, usa @ per scegliere un agente o una skill e / per i comandi. I suggerimenti restano disponibili mentre l’assistente lavora e i nomi lunghi rimangono su una sola riga." } },
+      "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "No OpenCode v2, use @ para escolher um agente ou uma skill e / para comandos. As sugestões continuam disponíveis enquanto o assistente trabalha, e nomes longos ficam em uma única linha." } }
+    } },
+    "Mention" : { "localizations" : {
+      "it" : { "stringUnit" : { "state" : "translated", "value" : "Menzione" } },
+      "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Menção" } }
+    } },
+    "Mention an agent or skill" : { "localizations" : {
+      "it" : { "stringUnit" : { "state" : "translated", "value" : "Menziona un agente o una skill" } },
+      "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Mencione um agente ou uma skill" } }
+    } },
+    "Agents and skills" : { "localizations" : {
+      "it" : { "stringUnit" : { "state" : "translated", "value" : "Agenti e skill" } },
+      "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Agentes e skills" } }
+    } },
+    "No matching agents or skills" : { "localizations" : {
+      "it" : { "stringUnit" : { "state" : "translated", "value" : "Nessun agente o skill corrispondente" } },
+      "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Nenhum agente ou skill correspondente" } }
+    } },
     "Make room for your workflow." : { "localizations" : {
       "it" : { "stringUnit" : { "state" : "translated", "value" : "Fai spazio al tuo flusso di lavoro." } },
       "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Abra espaço para seu fluxo de trabalho." } }
