@@ -382,22 +382,28 @@ final class ModelConfigurationStore: ObservableObject {
     }
 
     func selectedVariant(for sessionID: String) -> String? { selectedVariantsBySessionID[sessionID] }
-    func selectAgent(named name: String?, forSessionID sessionID: String) { selectedAgentNamesBySessionID[sessionID] = name }
+    func selectAgent(named name: String?, forSessionID sessionID: String) {
+        guard selectedAgentNamesBySessionID[sessionID] != name else { return }
+        selectedAgentNamesBySessionID[sessionID] = name
+    }
 
     func selectModel(_ reference: OpenCodeModelReference?, forSessionID sessionID: String) {
         guard let reference else {
-            selectedModelsBySessionID[sessionID] = nil
-            selectedVariantsBySessionID[sessionID] = nil
+            if selectedModelsBySessionID[sessionID] != nil { selectedModelsBySessionID[sessionID] = nil }
+            if selectedVariantsBySessionID[sessionID] != nil { selectedVariantsBySessionID[sessionID] = nil }
             return
         }
-        selectedModelsBySessionID[sessionID] = reference
+        if selectedModelsBySessionID[sessionID] != reference { selectedModelsBySessionID[sessionID] = reference }
         let availableVariants = reasoningVariants(forSessionID: sessionID)
         if let selectedVariant = selectedVariantsBySessionID[sessionID], !availableVariants.contains(selectedVariant) {
             selectedVariantsBySessionID[sessionID] = nil
         }
     }
 
-    func selectVariant(_ variant: String?, forSessionID sessionID: String) { selectedVariantsBySessionID[sessionID] = variant }
+    func selectVariant(_ variant: String?, forSessionID sessionID: String) {
+        guard selectedVariantsBySessionID[sessionID] != variant else { return }
+        selectedVariantsBySessionID[sessionID] = variant
+    }
 
     func sanitizeNewSessionDefaults() {
         var sanitized = newSessionDefaults

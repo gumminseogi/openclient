@@ -485,13 +485,17 @@ private struct ActivityContent: View, Equatable {
             ForEach(rows) { row in
                 Button {
                     #if targetEnvironment(macCatalyst)
+                    let clickedAt = ContinuousClock.now
+                    OpenClientSessionSwitchLog.log("activity button fired id=\(row.id) firstResponder=\(UIResponder.openClientFirstResponderDescription)")
                     selectionFeedback.commit(row.recent.session.id)
                     let context = facade.selectionContextID
                     selectionHandoff.schedule {
                         guard facade.canSelect(row, context: context) else {
+                            OpenClientSessionSwitchLog.log("activity handoff dropped id=\(row.id) after \(OpenClientSessionSwitchLog.elapsedMS(since: clickedAt)) ms")
                             selectionFeedback.reset()
                             return
                         }
+                        OpenClientSessionSwitchLog.log("activity handoff fired id=\(row.id) after \(OpenClientSessionSwitchLog.elapsedMS(since: clickedAt)) ms")
                         openSession(row)
                         if snapshot.selectedSessionID == row.recent.session.id { selectionFeedback.reset() }
                     }
@@ -574,14 +578,20 @@ private struct ActivityContent: View, Equatable {
     }
 
     private func openSession(_ row: ActivityFacade.RowSnapshot) {
+        let startedAt = ContinuousClock.now
         facade.prepareSelection(row)
+        OpenClientSessionSwitchLog.log("activity selection prepared id=\(row.id) after \(OpenClientSessionSwitchLog.elapsedMS(since: startedAt)) ms")
         #if targetEnvironment(macCatalyst)
         onSessionChosen()
         #else
         withAnimation(opencodeSelectionAnimation) { onSessionChosen() }
         #endif
         #if targetEnvironment(macCatalyst)
-        selectionFeedback.load { await facade.open(row) }
+        selectionFeedback.load {
+            OpenClientSessionSwitchLog.log("activity hydration began id=\(row.id) after \(OpenClientSessionSwitchLog.elapsedMS(since: startedAt)) ms")
+            await facade.open(row)
+            OpenClientSessionSwitchLog.log("activity hydration completed id=\(row.id) after \(OpenClientSessionSwitchLog.elapsedMS(since: startedAt)) ms")
+        }
         #else
         Task { await facade.open(row) }
         #endif

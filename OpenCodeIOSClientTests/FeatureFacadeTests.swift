@@ -148,7 +148,7 @@ final class FeatureFacadeTests: XCTestCase {
     }
 
     func testSelectionHandoffLeavesAFrameForFeedbackAndCoalescesClicks() {
-        let handoff = OpenCodeDisplayFrameHandoff()
+        let handoff = OpenCodeDisplayFrameHandoff(bypassDisplayFrames: false)
         var selected: String?
         handoff.schedule { selected = "first" }
         handoff.advanceFrame()
@@ -163,6 +163,27 @@ final class FeatureFacadeTests: XCTestCase {
         handoff.advanceFrame()
         handoff.advanceFrame()
         XCTAssertEqual(selected, "second")
+    }
+
+    func testBypassedRevealHandoffYieldsAndCancelsStalePasses() async {
+        let handoff = OpenCodeDisplayFrameHandoff(bypassDisplayFrames: true)
+        var calls: [String] = []
+        handoff.schedule { calls.append("selection") }
+        XCTAssertEqual(calls, ["selection"])
+
+        handoff.schedule(allowsImmediateExecution: false) { calls.append("superseded") }
+        let delivered = expectation(description: "Latest reveal pass runs after yielding")
+        handoff.schedule(allowsImmediateExecution: false) {
+            calls.append("reveal")
+            // Recursive scheduling must not execute another measurement on this stack.
+            handoff.schedule(allowsImmediateExecution: false) { calls.append("cancelled") }
+            XCTAssertEqual(calls, ["selection", "reveal"])
+            handoff.cancel()
+            DispatchQueue.main.async { delivered.fulfill() }
+        }
+        XCTAssertEqual(calls, ["selection"])
+        await fulfillment(of: [delivered], timeout: 2)
+        XCTAssertEqual(calls, ["selection", "reveal"])
     }
     #endif
 

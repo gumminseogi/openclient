@@ -2615,10 +2615,11 @@ struct ChatView: View {
     }
 
     var body: some View {
-        #if os(iOS) && !targetEnvironment(macCatalyst)
+        #if os(iOS)
         if chatFacade.windowContext == nil, !isDedicatedWindow, onDismissChildSession == nil,
            chatFacade.selectedSession?.id != sessionID {
-            // Compact navigation can expose its retained detail before the shell replaces it.
+            // Split and compact navigation can retain the outgoing detail while selection
+            // has already advanced. Do not render the new session in the old chat tree.
             OpenCodePlatformColor.groupedBackground
                 .ignoresSafeArea()
                 .transition(.identity)
@@ -6637,6 +6638,13 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
         private var initialPresentationHiddenAt: ContinuousClock.Instant?
         private var initialPresentationSampleCount = 0
         private var initialPresentationFillCount = 0
+        // Desktop selection should reveal as soon as the visible area is filled.
+        // Upward scrolling retains the separate two-viewport history prefetch below.
+        #if targetEnvironment(macCatalyst)
+        var openingHistoryViewportCount: CGFloat = 1
+        #else
+        var openingHistoryViewportCount: CGFloat = 2
+        #endif
 
         func prepareInitialPresentation(in collectionView: UICollectionView) {
             awaitsInitialReveal = true
@@ -6671,7 +6679,7 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
             guard awaitsInitialReveal, hasInitialContent, !initialPresentationScheduled,
                   collectionView.window != nil else { return }
             initialPresentationScheduled = true
-            initialPresentationHandoff.schedule { [weak self, weak collectionView] in
+            initialPresentationHandoff.schedule(allowsImmediateExecution: false) { [weak self, weak collectionView] in
                 guard let self, let collectionView else { return }
                 self.initialPresentationScheduled = false
                 self.settleInitialPresentation(in: collectionView)
@@ -6741,7 +6749,7 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
                 guard let self, let collectionView, collectionView.window != nil,
                       self.initialRevealGeneration == revealGeneration else { return }
                 // Give a pending sidebar switch priority over catching up this fading chat.
-                self.initialPresentationHandoff.schedule { [weak self, weak collectionView] in
+                self.initialPresentationHandoff.schedule(allowsImmediateExecution: false) { [weak self, weak collectionView] in
                     guard let self, let collectionView, collectionView.window != nil,
                           self.initialRevealGeneration == revealGeneration else { return }
                     self.isMeasuringInitialPresentation = false
@@ -6926,7 +6934,8 @@ private struct ChatTranscriptCollectionView<RowContent: View>: UIViewRepresentab
                   !beforeInitialReveal || count > 0 else { return false }
             let viewport = collectionView.bounds.height - collectionView.adjustedContentInset.top - collectionView.adjustedContentInset.bottom
             guard viewport > 0 else { return false }
-            let fillsOpeningViewport = beforeInitialReveal && userScrollGeneration == 0 && collectionView.contentSize.height < viewport * 2
+            let fillsOpeningViewport = beforeInitialReveal && userScrollGeneration == 0
+                && collectionView.contentSize.height < viewport * openingHistoryViewportCount
             let prefetchesHistory = historyPrefetchActive
                 && collectionView.contentOffset.y + collectionView.adjustedContentInset.top < viewport * 2
             guard fillsOpeningViewport || prefetchesHistory else { return false }
@@ -7565,6 +7574,10 @@ final class ChatTranscriptContinuityHarness {
     private(set) var lifetimes: [String: UUID] = [:]
     private let scrollController = ChatTranscriptScrollController()
     private var coordinator: ChatTranscriptCollectionView<AnyView>.Coordinator?
+
+    func setOpeningHistoryViewportCount(_ count: CGFloat) {
+        coordinator?.openingHistoryViewportCount = count
+    }
 
     init() {
         collectionView = CollectionView(frame: CGRect(x: 0, y: 0, width: 400, height: 600),

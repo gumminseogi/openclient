@@ -125,6 +125,37 @@ final class ModelConfigurationStoreTests: XCTestCase {
         XCTAssertFalse(store.isModelVisible(OpenCodeModelReference(providerID: "openai", modelID: "gpt-5")))
     }
 
+    func testRepeatedCanonicalSelectionsDoNotPublishButStillSanitizeVariants() {
+        let store = ModelConfigurationStore()
+        let reference = OpenCodeModelReference(providerID: "openai", modelID: "gpt-5")
+        store.selectAgent(named: "build", forSessionID: "session")
+        store.selectModel(reference, forSessionID: "session")
+        var publications = 0
+        let observation = store.objectWillChange.sink { publications += 1 }
+        defer { observation.cancel() }
+
+        for _ in 0..<10 {
+            store.selectAgent(named: "build", forSessionID: "session")
+            store.selectModel(reference, forSessionID: "session")
+            store.selectVariant(nil, forSessionID: "session")
+            store.selectModel(nil, forSessionID: "empty-session")
+        }
+        XCTAssertEqual(publications, 0)
+
+        store.selectVariant("unavailable", forSessionID: "session")
+        publications = 0
+        store.selectModel(reference, forSessionID: "session")
+        XCTAssertNil(store.selectedVariant(for: "session"), "An unchanged model must still validate reasoning against the current catalog")
+        XCTAssertEqual(publications, 1)
+
+        publications = 0
+        store.selectAgent(named: "plan", forSessionID: "session")
+        store.selectModel(nil, forSessionID: "session")
+        XCTAssertEqual(publications, 2)
+        XCTAssertEqual(store.selectedAgentName(for: "session"), "plan")
+        XCTAssertNil(store.selectedModelReference(for: "session"))
+    }
+
     func testPluginStorePreservesResolvedConfigOrder() throws {
         let config = try JSONDecoder().decode(
             OpenCodeResolvedConfig.self,

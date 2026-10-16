@@ -8,9 +8,37 @@ final class OpenCodeDisplayFrameHandoff: NSObject {
     private var displayLink: CADisplayLink?
     private var action: (() -> Void)?
     private var remainingFrames = 0
+    private var generation = 0
+    private let bypassDisplayFrames: Bool
 
-    func schedule(_ action: @escaping () -> Void) {
+    init(bypassDisplayFrames: Bool? = nil) {
+        #if targetEnvironment(macCatalyst)
+        self.bypassDisplayFrames = bypassDisplayFrames ?? true
+        #else
+        self.bypassDisplayFrames = bypassDisplayFrames ?? false
+        #endif
+        super.init()
+    }
+
+    func schedule(allowsImmediateExecution: Bool = true, _ action: @escaping () -> Void) {
         cancel()
+        if bypassDisplayFrames {
+            if allowsImmediateExecution {
+                action()
+            } else {
+                // Reveal settling can schedule another pass. Always yield rather than
+                // recursively measuring layout inside updateUIView/layoutSubviews.
+                self.action = action
+                let generation = generation
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.generation == generation else { return }
+                    let action = self.action
+                    self.cancel()
+                    action?()
+                }
+            }
+            return
+        }
         self.action = action
         remainingFrames = 2
         let link = CADisplayLink(target: self, selector: #selector(advanceFrame))
@@ -19,6 +47,7 @@ final class OpenCodeDisplayFrameHandoff: NSObject {
     }
 
     func cancel() {
+        generation &+= 1
         displayLink?.invalidate()
         displayLink = nil
         action = nil

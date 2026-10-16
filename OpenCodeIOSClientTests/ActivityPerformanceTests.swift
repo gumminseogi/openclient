@@ -308,7 +308,41 @@ final class ActivityPerformanceTests: XCTestCase {
         }
     }
 
-    private func makeFixture(historyCount: Int = 0) throws -> Fixture {
+    func testBoundedTextRefreshPreservesCanonicalTokensAndUrgentMetadata() async throws {
+        let fixture = try makeFixture(previewRefreshInterval: .milliseconds(500))
+        defer { fixture.facade.resetForConnectionChange() }
+        let session = fixture.sessions[0]
+        let owner = fixture.owners[0]
+        var publications = 0
+        let observation = fixture.facade.$snapshot.dropFirst().sink { _ in publications += 1 }
+        defer { observation.cancel() }
+
+        owner.syncState.partsByMessageID["\(session.id)-assistant"]?[0].text = "Streaming tokens"
+        // Inspect inside the batching window: canonical text must update immediately.
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(publications, 0)
+        XCTAssertEqual(owner.syncState.partsByMessageID["\(session.id)-assistant"]?.first?.text, "Streaming tokens")
+        XCTAssertEqual(row(in: fixture.facade.snapshot, id: session.id)?.latestAssistantText, "Answer \(session.id)")
+
+        await waitForSnapshot(fixture.facade, description: "Trailing preview publishes without another event") {
+            self.row(in: $0, id: session.id)?.latestAssistantText == "Streaming tokens"
+        }
+
+        owner.syncState.permissionsBySessionID[session.id] = [permission(sessionID: session.id)]
+        await waitForSnapshot(fixture.facade, description: "Permissions bypass preview batching") {
+            self.row(in: $0, id: session.id)?.pendingInteractionCount == 1
+        }
+        XCTAssertEqual(row(in: fixture.facade.snapshot, id: session.id)?.latestAssistantText, "Streaming tokens")
+
+        owner.syncState.partsByMessageID["\(session.id)-assistant"]?[0].text = "Final answer"
+        owner.applySessionStatus("idle", forSessionID: session.id)
+        await waitForSnapshot(fixture.facade, description: "Idle publishes the final canonical answer") {
+            let row = self.row(in: $0, id: session.id)
+            return row?.isWorking == false && row?.latestAssistantText == "Final answer"
+        }
+    }
+
+    private func makeFixture(historyCount: Int = 0, previewRefreshInterval: Duration = .milliseconds(200)) throws -> Fixture {
         // Never connect or prepare: all canonical state is injected and no API compatibility client exists.
         let model = AppViewModel(backendFactory: ActivityPerformanceBackend())
         model.localCacheRepository = try OpenCodeLocalCacheRepositoryFactory.makeInMemory()
@@ -339,7 +373,7 @@ final class ActivityPerformanceTests: XCTestCase {
         for project in projects {
             model.sessionListStore.setRecentSessions(sessions.filter { $0.projectID == project.id }, for: project.worktree)
         }
-        let facade = ActivityFacade(viewModel: model)
+        let facade = ActivityFacade(viewModel: model, previewRefreshInterval: previewRefreshInterval)
         XCTAssertEqual(facade.snapshot.workingRows.count, 4)
         XCTAssertNil(model.backendConnection)
         return Fixture(model: model, facade: facade, sessions: sessions, owners: owners)

@@ -89,10 +89,188 @@ private extension View {
 }
 #endif
 
+#if targetEnvironment(macCatalyst)
+/// Keep the anchored panel in the source window. Both SwiftUI and UIKit desktop
+/// popovers hit UIScrollEvent assertions on multi-display Catalyst setups.
+private struct ComposerAccessoryPopover<Content: View>: UIViewRepresentable {
+    @Binding var isPresented: Bool
+    let size: CGSize
+    let content: Content
+
+    func makeCoordinator() -> Coordinator { Coordinator(owner: self) }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        context.coordinator.owner = self
+        context.coordinator.scheduleUpdate(from: view)
+    }
+
+    static func dismantleUIView(_ view: UIView, coordinator: Coordinator) {
+        coordinator.isDismantled = true
+        coordinator.removePanel()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var owner: ComposerAccessoryPopover
+        var host: PanelHost?
+        private var overlay: PanelOverlay?
+        var isDismantled = false
+        private var updateScheduled = false
+
+        init(owner: ComposerAccessoryPopover) { self.owner = owner }
+
+        func scheduleUpdate(from source: UIView) {
+            guard !updateScheduled else { return }
+            updateScheduled = true
+            // Presentation and binding writes must occur outside updateUIView.
+            DispatchQueue.main.async { [weak self, weak source] in
+                guard let self else { return }
+                self.updateScheduled = false
+                guard !self.isDismantled, let source else { return }
+                self.update(from: source)
+            }
+        }
+
+        private func update(from source: UIView) {
+            guard owner.isPresented else {
+                removePanel()
+                return
+            }
+            if let host {
+                host.rootView = owner.content
+                overlay?.panelSize = owner.size
+                overlay?.setNeedsLayout()
+                return
+            }
+            guard let window = source.window else { return }
+            guard let presenter = window.rootViewController,
+                  presenter.presentedViewController == nil else {
+                owner.isPresented = false
+                return
+            }
+            let host = PanelHost(rootView: owner.content)
+            let overlay = PanelOverlay(frame: presenter.view.bounds)
+            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.source = source
+            overlay.panelSize = owner.size
+            overlay.panel = host.view
+            overlay.close = { [weak self] in self?.close() }
+            host.close = overlay.close
+            host.view.backgroundColor = .secondarySystemBackground
+            host.view.layer.cornerRadius = 14
+            host.view.clipsToBounds = true
+            presenter.addChild(host)
+            overlay.addSubview(host.view)
+            presenter.view.addSubview(overlay)
+            host.didMove(toParent: presenter)
+            self.host = host
+            self.overlay = overlay
+            overlay.setNeedsLayout()
+            overlay.layoutIfNeeded()
+            host.becomeFirstResponder()
+            UIAccessibility.post(notification: .screenChanged, argument: host.view)
+        }
+
+        func removePanel() {
+            host?.willMove(toParent: nil)
+            host?.view.removeFromSuperview()
+            host?.removeFromParent()
+            host = nil
+            overlay?.removeFromSuperview()
+            overlay = nil
+        }
+
+        private func close() {
+            let source = overlay?.source
+            removePanel()
+            owner.isPresented = false
+            UIAccessibility.post(notification: .screenChanged, argument: source?.superview)
+        }
+    }
+
+    final class PanelHost: UIHostingController<Content> {
+        var close: (() -> Void)?
+        override var canBecomeFirstResponder: Bool { true }
+        override var keyCommands: [UIKeyCommand]? {
+            [UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(closePanel))]
+        }
+        @objc private func closePanel() { close?() }
+        override func accessibilityPerformEscape() -> Bool {
+            close?()
+            return true
+        }
+    }
+
+    final class PanelOverlay: UIView, UIGestureRecognizerDelegate {
+        weak var source: UIView?
+        weak var panel: UIView?
+        var panelSize = CGSize.zero
+        var close: (() -> Void)?
+        private let arrow = CAShapeLayer()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            accessibilityViewIsModal = true
+            layer.shadowOpacity = 0.18
+            layer.shadowRadius = 14
+            layer.shadowOffset = CGSize(width: 0, height: 4)
+            layer.addSublayer(arrow)
+            let outside = UITapGestureRecognizer(target: self, action: #selector(closePanel))
+            outside.delegate = self
+            addGestureRecognizer(outside)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        @objc private func closePanel() { close?() }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard let panel, let view = touch.view else { return true }
+            return !view.isDescendant(of: panel)
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard let source, source.window === window, let panel else { return }
+            let anchor = source.convert(source.bounds, to: self)
+            let available = bounds.inset(by: safeAreaInsets).insetBy(dx: 12, dy: 12)
+            let above = max(0, anchor.minY - available.minY - 8)
+            let below = max(0, available.maxY - anchor.maxY - 8)
+            let opensAbove = above >= panelSize.height || above >= below
+            let height = min(panelSize.height, opensAbove ? above : below)
+            let width = min(panelSize.width, max(0, available.width))
+            let x = min(max(anchor.minX, available.minX), available.maxX - width)
+            let y = opensAbove ? anchor.minY - 8 - height : anchor.maxY + 8
+            panel.frame = CGRect(x: x, y: y, width: width, height: height)
+            let arrowX = min(max(anchor.midX, x + 18), x + width - 18)
+            let baseY = opensAbove ? panel.frame.maxY : panel.frame.minY
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: arrowX - 8, y: baseY))
+            path.addLine(to: CGPoint(x: arrowX, y: baseY + (opensAbove ? 8 : -8)))
+            path.addLine(to: CGPoint(x: arrowX + 8, y: baseY))
+            path.close()
+            arrow.path = path.cgPath
+            arrow.fillColor = UIColor.secondarySystemBackground.resolvedColor(with: traitCollection).cgColor
+            path.append(UIBezierPath(roundedRect: panel.frame, cornerRadius: 14))
+            layer.shadowPath = path.cgPath
+        }
+    }
+}
+
+#endif
+
 private extension View {
     @ViewBuilder
     func composerAccessoryTransitionSource(in namespace: Namespace.ID) -> some View {
-        #if os(iOS)
+        // Catalyst presents the popover in a separate desktop window. Keep its
+        // presentation independent of the source view's zoom coordinate space.
+        #if os(iOS) && !targetEnvironment(macCatalyst)
         if #available(iOS 18.0, *) {
             matchedTransitionSource(id: "composer-accessory-popover", in: namespace)
         } else {
@@ -105,7 +283,7 @@ private extension View {
 
     @ViewBuilder
     func composerAccessoryTransitionDestination(in namespace: Namespace.ID) -> some View {
-        #if os(iOS)
+        #if os(iOS) && !targetEnvironment(macCatalyst)
         if #available(iOS 18.0, *) {
             navigationTransition(.zoom(sourceID: "composer-accessory-popover", in: namespace))
         } else {
@@ -1079,13 +1257,14 @@ struct MessageComposer: View {
         .contentShape(Rectangle())
         .opencodeToolbarGlassID("composer-plus-menu", in: accessoryGlassNamespace)
         .shadow(color: .black.opacity(0.12), radius: 14, y: 4)
-        .composerAccessoryTransitionSource(in: accessoryPresentationNamespace)
-        .popover(
-            isPresented: $isAccessoryMenuOpen,
-            attachmentAnchor: .rect(.bounds),
-            arrowEdge: .bottom
-        ) {
-            accessoryPopoverContent
+        .background {
+            #if targetEnvironment(macCatalyst)
+            ComposerAccessoryPopover(
+                isPresented: $isAccessoryMenuOpen,
+                size: CGSize(width: 400, height: accessoryPopoverHeight),
+                content: accessoryNavigationContent
+            )
+            #endif
         }
     }
 
@@ -1882,7 +2061,7 @@ struct MessageComposer: View {
         expandedAccessoryMenu
     }
 
-    private var accessoryPopoverContent: some View {
+    private var accessoryNavigationContent: some View {
         NavigationStack(path: $accessoryNavigationPath) {
             accessorySheetContent
                 .navigationTitle("Message Tools")
@@ -1910,6 +2089,10 @@ struct MessageComposer: View {
                     }
                 }
         }
+    }
+
+    private var accessoryPopoverContent: some View {
+        accessoryNavigationContent
         .frame(width: usesWideAccessoryPopover ? 400 : 350, height: accessoryPopoverHeight)
         .presentationCompactAdaptation(.popover)
         .composerAccessoryTransitionDestination(in: accessoryPresentationNamespace)

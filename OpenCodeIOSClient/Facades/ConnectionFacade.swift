@@ -6,7 +6,6 @@ final class ConnectionFacade: ObservableObject {
     private unowned let viewModel: AppViewModel
     private weak var liveActivityBackgroundBridge: LiveActivityBackgroundBridge?
     private var observations: Set<AnyCancellable> = []
-    private var activeDirectoryObservation: AnyCancellable?
 
     init(viewModel: AppViewModel) {
         self.viewModel = viewModel
@@ -32,15 +31,6 @@ final class ConnectionFacade: ObservableObject {
                     connection?.isClosed == false && connection?.openCodeCompatibility?.profile == .v2
                         ? connection?.id : nil
                 )
-            }
-            .store(in: &observations)
-
-        bindActiveDirectoryStore(viewModel.directoryStoreRegistry.activeStore)
-        viewModel.directoryStoreRegistry.$activeStore
-            .dropFirst()
-            .sink { [weak self] store in
-                self?.bindActiveDirectoryStore(store)
-                self?.objectWillChange.send()
             }
             .store(in: &observations)
 
@@ -240,9 +230,4 @@ final class ConnectionFacade: ObservableObject {
         viewModel.disconnect()
     }
 
-    private func bindActiveDirectoryStore(_ store: DirectoryStore) {
-        activeDirectoryObservation = store.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-    }
 }

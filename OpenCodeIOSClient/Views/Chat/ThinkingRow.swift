@@ -78,7 +78,9 @@ struct ThinkingRow: View {
     }
 
     private var uses3DPill: Bool {
-        #if canImport(RealityKit) && canImport(UIKit)
+        // A continuously rendered RealityView competes with transcript layout on
+        // Catalyst's main thread. The interactive playground remains opt-in.
+        #if !targetEnvironment(macCatalyst) && canImport(RealityKit) && canImport(UIKit)
         if #available(iOS 18.0, *) { return true }
         #endif
         return false
@@ -87,7 +89,7 @@ struct ThinkingRow: View {
     @ViewBuilder
     private func thinkingRow(phase: Double) -> some View {
         #if canImport(RealityKit) && canImport(UIKit)
-        if #available(iOS 18.0, *) {
+        if #available(iOS 18.0, *), uses3DPill {
             HStack {
                 if let onOpenPlayground {
                     Button(action: onOpenPlayground) {
@@ -103,11 +105,24 @@ struct ThinkingRow: View {
             }
             .frame(maxWidth: .infinity)
         } else {
-            fallbackThinkingRow(phase: phase)
+            fallbackThinkingControl(phase: phase)
         }
         #else
-        fallbackThinkingRow(phase: phase)
+        fallbackThinkingControl(phase: phase)
         #endif
+    }
+
+    @ViewBuilder
+    private func fallbackThinkingControl(phase: Double) -> some View {
+        if let onOpenPlayground {
+            Button(action: onOpenPlayground) {
+                fallbackThinkingRow(phase: phase)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Open glass playground")
+        } else {
+            fallbackThinkingRow(phase: phase)
+        }
     }
 
     private func fallbackThinkingRow(phase: Double) -> some View {

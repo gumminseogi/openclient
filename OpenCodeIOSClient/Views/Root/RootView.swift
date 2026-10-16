@@ -268,9 +268,7 @@ struct RootView<ChatDestination: View>: View {
                     case let .chat(route):
                         ChatRouteView(route: route, destination: chatDestination)
                             .equatable()
-                            #if os(iOS) && !targetEnvironment(macCatalyst)
                             .transition(.identity)
-                            #endif
                     case .selectSession:
                         ContentUnavailableView("Select a Session", systemImage: "bubble.left.and.bubble.right")
                     }
@@ -487,11 +485,9 @@ struct ChatRouteView<Destination: View>: View, Equatable {
     var body: some View {
         destination(route.sessionID, route.presentationRequest)
             .id(route.sessionID)
-            #if os(iOS) && !targetEnvironment(macCatalyst)
             // Route replacement must not cross-fade the old chat behind the entry gate.
             .transition(.identity)
             .animation(nil, value: route.sessionID)
-            #endif
     }
 }
 

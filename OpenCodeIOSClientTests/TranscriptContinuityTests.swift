@@ -833,6 +833,39 @@ final class TranscriptContinuityTests: XCTestCase {
         XCTAssertEqual(harness.historyRequestCount, 2, "Viewport changes after reveal must not restart opening fill")
     }
 
+    func testSingleViewportOpeningRevealsWithoutPreparingOffscreenHistory() async {
+        let harness = ChatTranscriptContinuityHarness()
+        let collection = harness.collectionView
+        let controller = UIViewController()
+        controller.view.addSubview(collection)
+        let window = UIWindow(frame: collection.frame)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        harness.update(ids: (0..<8).map { "message-\($0)" }, historyCount: 100)
+        harness.setOpeningHistoryViewportCount(1)
+        harness.prepareInitialReveal()
+        await settle(harness)
+
+        let viewport = collection.bounds.height - collection.adjustedContentInset.top - collection.adjustedContentInset.bottom
+        XCTAssertGreaterThanOrEqual(collection.contentSize.height, viewport)
+        XCTAssertLessThan(collection.contentSize.height, viewport * 2)
+        XCTAssertEqual(harness.historyRequestCount, 0, "A filled viewport should not wait for offscreen cached history")
+        XCTAssertFalse(harness.awaitsInitialReveal)
+        XCTAssertEqual(collection.alpha, 1)
+        let bottom = collection.contentSize.height - collection.bounds.height + collection.adjustedContentInset.bottom
+        XCTAssertEqual(collection.contentOffset.y, bottom, accuracy: 2)
+
+        collection.simulatesDragging = true
+        collection.delegate?.scrollViewWillBeginDragging?(collection)
+        collection.contentOffset.y -= 30
+        collection.delegate?.scrollViewDidScroll?(collection)
+        collection.simulatesDragging = false
+        collection.delegate?.scrollViewDidEndDragging?(collection, willDecelerate: false)
+        await settle(harness)
+        XCTAssertEqual(harness.historyRequestCount, 1, "History must still load on an upward gesture")
+    }
+
     func testServerOnlyOpeningRevealsWithoutAutomaticPostFadeExpansion() async {
         let harness = ChatTranscriptContinuityHarness()
         let collection = harness.collectionView

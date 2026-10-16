@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import OpenClient
 
@@ -58,6 +59,32 @@ final class ConnectionNoticeTests: XCTestCase {
             client: OpenCodeAPIClient(config: .init(baseURL: address, apiPreference: .legacy), session: URLSession(configuration: configuration)),
             eventManager: OpenCodeEventManager()
         )
+    }
+
+    func testDirectoryChangesDoNotInvalidateConnectionPresentation() {
+        let model = AppViewModel(backendFactory: HomeTestBackend())
+        let facade = model.connectionFacade
+        let owner = model.directoryStoreRegistry.activeStore
+        var publications = 0
+        let observation = facade.objectWillChange.sink { publications += 1 }
+        defer { observation.cancel() }
+
+        let session = OpenCodeSession(id: "navigation", title: "Navigation", workspaceID: nil,
+            directory: nil, projectID: "global", parentID: nil)
+        owner.insertV2Session(session)
+        owner.selectedSession = session
+        owner.applySessionStatus("busy", forSessionID: session.id)
+        owner.applyV2Messages([.local(role: "assistant", text: "Streaming", messageID: "answer", sessionID: session.id)],
+            forSessionID: session.id)
+        XCTAssertEqual(publications, 0, "Directory state has dedicated observers; it must not invalidate connection UI")
+
+        model.connectionStore.isLoading = true
+        XCTAssertGreaterThan(publications, 0)
+        XCTAssertTrue(facade.isLoading)
+        publications = 0
+        model.connectionStore.errorMessage = "Connection failed"
+        XCTAssertGreaterThan(publications, 0)
+        XCTAssertEqual(facade.errorMessage, "Connection failed")
     }
 
     func testV2NoticeIsArmedOnlyAfterSuccessfulBootstrapAndHiddenWhileLoading() async {

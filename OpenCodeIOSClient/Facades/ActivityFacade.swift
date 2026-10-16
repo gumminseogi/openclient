@@ -269,6 +269,15 @@ final class ActivityFacade: ObservableObject {
     }
 
     private unowned let viewModel: AppViewModel
+    private let previewRefreshInterval: Duration
+
+    static var defaultPreviewRefreshInterval: Duration {
+        #if targetEnvironment(macCatalyst)
+        .milliseconds(500)
+        #else
+        .milliseconds(200)
+        #endif
+    }
     private weak var liveActivityBackgroundBridge: LiveActivityBackgroundBridge?
     private var observations: Set<AnyCancellable> = []
     private var monitoredStoreObservations: Set<AnyCancellable> = []
@@ -302,8 +311,13 @@ final class ActivityFacade: ObservableObject {
     }
     var allowsNewTalk: Bool { viewModel.projectFacade.allowsNewTalk }
 
-    init(viewModel: AppViewModel, workflow: ActivityWorkflowStore? = nil) {
+    init(
+        viewModel: AppViewModel,
+        workflow: ActivityWorkflowStore? = nil,
+        previewRefreshInterval: Duration = ActivityFacade.defaultPreviewRefreshInterval
+    ) {
         self.viewModel = viewModel
+        self.previewRefreshInterval = previewRefreshInterval
         #if DEBUG
         self.workflow = workflow ?? ActivityWorkflowStore(persists: ProcessInfo.processInfo.environment["OPENCLIENT_SCREENSHOT_SCENE"] == nil)
         #else
@@ -1145,7 +1159,7 @@ final class ActivityFacade: ObservableObject {
             snapshotRefreshTask = nil
             let metadata = makePresentationMetadata()
             let metadataChanged = metadata != presentationMetadata
-            let remaining = Duration.milliseconds(200) - lastSnapshotRefresh.duration(to: .now)
+            let remaining = previewRefreshInterval - lastSnapshotRefresh.duration(to: .now)
             if metadataChanged || remaining <= .zero {
                 refreshSnapshot()
             } else if previewRefreshTask == nil {
