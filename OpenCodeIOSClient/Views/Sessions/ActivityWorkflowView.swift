@@ -81,6 +81,7 @@ struct ActivityWorkflowContent: View {
                                 ActivityWorkflowColumn(facade: facade, section: section, onSessionChosen: onSessionChosen,
                                     onEdit: { editingStatus = $0 }, onDelete: { deletingStatus = $0 })
                                     .frame(width: columnWidth)
+                                    .padding(.top, 16)
                             }
                         }
                         .padding(.horizontal, 16)
@@ -261,7 +262,6 @@ private struct ActivityWorkflowColumn: View {
                 } header: {
                     ActivityWorkflowHeading(status: section.status, count: section.rows.count)
                         .padding(.horizontal, 8)
-                        .padding(.top, 16)
                         .contentShape(.rect)
                         .contextMenu {
                             ActivityWorkflowStatusActions(facade: facade, status: section.status, onEdit: onEdit, onDelete: onDelete)
@@ -320,6 +320,8 @@ private struct ActivityWorkflowCard: View {
     let row: ActivityFacade.RowSnapshot
     let presentation: ActivitySessionRowPresentation
     let onSessionChosen: () -> Void
+    @State private var isRenaming = false
+    @State private var renameTitle = ""
 
     var body: some View {
         Button {
@@ -342,10 +344,46 @@ private struct ActivityWorkflowCard: View {
         .contextMenu {
             ActivityWorkflowStatusMenu(facade: facade, row: row)
             if !facade.snapshot.isReadOnly {
+                if facade.supportsMarkRead, row.recent.session.isUnread {
+                    Button("Mark Read", systemImage: "envelope.open") {
+                        Task { await facade.markRead(row) }
+                    }
+                    .accessibilityIdentifier("activity.markRead.\(row.recent.session.id)")
+                }
+                Button("Rename", systemImage: "pencil") {
+                    renameTitle = row.recent.session.title ?? ""
+                    isRenaming = true
+                }
+                .accessibilityIdentifier("activity.rename.\(row.recent.session.id)")
+                #if !targetEnvironment(macCatalyst)
+                if facade.allowsLiveActivities {
+                    Button {
+                        Task { await facade.toggleLiveActivity(row) }
+                    } label: {
+                        Label(
+                            row.isLiveActivityActive ? LocalizedStringResource("Stop Live") : LocalizedStringResource("Live"),
+                            systemImage: row.isLiveActivityActive ? "waveform.slash" : "waveform"
+                        )
+                    }
+                    .accessibilityIdentifier("activity.live.\(row.recent.session.id)")
+                }
+                #endif
                 Button("Delete", systemImage: "trash", role: .destructive) {
                     Task { await facade.delete(row) }
                 }
             }
+        }
+        .alert("Rename Session", isPresented: $isRenaming) {
+            TextField("Title", text: $renameTitle)
+            Button("Cancel", role: .cancel) { renameTitle = "" }
+            Button("Rename") {
+                let title = renameTitle
+                renameTitle = ""
+                Task { await facade.rename(row, title: title) }
+            }
+            .disabled(renameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Enter a new title for this session.")
         }
         .task(id: HydrationKey(generation: row.hydrationGeneration, presentation: presentation)) {
             guard presentation == .fullContext else { return }

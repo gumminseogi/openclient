@@ -858,7 +858,7 @@ final class ActivityFacade: ObservableObject {
                   let project = viewModel.projects.first(where: { $0.id == scope.projectID }) else { continue }
             for session in store.sessions where session.isRootSession && !session.isArchived {
                 let attributed = candidates[session.id].map { self.session(session, preservingAttributionFrom: $0.session) } ?? session
-                candidates[session.id] = RecentProjectSession(session: attributed, projectTitle: projectTitle(project),
+                candidates[session.id] = RecentProjectSession(session: attributed, projectTitle: projectTitle(self.project(for: attributed) ?? project),
                     preview: viewModel.sessionPreviews[session.id], isBusy: false)
             }
         }
@@ -995,6 +995,10 @@ final class ActivityFacade: ObservableObject {
     private func project(for session: OpenCodeSession) -> OpenCodeProject? {
         if session.projectID == "global" {
             return viewModel.projects.first { $0.id == "global" }
+        }
+        if let directory = session.directory,
+           let project = viewModel.projects.first(where: { $0.id == session.projectID && $0.worktree == directory }) {
+            return project
         }
         if let directory = session.directory,
            let project = viewModel.projects.first(where: { $0.worktree == directory }) {

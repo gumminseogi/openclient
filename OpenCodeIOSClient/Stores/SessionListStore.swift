@@ -562,6 +562,11 @@ final class SessionListStore: ObservableObject {
             return projectsByID["global"]
         }
         if let directory = session.directory,
+           let projectID = session.projectID,
+           let project = projectsByID[projectID], project.worktree == directory {
+            return project
+        }
+        if let directory = session.directory,
            let project = projects.first(where: { $0.worktree == directory }) {
             return project
         }

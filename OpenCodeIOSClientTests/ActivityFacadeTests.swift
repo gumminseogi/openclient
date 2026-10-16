@@ -1278,6 +1278,28 @@ final class ActivityFacadeTests: XCTestCase {
         )
     }
 
+    func testDuplicateProjectDirectoriesUseSessionProjectIdentityForNameAndIcon() {
+        let viewModel = AppViewModel()
+        let fallback = makeProject(id: "default", directory: "/tmp/project")
+        let custom = OpenCodeProject(id: "custom", worktree: fallback.worktree, vcs: "git",
+            name: "Custom Project", sandboxes: nil,
+            icon: .init(url: nil, override: "custom-image", color: "purple"), time: nil)
+        let session = makeSession(id: "session", title: "Work", directory: custom.worktree,
+            projectID: custom.id, updated: 2_000)
+        viewModel.projects = [fallback, custom]
+        viewModel.sessionListStore.setRecentSessions([session], for: custom.worktree)
+        let store = viewModel.directoryStoreRegistry.store(for: custom.worktree)
+        _ = store.upsertSessions([session])
+
+        let recent = viewModel.sessionListStore.recentProjectSessions(projects: viewModel.projects,
+            previews: [:], statuses: [:])
+        XCTAssertEqual(recent.first?.projectTitle, custom.name)
+        let row = viewModel.activityFacade.snapshot.recentRows.first
+        XCTAssertEqual(row?.projectID, custom.id)
+        XCTAssertEqual(row?.recent.projectTitle, custom.name)
+        XCTAssertEqual(row?.projectIcon, custom.icon)
+    }
+
     func testBareScopeAttributionSurvivesCanonicalRepositorySessionInDirectoryStore() {
         let viewModel = AppViewModel()
         let global = OpenCodeProject(id: "global", worktree: "/", vcs: nil, name: nil, sandboxes: nil, icon: nil, time: nil)
