@@ -13,6 +13,7 @@ struct OpenClientReleaseNotes: Identifiable, Equatable {
         case webPush
         case conversationControl
         case chatContinuity
+        case activityWorkflow
     }
 
     struct Feature: Identifiable, Equatable {
@@ -308,6 +309,14 @@ enum OpenClientReleaseNotesCatalog {
             summary: "Meet your new status pill, see what each turn changed, and scroll back without losing your place.",
             features: [],
             hero: .chatContinuity,
+            showsSetup: false
+        ),
+        OpenClientReleaseNotes(
+            version: "1.0.25",
+            title: "Make room for what’s next.",
+            summary: "Spot unread replies and organize your conversations around the way you work.",
+            features: [],
+            hero: .activityWorkflow,
             showsSetup: false
         ),
     ]

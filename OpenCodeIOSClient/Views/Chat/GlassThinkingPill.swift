@@ -659,7 +659,10 @@ private final class GlassThinkingPillScene {
         lettering.scale = .one
         lettering.position = .zero
         let bounds = lettering.visualBounds(relativeTo: lettering)
-        let scale = min(1, 1.8 / max(bounds.extents.x, 0.001))
+        // Lettering sits in front of the shell, so perspective makes it wider
+        // than the same world-space span on the glass. Leave room for both the
+        // status sphere and the rounded end cap, including longer labels.
+        let scale = min(1, 1.45 / max(bounds.extents.x, 0.001))
         lettering.scale = SIMD3<Float>(repeating: scale)
         lettering.position = [0.22 - bounds.center.x * scale, -bounds.center.y * scale, 0.365]
     }

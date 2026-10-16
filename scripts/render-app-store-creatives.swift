@@ -52,10 +52,27 @@ let copy: [(String, String, String)] = [
     ("it", "Il tuo OpenCode.\nOvunque.", "Il tuo server. I tuoi progetti.\nNativo su iPhone e iPad.")
 ]
 
+let headerCopy = [
+    "en-US": ("Big Ideas", "Now in your hands"),
+    "pt-BR": ("Grandes ideias", "Agora nas suas mãos"),
+    "it": ("Grandi idee", "Ora nelle tue mani")
+]
+
+func headerLine(_ value: String, centerY: CGFloat, size: CGFloat, tracking: CGFloat) {
+    let text = NSAttributedString(string: value, attributes: [
+        .font: NSFont.systemFont(ofSize: size, weight: .bold),
+        .foregroundColor: NSColor(srgbRed: 0.08, green: 0.08, blue: 0.09, alpha: 1),
+        .kern: tracking
+    ])
+    let bounds = text.size()
+    precondition(bounds.width <= 3200, "Header text exceeds its safe width")
+    text.draw(at: NSPoint(x: (3840 - bounds.width) / 2, y: centerY - bounds.height / 2))
+}
+
 for (locale, headline, subtitle) in copy {
     let directory = output.appendingPathComponent(locale)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    for header in [true, false] {
+    for header in (CommandLine.arguments.contains("--header-only") ? [true] : [true, false]) {
         let width = 3840
         let height = header ? 1646 : 2560
         let h = CGFloat(height)
@@ -73,8 +90,12 @@ for (locale, headline, subtitle) in copy {
             path.stroke()
         }
         if header {
-            screen("06-sessions", x: 1950, top: 200, height: 1320, angle: -8, canvasHeight: h)
-            screen("04-grouping", x: 1240, top: 120, height: 1410, angle: 5, canvasHeight: h)
+            NSColor.white.setFill()
+            NSRect(x: 0, y: 0, width: width, height: height).fill()
+            let lines = headerCopy[locale]!
+            // Keep both lines inside the central crop, below store navigation.
+            headerLine(lines.0, centerY: 930, size: locale == "pt-BR" ? 310 : 352, tracking: -12)
+            headerLine(lines.1, centerY: 605, size: 192, tracking: -7)
         } else {
             let top: CGFloat = 610
             label("OpenClient", box(250, top, 1650, 130, h), size: 90, weight: .semibold, color: blue)

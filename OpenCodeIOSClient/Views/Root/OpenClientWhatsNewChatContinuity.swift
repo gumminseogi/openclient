@@ -25,15 +25,6 @@ struct OpenClientWhatsNewChatContinuity: View {
 
             WhatsNewChatComfortSection(store: store)
 
-            WhatsNewSessionOrganizationSection()
-
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Keep composing while it works.", systemImage: "at").font(.title2.bold())
-                Text("In OpenCode v2, use @ to choose an agent or skill and / for commands. Suggestions stay available while the assistant is working, and long names stay on one line.")
-                    .foregroundStyle(.secondary)
-            }
-            .accessibilityIdentifier("new-features.composer-mentions")
-
             VStack(alignment: .leading, spacing: 12) {
                 Label("See what changed", systemImage: "doc.text.magnifyingglass").font(.title2.bold())
                 Text("Tap a response, then the Changes button beside Copy to explore that turn’s file diffs. Unchanged lines start collapsed so the important bits stand out.")
@@ -73,20 +64,6 @@ struct OpenClientWhatsNewChatContinuity: View {
             }
         }
         .accessibilityIdentifier("new-features.chat-continuity")
-    }
-}
-
-private struct WhatsNewSessionOrganizationSection: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Make room for your workflow.", systemImage: "rectangle.split.3x1")
-                .font(.title2.bold())
-            Text("Switch Activity between a list and a board, group sessions by status, and create custom statuses with your own colors and icons. Session statuses sync on supported servers.")
-                .foregroundStyle(.secondary)
-            Text("Mark sessions read or unread, or mark them all read at once. Read state syncs through supported servers so you can pick up on another device.")
-                .foregroundStyle(.secondary)
-        }
-        .accessibilityIdentifier("new-features.session-organization")
     }
 }
 

@@ -27,13 +27,15 @@ python3 scripts/capture-native-harness-loop.py <iPad-UDID> \
   .derived-data-native-loop/Build/Products/Debug-iphonesimulator/OpenClient.app --header
 ```
 
-The host records the simulator display, detects the fixture's off-crop sync cues, and cuts one complete loop. FFmpeg only crops, scales, and encodes the captured pixels. It does not draw the UI. The 2752-pixel-wide native capture is scaled to the ASC export width.
+The host records the simulator display and detects the fixture's off-crop sync cues. The header uses a warmed-up cycle, keeps the full Ready → Thinking roll, and blends one second of the settled Thinking hold across the loop boundary to reconcile the native glow, shimmer, and background clocks. FFmpeg crops, scales, blends captured frames, and encodes; it does not draw the UI. The 2752-pixel-wide native capture is scaled to the ASC export width.
 
 Outputs in `en-US/`:
 
 - `header-native-loop.mp4` — 3840 × 1646
 - `search-results-native-loop.mp4` — 3840 × 2560
-- `*-poster.png` — question-bubble poster frames
+- `header-poster.png` — status-pill poster frame
+- `search-results-poster.png` — question-bubble poster frame
+- `header-native-thinking.png` — full simulator still from the header capture
 - `simulator-recording.mov` — original capture, including launch/warmup
 
 The first prototype's offline SceneKit approximation remains separately under `harness-loop/` for comparison.

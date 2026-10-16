@@ -29,6 +29,7 @@ if "--export-only" not in sys.argv:
     run("xcrun", "simctl", "install", DEVICE, APP)
     subprocess.run(["xcrun", "simctl", "terminate", DEVICE, BUNDLE], capture_output=True)
     run("xcrun", "devicectl", "device", "orientation", "set", "--device", DEVICE, "landscapeRight")
+    time.sleep(1)  # Let the display orientation settle before recording starts.
     recorder = subprocess.Popen(
         ["xcrun", "simctl", "io", DEVICE, "recordVideo", "--codec=h264", "--force", str(raw)],
         stderr=subprocess.PIPE, text=True,
@@ -47,8 +48,9 @@ if "--export-only" not in sys.argv:
         run("xcrun", "simctl", "launch", DEVICE, BUNDLE,
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US", env=env)
         time.sleep(12)
-        run("xcrun", "simctl", "io", DEVICE, "screenshot", str(OUT / "native-thinking.png"))
-        time.sleep(20)
+        capture_still = "header-native-thinking.png" if header_only else "native-thinking.png"
+        run("xcrun", "simctl", "io", DEVICE, "screenshot", str(OUT / capture_still))
+        time.sleep(32 if header_only else 20)
     finally:
         recorder.send_signal(signal.SIGINT)
         recorder.wait(timeout=30)
@@ -63,12 +65,18 @@ width, height = info["width"], info["height"]
 rotation = next((side["rotation"] for side in info.get("side_data_list", []) if "rotation" in side), 0)
 if abs(rotation) % 180 == 90:
     width, height = height, width
+orientation_filter = ""
+if width < height and rotation == 0:
+    # Some simctl versions omit the display matrix even though the app is in
+    # the landscapeRight orientation explicitly selected above.
+    orientation_filter = "transpose=clock,"
+    width, height = height, width
 if width < height:
     raise RuntimeError("The export recording must be landscape; check iPad rotation")
 # The fixture's 16-point magenta sync square is at (40,40), outside both crops.
 # Sample the center using the iPad's 2x framebuffer scale.
 samples = subprocess.check_output([
-    "ffmpeg", "-v", "error", "-i", str(raw), "-vf", "fps=30,crop=2:2:94:94,scale=1:1",
+    "ffmpeg", "-v", "error", "-i", str(raw), "-vf", f"{orientation_filter}fps=30,crop=2:2:94:94,scale=1:1",
     "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1",
 ])
 starts = []
@@ -81,7 +89,14 @@ for index in range(0, len(samples), 3):
     was_magenta = magenta
 if len(starts) < 2:
     raise RuntimeError(f"Expected two native loop cues, got {starts}; inspect the raw recording")
-start, end = starts[:2]
+if header_only:
+    if len(starts) < 3:
+        raise RuntimeError("Header capture needs three cues to include a warmed-up return to Thinking")
+    # Begin after the Ready -> Thinking roll has settled. Include the next
+    # return roll in full rather than cutting it off at the cycle cue.
+    start, end = starts[1] + 1.2, starts[2] + 1.2
+else:
+    start, end = starts[:2]
 print(f"Native loop boundaries: {start:.3f}–{end:.3f}s", flush=True)
 exports = [("header", 3840, 1646)] if header_only else [("search-results", 3840, 2560)]
 for name, w, h in exports:
@@ -89,8 +104,28 @@ for name, w, h in exports:
     if crop_h > height:
         raise RuntimeError("Capture does not contain enough vertical pixels for the requested crop")
     target = OUT / f"{name}-native-loop.mp4"
+    duration = round((end - start) * 30) / 30
+    crop = f"{orientation_filter}crop={width}:{crop_h}:0:(ih-oh)/2,scale={w}:{h}:flags=lanczos,fps=30"
+    if header_only:
+        # Blend only the settled Thinking hold to reconcile independent native
+        # glow/shimmer clocks. The final frame leads into the next frame of the
+        # opening hold, rather than jumping between Ready and Thinking.
+        blend = 1
+        # Put the actual file boundary half a second AFTER the dissolve, in
+        # uninterrupted source frames. This avoids a residual blended frame
+        # at the end jumping to an unblended frame at the start.
+        seam_offset = blend + 0.5
+        filters = (
+            f"[0:v]{crop},trim=duration={duration + blend},setpts=PTS-STARTPTS,split[cycle][head];"
+            f"[head]trim=duration={seam_offset},setpts=PTS-STARTPTS[opening];"
+            f"[cycle][opening]xfade=transition=fade:duration={blend}:offset={duration},"
+            f"trim=start={seam_offset}:duration={duration},setpts=PTS-STARTPTS[out]"
+        )
+        video_args = ["-filter_complex", filters, "-map", "[out]"]
+    else:
+        video_args = ["-vf", crop]
     run("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", str(start), "-i", str(raw),
-        "-t", str(end-start), "-vf", f"crop={width}:{crop_h}:0:(ih-oh)/2,scale={w}:{h}:flags=lanczos,fps=30",
+        "-t", str(duration), *video_args,
         "-an", "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p",
         "-movflags", "+faststart", str(target))
     run("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", "2", "-i", str(target),

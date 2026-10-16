@@ -6,6 +6,7 @@ import UIKit
 struct ScreenshotSceneView: View {
     let scene: OpenClientScreenshotScene
     @ObservedObject var viewModel: AppViewModel
+    @State private var showsActivityAnnouncement = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -19,6 +20,15 @@ struct ScreenshotSceneView: View {
         }
         .onAppear {
             requestLandscapeForiPadScreenshots()
+            showsActivityAnnouncement = ProcessInfo.processInfo.environment["OPENCLIENT_ACTIVITY_ANNOUNCEMENT"] == "1"
+        }
+        .sheet(isPresented: $showsActivityAnnouncement) {
+            if let release = OpenClientReleaseNotesCatalog.releases.first(where: { $0.hero == .activityWorkflow }) {
+                OpenClientWhatsNewView(release: release,
+                                      connection: viewModel.connectionFacade, bridge: nil) {
+                    showsActivityAnnouncement = false
+                }
+            }
         }
         .preferredColorScheme(
             ProcessInfo.processInfo.environment["OPENCLIENT_UI_TEST_DARK_MODE"] == "1" ? .dark : nil

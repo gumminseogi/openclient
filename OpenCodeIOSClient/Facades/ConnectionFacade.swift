@@ -83,6 +83,7 @@ final class ConnectionFacade: ObservableObject {
     var selectedAppIcon: OpenClientAppIcon { viewModel.appIconStore.selectedIcon }
     var speechVoiceStore: SpeechVoiceStore { viewModel.speechVoiceStore }
     var providerUsageFacade: ProviderUsageFacade { viewModel.providerUsageFacade }
+    var activityWorkflowStore: ActivityWorkflowStore { viewModel.activityFacade.workflow }
     var providerUsageUsesInsecureTransport: Bool {
         viewModel.backendConnection?.openCodeCompatibility?.client.config.usesInsecureHTTP ?? false
     }

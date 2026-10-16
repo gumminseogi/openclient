@@ -1,6 +1,22 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Today": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Oggi" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Hoje" } } } },
+    "Make room for what’s next.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Fai spazio a ciò che viene dopo." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Abra espaço para o próximo passo." } } } },
+    "Spot unread replies and organize your conversations around the way you work.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Trova le risposte non lette e organizza le conversazioni in base al tuo modo di lavorare." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Encontre respostas não lidas e organize suas conversas do seu jeito." } } } },
+    "Your Activity, your way": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Le tue attività, a modo tuo" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Sua atividade, do seu jeito" } } } },
+    "Follow the latest conversations, or give every chat a place in your workflow.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Segui le conversazioni più recenti o assegna a ogni chat un posto nel tuo flusso di lavoro." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Acompanhe as conversas mais recentes ou dê a cada chat um lugar no seu fluxo de trabalho." } } } },
+    "Your choice applies to Activity. You can change it anytime from the display menu.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "La tua scelta si applica ad Attività. Puoi cambiarla in qualsiasi momento dal menu di visualizzazione." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Sua escolha se aplica à Atividade. Você pode alterá-la a qualquer momento pelo menu de visualização." } } } },
+    "Create your own statuses with a name, color, and icon. Move chats between them with a drag or the Status menu.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Crea stati personalizzati con un nome, un colore e un’icona. Sposta le chat trascinandole o dal menu Stato." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Crie seus próprios status com nome, cor e ícone. Mova os chats arrastando ou pelo menu Status." } } } },
+    "Know what’s new": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Scopri le novità" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Saiba o que há de novo" } } } },
+    "Unread dots highlight new replies. Open a chat to catch up, or use Mark All as Read to clear the backlog. Read state syncs on supported servers.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "I pallini evidenziano le nuove risposte non lette. Apri una chat per aggiornarti o usa Segna tutti come letti. Lo stato di lettura si sincronizza sui server compatibili." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Os pontos de não lido destacam novas respostas. Abra um chat para se atualizar ou use Marcar todas como lidas. O estado de leitura é sincronizado em servidores compatíveis." } } } },
+    "Try it here": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Prova qui" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Experimente aqui" } } } },
+    "Mark as Read": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Segna come letto" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Marcar como lido" } } } },
+    "Replay Demo": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Ripeti la demo" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Repetir demonstração" } } } },
+    "Polish the launch": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Rifinisci il lancio" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Aprimorar o lançamento" } } } },
+    "The update is ready for review.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "L’aggiornamento è pronto per la revisione." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "A atualização está pronta para revisão." } } } },
+    "Plan the next release": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Pianifica la prossima versione" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Planejar a próxima versão" } } } },
+    "Update the docs": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Aggiorna la documentazione" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Atualizar a documentação" } } } },
     "Keep composing while it works." : { "localizations" : {
       "it" : { "stringUnit" : { "state" : "translated", "value" : "Continua a scrivere mentre lavora." } },
       "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Continue escrevendo enquanto ele trabalha." } }
@@ -24,18 +40,6 @@
     "No matching agents or skills" : { "localizations" : {
       "it" : { "stringUnit" : { "state" : "translated", "value" : "Nessun agente o skill corrispondente" } },
       "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Nenhum agente ou skill correspondente" } }
-    } },
-    "Make room for your workflow." : { "localizations" : {
-      "it" : { "stringUnit" : { "state" : "translated", "value" : "Fai spazio al tuo flusso di lavoro." } },
-      "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Abra espaço para seu fluxo de trabalho." } }
-    } },
-    "Switch Activity between a list and a board, group sessions by status, and create custom statuses with your own colors and icons. Session statuses sync on supported servers." : { "localizations" : {
-      "it" : { "stringUnit" : { "state" : "translated", "value" : "Passa dall’elenco alla bacheca in Attività, raggruppa le sessioni per stato e crea stati personalizzati con colori e icone a tua scelta. Gli stati delle sessioni si sincronizzano sui server compatibili." } },
-      "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Alterne entre lista e quadro em Atividade, agrupe sessões por status e crie status personalizados com suas próprias cores e ícones. Os status das sessões são sincronizados em servidores compatíveis." } }
-    } },
-    "Mark sessions read or unread, or mark them all read at once. Read state syncs through supported servers so you can pick up on another device." : { "localizations" : {
-      "it" : { "stringUnit" : { "state" : "translated", "value" : "Segna le sessioni come lette o non lette, oppure segnale tutte come lette in una volta. Lo stato di lettura si sincronizza tramite i server compatibili per riprendere su un altro dispositivo." } },
-      "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Marque sessões como lidas ou não lidas, ou marque todas como lidas de uma vez. O estado de leitura é sincronizado por servidores compatíveis para você continuar em outro dispositivo." } }
     } },
     "Find your comfort level." : {
       "localizations" : {

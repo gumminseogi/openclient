@@ -14,7 +14,9 @@ struct OpenClientWhatsNewView: View {
         NavigationStack {
             ScrollView {
                 Group {
-                    if release.hero == .chatContinuity {
+                    if release.hero == .activityWorkflow {
+                        OpenClientWhatsNewActivityWorkflow(release: release, store: connection.activityWorkflowStore)
+                    } else if release.hero == .chatContinuity {
                         OpenClientWhatsNewChatContinuity(release: release, store: connection.appCustomizationStore)
                     } else if release.hero == .conversationControl {
                         OpenClientWhatsNewChatControls(release: release, delivery: Binding(
@@ -44,7 +46,7 @@ struct OpenClientWhatsNewView: View {
                 OpenClientWhatsNewFooter(onDone: onDone)
             }
         }
-        .presentationDetents([.fraction(0.78), .large])
+        .presentationDetents(release.hero == .activityWorkflow ? [.large] : [.fraction(0.78), .large])
         .presentationDragIndicator(.visible)
     }
 }
@@ -751,7 +753,7 @@ private struct OpenClientWhatsNewActivityExamples: View {
     }
 }
 
-private struct OpenClientWhatsNewHero: View {
+struct OpenClientWhatsNewHero: View {
     let version: String
     let title: String
     let summary: String
@@ -805,6 +807,8 @@ private struct OpenClientWhatsNewHero: View {
                         OpenClientWhatsNewTalkMark()
                     case .openCodeV2:
                         OpenClientWhatsNewV2Mark()
+                    case .activityWorkflow:
+                        ActivityAnnouncementHeroMark()
                     case .personalControl, .conversationControl, .chatContinuity:
                         Image(systemName: "slider.horizontal.3")
                             .font(.title2.weight(.bold))
