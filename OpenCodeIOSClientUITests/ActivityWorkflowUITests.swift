@@ -9,6 +9,88 @@ final class ActivityWorkflowUITests: XCTestCase {
     }
 
     @MainActor
+    func testSessionActionsAndRenameCancellationInStatusList() {
+        verifySessionActionsAndRenameCancellation(layout: "List")
+    }
+
+    @MainActor
+    func testSessionActionsAndRenameCancellationInBoard() {
+        verifySessionActionsAndRenameCancellation(layout: "Board")
+    }
+
+    @MainActor
+    private func verifySessionActionsAndRenameCancellation(layout: String) {
+        let app = launchActivity(mutationFixture: true)
+        chooseDisplayOption("Status", in: app)
+        let sessionID = "session-screenshot-release"
+        let card = app.buttons["activity.session.\(sessionID)"]
+
+        do {
+            chooseDisplayOption(layout, in: app)
+            if layout == "Board" {
+                let board = element("activity.board", in: app)
+                for _ in 0..<4 {
+                    if card.exists && card.isHittable && board.frame.contains(card.frame) { break }
+                    board.swipeLeft()
+                }
+            } else {
+                reveal(card, in: app)
+            }
+            XCTAssertTrue(card.isHittable)
+            let originalLabel = card.label
+            capture(app, "workflow-actions-\(layout)-before")
+            card.press(forDuration: 1)
+            let rename = app.buttons["activity.rename.\(sessionID)"]
+            XCTAssertTrue(rename.waitForExistence(timeout: 5))
+            XCTAssertTrue(rename.isEnabled)
+            XCTAssertTrue(app.buttons["Status"].exists)
+            XCTAssertTrue(app.buttons["Delete"].exists)
+            // This metadata-only backend has neither read receipts nor Live Activities.
+            XCTAssertFalse(app.buttons["activity.markRead.\(sessionID)"].exists)
+            XCTAssertFalse(app.buttons["activity.live.\(sessionID)"].exists)
+            capture(app, "workflow-actions-\(layout)-menu")
+            rename.tap()
+
+            let alert = app.alerts["Rename Session"]
+            XCTAssertTrue(alert.waitForExistence(timeout: 5))
+            let title = alert.textFields.firstMatch
+            let originalTitle = title.value as? String ?? ""
+            XCTAssertFalse(originalTitle.isEmpty)
+            XCTAssertTrue(originalLabel.contains(originalTitle))
+            title.tap()
+            title.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: originalTitle.count))
+            XCTAssertFalse(alert.buttons["Rename"].isEnabled)
+            title.typeText("   ")
+            XCTAssertFalse(alert.buttons["Rename"].isEnabled)
+            title.typeText("Discard this draft")
+            XCTAssertTrue(alert.buttons["Rename"].isEnabled)
+            capture(app, "workflow-actions-\(layout)-rename-draft")
+            alert.buttons["Cancel"].tap()
+            var dismissed = alert.waitForNonExistence(timeout: 5)
+            capture(app, "workflow-actions-\(layout)-after-cancel")
+            if !dismissed {
+                // Simulator software-keyboard appearance can reposition the alert
+                // during the first tap. Re-resolve its button once after settling.
+                tapWhenHittable(alert.buttons["Cancel"])
+                dismissed = alert.waitForNonExistence(timeout: 5)
+                capture(app, "workflow-actions-\(layout)-after-cancel-retry")
+            }
+            XCTAssertTrue(dismissed, "Cancel must dismiss the rename alert")
+            XCTAssertEqual(card.label, originalLabel)
+
+            card.press(forDuration: 1)
+            XCTAssertTrue(rename.waitForExistence(timeout: 5))
+            rename.tap()
+            XCTAssertTrue(alert.waitForExistence(timeout: 5))
+            XCTAssertEqual(title.value as? String, originalTitle,
+                           "Reopening must reset the cancelled draft to the session title")
+            capture(app, "workflow-actions-\(layout)-rename-reset")
+            alert.buttons["Cancel"].tap()
+            XCTAssertTrue(alert.waitForNonExistence(timeout: 5))
+        }
+    }
+
+    @MainActor
     func testBoardSnapsMiddleColumnsAndAlignsEndColumns() {
         let app = launchActivity()
         var customIDs: [String] = []
