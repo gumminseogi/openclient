@@ -17,7 +17,7 @@
     "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
     "actions/upload-artifact": "cf430e030ddbb5b0abf93d22962f4752f3646cd9"
   },
-  "upstream_production_sources_modified": false,
+  "upstream_production_sources_modified": true,
   "native_ui_prototype": "full loaded-target-2000 profile passed six text-streaming ChatView scenarios on each device at 4711a6804fc70c9675271b70c677e715e4a4c1f2; iPhone verified in attempt 1 and iPad in attempt 2; first iPad startup failure retained in validation.json; reasoning stream not native-UI tested",
   "test_repository": "https://github.com/gumminseogi/openclient",
   "test_branch": "performance-lab",
@@ -66,12 +66,23 @@
     "performance-lab/lab.py": "e44628677674e7e32796da394d0e95cf7281c6dc412f550a6635a04c51b93699",
     "performance-lab/test_lab.py": "21770f2d4ed7dd16468b6767f6bb2a71f6036bcc149a15973e207a112a6e6c90",
     "performance-lab/test_stream_edges.py": "07021525c0b9a75c470a452499a29e123960d35c4061f16159dc32cfd8716ae5",
-    "performance-lab/run-native-tests.sh": "107932db752ac162369043b8a1f0c806c88739c361cc7c0f1715b61f2762e6b8",
+    "performance-lab/run-native-tests.sh": "22517e77f6ea601c95d16dc9adfdfb111e146732265b2f16f31913849781b3ae",
     "performance-lab/long_transcript_ui.swift": "65947ae3d73c49c13655b8fa6a442412bc03c733ed0f524c7c884bcb28050ed2",
-    "performance-lab/README.md": "bb44d5e9452bd44477a01766df2e82361c3e2f266749ed6c612982cb75baf592",
-    "performance-lab/validation.json": "4f7b8ca24c78c4a88ad37e90e740d4fe6fc6dc84f8cc73c0ef83f28a3fa922bc",
+    "performance-lab/README.md": "153a5e54465da3b8c1ac9eaae87738c181c26851968c4ef306036e38c243de80",
+    "performance-lab/validation.json": "8d710490b950ef6d07ab2214f73042f96994943bc80566b49091b39a8207a048",
     "performance-lab/.gitignore": "6820e8001265aa42342263af043d55d21370f09b2ce3b5565a30f649fd02b766",
-    ".github/workflows/openclient-performance.yml": "23c2f9c8fc0c87c7fdd5a2f24f0d7077641104292257cb33e5ca3ac1f4331ab9"
+    ".github/workflows/openclient-performance.yml": "23c2f9c8fc0c87c7fdd5a2f24f0d7077641104292257cb33e5ca3ac1f4331ab9",
+    "OpenCodeIOSClient/Models/OpenCodeStateReducer.swift": "49382b9a241b98bbbc76f9d91dd434739eac7cd49480dbcc7e47b2f8b7cce308",
+    "OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel+Events.swift": "152ac63599b0ba4cb99db328b57cd2d4190b61ffce8a8ddd46d0be69149cf42c",
+    "OpenCodeIOSClientTests/ChatStoreTests.swift": "945ca2225fec91ed69b967999766f8d6a5b73398b24c06b81b26c2d0a0f283b7"
   },
-  "hash_scope": "repository-relative file paths; source_manifest.json itself excluded"
+  "hash_scope": "repository-relative file paths; source_manifest.json itself excluded",
+  "active_improvement": {
+    "commit": "04b82e4127499d50b41e2ac8b83874c5b82f1fec",
+    "run_id": 40175478549,
+    "status": "in_progress",
+    "conclusion": null,
+    "unit_tests_expected": 51,
+    "scope": "v1 legacy idle echo suppression and cancellation guard; no measured speedup yet"
+  }
 }

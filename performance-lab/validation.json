@@ -490,6 +490,14 @@
   "uploaded_artifacts": "readable XCTest JSON summaries and tests, exported JSON/screenshots/text attachments, environment, commands, build and fixture logs, request logs and hang diagnostics; no raw xcresult or DerivedData",
   "workflow_trigger": "performance-lab branch push; manual dispatch unavailable while workflow is absent from the default branch",
   "main_modified": false,
-  "production_sources_modified": false,
-  "measurement_warning": "Synthetic fixture and Debug simulator XCTest validation do not establish a production performance fix, v1 lag resolution, whole-app speedup, FPS, exact render completion, iPhone 15 Pro performance, power or thermals."
+  "production_sources_modified": true,
+  "measurement_warning": "Synthetic fixture and Debug simulator XCTest validation do not establish a production performance fix, v1 lag resolution, whole-app speedup, FPS, exact render completion, iPhone 15 Pro performance, power or thermals.",
+  "improvement": {
+    "commit": "04b82e4127499d50b41e2ac8b83874c5b82f1fec",
+    "run_id": 40175478549,
+    "status": "in_progress",
+    "conclusion": null,
+    "unit_tests_expected": 51,
+    "scope": "v1 legacy idle echo suppression and cancellation guard; no measured speedup yet"
+  }
 }

@@ -1,8 +1,10 @@
 # OpenClient 성능 테스트 환경
 
-2026-10-25. [테스트 포크의 `performance-lab` 브랜치](https://github.com/gumminseogi/openclient/tree/performance-lab)에서 실제 앱을 빌드하고 iPhone·iPad 시뮬레이터의 XCTest를 실행합니다. 기준 production 소스는 `ntoporcov/openclient@6b3054a18e731f342a3b98009c259191f5e67f51`이며 앱 production 코드와 `main`은 변경하지 않았습니다.
+2026-10-25. [테스트 포크의 `performance-lab` 브랜치](https://github.com/gumminseogi/openclient/tree/performance-lab)에서 실제 앱을 빌드하고 iPhone·iPad 시뮬레이터의 XCTest를 실행합니다. 기준 production 소스는 `ntoporcov/openclient@6b3054a18e731f342a3b98009c259191f5e67f51`입니다. `main`은 유지하며, 테스트 브랜치에는 개선 패치를 추가했습니다.
 
 Python fixture는 OpenCode v1 API의 필요한 부분을 구현해 긴 기록, 큰 도구 출력, SSE 스트리밍을 만듭니다. 실제 OpenCode 프로세스나 모델은 사용하지 않습니다.
+
+현재 개선 패치: `04b82e4127499d50b41e2ac8b83874c5b82f1fec`는 v1 legacy idle 중복 재조회와 취소된 reload 실행을 방지합니다. [개선 후 CI](https://github.com/gumminseogi/openclient/actions/runs/40175478549)는 진행 중이며, 아래 측정값은 개선 전 기준입니다. 개선 효과는 아직 확정하지 않았습니다.
 
 ## 확인된 결과
 
