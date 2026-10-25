@@ -96,7 +96,7 @@ jobs:
           print('Selected simulator:', runtime, device['name'], device['udid'])
           PY
       - name: Run actual OpenClient Swift tests
-        if: github.event_name != 'workflow_dispatch' || inputs.test_scope == 'all'
+        if: (github.event_name == 'workflow_dispatch' && inputs.test_scope == 'all') || (github.event_name != 'workflow_dispatch' && !contains(github.event.head_commit.message, '[ui-only]'))
         shell: bash
         run: bash performance-lab/run-native-tests.sh "$GITHUB_WORKSPACE" "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/native"
       - name: Run grouping UI and real ChatView smoke against the synthetic server
