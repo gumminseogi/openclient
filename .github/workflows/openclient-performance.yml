@@ -33,7 +33,6 @@ jobs:
       matrix:
         device: [iphone, ipad]
     env:
-      OPENCLIENT_RESULTS: ${{ runner.temp }}/openclient-results
       OPENCLIENT_DEVICE_KIND: ${{ matrix.device }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,8 +42,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export OPENCLIENT_RESULTS="$RUNNER_TEMP/openclient-results"
+          printf 'OPENCLIENT_RESULTS=%s\n' "$OPENCLIENT_RESULTS" >> "$GITHUB_ENV"
           mkdir -p "$OPENCLIENT_RESULTS"
+          xcode-select -p
           xcodebuild -version
+          export OPENCLIENT_SDK_VERSION="$(xcrun --sdk iphonesimulator --show-sdk-version)"
+          if xcode-select -p | grep -Eiq 'beta|release.?candidate|_RC'; then
+            echo 'The selected Xcode is prerelease; no simulator tests ran.' >&2
+            exit 1
+          fi
           xcrun simctl list devices available --json > "$OPENCLIENT_RESULTS/simulators.json"
           python3 - <<'PY'
           import json
@@ -52,13 +59,26 @@ jobs:
           import re
           from pathlib import Path
           devices = json.loads((Path(os.environ['OPENCLIENT_RESULTS']) / 'simulators.json').read_text())['devices']
-          pattern = r'^iPhone ([0-9]+) Pro Max$' if os.environ['OPENCLIENT_DEVICE_KIND'] == 'iphone' else r'^iPad Pro 13-inch \(M([0-9]+)\)$'
-          candidates = [(runtime, device) for runtime, rows in devices.items()
-                        if '.iOS-' in runtime for device in rows
-                        if device.get('isAvailable') and re.fullmatch(pattern, device['name'])]
-          if not candidates:
-              raise SystemExit('Required Pro Max or 13-inch iPad Pro simulator is unavailable; native tests were not run.')
-          runtime, device = max(candidates, key=lambda item: (tuple(map(int, re.findall(r'[0-9]+', item[0]))), int(re.fullmatch(pattern, item[1]['name']).group(1))))
+          patterns = {'iphone': r'^iPhone ([0-9]+) Pro Max$', 'ipad': r'^iPad Pro 13-inch \(M([0-9]+)\)$'}
+          sdk = tuple(map(int, os.environ['OPENCLIENT_SDK_VERSION'].split('.')[:2]))
+          common = []
+          for runtime, rows in devices.items():
+              if '.iOS-' not in runtime:
+                  continue
+              version = tuple(map(int, re.findall(r'[0-9]+', runtime)))
+              if version[:2] > sdk:
+                  continue
+              models = {kind: [device for device in rows if device.get('isAvailable')
+                        and re.fullmatch(pattern, device['name'])
+                        and (kind != 'iphone' or int(re.fullmatch(pattern, device['name']).group(1)) >= 16)]
+                        for kind, pattern in patterns.items()}
+              if all(models.values()):
+                  common.append((version, runtime, models))
+          if not common:
+              raise SystemExit('No supported common runtime for Pro Max and 13-inch iPad Pro; native tests were not run.')
+          _, runtime, models = max(common, key=lambda item: item[0])
+          kind = os.environ['OPENCLIENT_DEVICE_KIND']
+          device = max(models[kind], key=lambda device: int(re.fullmatch(patterns[kind], device['name']).group(1)))
           with open(os.environ['GITHUB_ENV'], 'a') as output:
               output.write('OPENCLIENT_DESTINATION=platform=iOS Simulator,id=' + device['udid'] + '\n')
           print('Selected simulator:', runtime, device['name'], device['udid'])
