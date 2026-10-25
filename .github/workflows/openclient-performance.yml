@@ -2,6 +2,17 @@ name: OpenClient performance checks
 
 on:
   workflow_dispatch:
+    inputs:
+      test_scope:
+        description: Test scope (UI only reuses the verified production baseline)
+        type: choice
+        default: all
+        options: [all, ui]
+      loaded_messages:
+        description: Required loaded history for the long-session scenario
+        type: choice
+        default: '80'
+        options: ['80', '2000']
   push:
     branches: [performance-lab]
 
@@ -45,8 +56,9 @@ jobs:
           export OPENCLIENT_RESULTS="$RUNNER_TEMP/openclient-results"
           printf 'OPENCLIENT_RESULTS=%s\n' "$OPENCLIENT_RESULTS" >> "$GITHUB_ENV"
           mkdir -p "$OPENCLIENT_RESULTS"
+          git rev-parse HEAD > "$OPENCLIENT_RESULTS/source-revision.txt"
           xcode-select -p
-          xcodebuild -version
+          xcodebuild -version | tee "$OPENCLIENT_RESULTS/xcode-version.txt"
           export OPENCLIENT_SDK_VERSION="$(xcrun --sdk iphonesimulator --show-sdk-version)"
           if xcode-select -p | grep -Eiq 'beta|release.?candidate|_RC'; then
             echo 'The selected Xcode is prerelease; no simulator tests ran.' >&2
@@ -84,6 +96,7 @@ jobs:
           print('Selected simulator:', runtime, device['name'], device['udid'])
           PY
       - name: Run actual OpenClient Swift tests
+        if: github.event_name != 'workflow_dispatch' || inputs.test_scope == 'all'
         shell: bash
         run: bash performance-lab/run-native-tests.sh "$GITHUB_WORKSPACE" "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/native"
       - name: Run grouping UI and real ChatView smoke against the synthetic server
@@ -92,8 +105,8 @@ jobs:
         env:
           TEST_RUNNER_OPENCLIENT_LAB_UI_URL: http://127.0.0.1:14097
           TEST_RUNNER_OPENCLIENT_LAB_UI_PASSWORD: ci-fixture-only
-          TEST_RUNNER_OPENCLIENT_LAB_UI_TARGET_LOADED: '80'
-          TEST_RUNNER_OPENCLIENT_LAB_UI_MAX_SWIPES: '240'
+          TEST_RUNNER_OPENCLIENT_LAB_UI_TARGET_LOADED: ${{ inputs.loaded_messages || '80' }}
+          TEST_RUNNER_OPENCLIENT_LAB_UI_MAX_SWIPES: ${{ inputs.loaded_messages == '2000' && '600' || '240' }}
         run: |
           set -euo pipefail
           cat performance-lab/long_transcript_ui.swift >> OpenCodeIOSClientUITests/ToolGroupingUITests.swift
@@ -121,7 +134,7 @@ jobs:
           else:
               raise SystemExit('Synthetic server did not become ready')
           PY
-          xcodebuild -quiet \
+          xcodebuild \
             -project OpenCodeIOSClient.xcodeproj \
             -scheme OpenCodeIOSClient \
             -destination "$OPENCLIENT_DESTINATION" \
@@ -160,7 +173,17 @@ jobs:
         with:
           name: openclient-performance-${{ matrix.device }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ env.OPENCLIENT_RESULTS }}
-            !${{ env.OPENCLIENT_RESULTS }}/native/DerivedData/**
+            ${{ env.OPENCLIENT_RESULTS }}/*.json
+            ${{ env.OPENCLIENT_RESULTS }}/*.jsonl
+            ${{ env.OPENCLIENT_RESULTS }}/*.log
+            ${{ env.OPENCLIENT_RESULTS }}/*.txt
+            ${{ env.OPENCLIENT_RESULTS }}/native/environment.json
+            ${{ env.OPENCLIENT_RESULTS }}/native/command.txt
+            ${{ env.OPENCLIENT_RESULTS }}/native/xcodebuild.log
+            ${{ env.OPENCLIENT_RESULTS }}/*-attachments/**/*.json
+            ${{ env.OPENCLIENT_RESULTS }}/*-attachments/**/*.png
+            ${{ env.OPENCLIENT_RESULTS }}/*-attachments/**/*.jpg
+            ${{ env.OPENCLIENT_RESULTS }}/*-attachments/**/*.jpeg
+            ${{ env.OPENCLIENT_RESULTS }}/*-attachments/**/*.txt
           retention-days: 3
           if-no-files-found: warn

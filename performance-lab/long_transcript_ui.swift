@@ -28,6 +28,7 @@ extension ToolGroupingUITests {
             let sessionID = "ses_\(size)"
             let requiredLoaded = min(size, target)
             for grouped in [true, false] {
+                print("LAB scenario seed=\(size) grouping=\(grouped) target=\(requiredLoaded)")
                 app.launchEnvironment = [
                     "OPENCODE_UI_TEST_MODE": "1", "OPENCODE_UI_TEST_AUTO_CONNECT": "1",
                     "OPENCODE_UI_TEST_BASE_URL": baseURL.absoluteString,
@@ -78,6 +79,7 @@ extension ToolGroupingUITests {
                     XCTAssertTrue(observed.contains { (($0["query"] as? [String: [String]])?["before"]?.first) != nil },
                                   "The fresh grouped run must actually request an older page, not merely have a 2000-message server seed.")
                 }
+                print("LAB loaded seed=\(size) grouping=\(grouped) coverage=\(coverage)")
                 try await labReturnToBottom(app: app, transcript: transcript)
                 let beforeRefresh = try await labRequest(baseURL, password: password, path: "/_lab/status")
                 let baselineID = labLastRequestID(beforeRefresh)
@@ -113,7 +115,9 @@ extension ToolGroupingUITests {
                 input.tap()
                 let draft = "lab draft \(size) \(grouped)"
                 app.typeKey("a", modifierFlags: .command)
+                let beforeTyping = try await labRequest(baseURL, password: password, path: "/_lab/status")
                 input.typeText(draft)
+                let afterTyping = try await labRequest(baseURL, password: password, path: "/_lab/status")
                 XCTAssertEqual(input.value as? String, draft, "Typing during streaming must not lose the draft.")
                 let origin = app.coordinate(withNormalizedOffset: .zero)
                 let dismissStart = origin.withOffset(CGVector(dx: transcript.frame.midX, dy: input.frame.minY - 100))
@@ -136,6 +140,8 @@ extension ToolGroupingUITests {
                     "grouping": grouped, "open_to_observed_native_view_seconds": openSeconds,
                     "bottom_gesture_to_observed_refresh_response_seconds": refreshSeconds,
                     "stream_control_to_final_text_seconds": ProcessInfo.processInfo.systemUptime - streamAt,
+                    "stream_active_before_typing": (beforeTyping["active"] as? [String] ?? []).contains(sessionID),
+                    "stream_active_after_typing": (afterTyping["active"] as? [String] ?? []).contains(sessionID),
                     "paging_requests": observed, "refresh_requests": refreshEvidence, "fixture_status": status,
                     "scope": "Prototype UI smoke. Wall times include XCTest control/observation overhead; they are not FPS, CPU time, exact render completion, or Release-device performance. Seed size is not loaded size."
                 ]
@@ -148,6 +154,7 @@ extension ToolGroupingUITests {
                 screenshot.name = evidenceName + "-complete"
                 screenshot.lifetime = .keepAlways
                 add(screenshot)
+                print("LAB complete seed=\(size) grouping=\(grouped)")
                 app.terminate()
             }
         }
@@ -159,14 +166,30 @@ extension ToolGroupingUITests {
         try await labWait("Connection appearance") { appearance.isHittable }
         appearance.tap()
         let toggle = app.switches["configurations.group-tool-calls"]
-        for _ in 0..<10 {
-            if toggle.isHittable { break }
-            let forms = app.collectionViews.allElementsBoundByIndex
-            guard let form = forms.last else { throw labFailure("No appearance form.") }
-            form.swipeUp(velocity: .slow)
+        let control = toggle.switches.firstMatch
+        for _ in 0..<12 {
+            if control.exists && control.isHittable { break }
+            var form: XCUIElement?
+            try await labWait("Active appearance form") {
+                form = [XCUIElement.ElementType.collectionView, .scrollView, .table].lazy.flatMap { type in
+                    app.descendants(matching: type).allElementsBoundByIndex
+                }.first { container in
+                    container.frame.intersects(app.windows.firstMatch.frame)
+                        && container.descendants(matching: .any)
+                            .matching(NSPredicate(format: "identifier BEGINSWITH %@ OR identifier BEGINSWITH %@", "appearance.", "configurations."))
+                            .allElementsBoundByIndex.contains { $0.isHittable }
+                }
+                return form != nil
+            }
+            let scroll = try XCTUnwrap(form)
+            scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+                .press(forDuration: 0.05, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)))
         }
-        try await labWait("Grouping setting") { toggle.isHittable }
-        if (toggle.value as? String == "1") != enabled { toggle.tap() }
+        try await labWait("Grouping setting") { control.exists && control.isHittable }
+        if (toggle.value as? String == "1") != enabled {
+            control.tap()
+            try await labWait("Grouping setting changed") { toggle.value as? String == (enabled ? "1" : "0") }
+        }
         XCTAssertEqual(toggle.value as? String, enabled ? "1" : "0")
         let back = app.navigationBars["Appearance Settings"].buttons.firstMatch
         try await labWait("Appearance back button") { back.isHittable }
