@@ -3,11 +3,13 @@
   "upstream_repository": "https://github.com/ntoporcov/openclient",
   "upstream_commit": "6b3054a18e731f342a3b98009c259191f5e67f51",
   "server_contract_reference": "https://github.com/anomalyco/opencode/blob/733b2c627e5aec39cb33cc22373bdce33053ef2c/packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts",
-  "native_execution_completed": false,
+  "native_execution_completed": true,
   "python_contract_tests_passed": 11,
   "not_measured": [
-    "iOS app compilation",
-    "full ChatView performance",
+    "production performance improvement",
+    "v1 lag resolution",
+    "all loaded rows rendered simultaneously",
+    "iPhone 15 Pro device performance",
     "iPhone frame pacing",
     "iPhone power and heat"
   ],
@@ -16,15 +18,60 @@
     "actions/upload-artifact": "cf430e030ddbb5b0abf93d22962f4752f3646cd9"
   },
   "upstream_production_sources_modified": false,
-  "packaged_sha256": {
-    "lab.py": "e44628677674e7e32796da394d0e95cf7281c6dc412f550a6635a04c51b93699",
-    "test_lab.py": "21770f2d4ed7dd16468b6767f6bb2a71f6036bcc149a15973e207a112a6e6c90",
-    "test_stream_edges.py": "07021525c0b9a75c470a452499a29e123960d35c4061f16159dc32cfd8716ae5",
-    "run-native-tests.sh": "107932db752ac162369043b8a1f0c806c88739c361cc7c0f1715b61f2762e6b8",
-    "long_transcript_ui.swift": "b89dffad736ebf22a1ee4b7c7b8596cd99e5396051a051ea6f3bbd88d04f3803",
-    "README.md": "c147c80b5797a539a2aaa86b1fe71309e7defce248ac4e6c83360d11f0b63681",
-    "validation.json": "eb8f9dd3e38a30690ae56f9e8ef60e52d487f6603913632f4fbec4b5c4316282",
-    ".gitignore": "6820e8001265aa42342263af043d55d21370f09b2ce3b5565a30f649fd02b766"
+  "native_ui_prototype": "full loaded-target-2000 profile passed six text-streaming ChatView scenarios on each device at 4711a6804fc70c9675271b70c677e715e4a4c1f2; iPhone verified in attempt 1 and iPad in attempt 2; first iPad startup failure retained in validation.json; reasoning stream not native-UI tested",
+  "test_repository": "https://github.com/gumminseogi/openclient",
+  "test_branch": "performance-lab",
+  "native_validation_run": "https://github.com/gumminseogi/openclient/actions/runs/40164300946",
+  "native_swift_tests": {
+    "iphone_passed": 50,
+    "ipad_passed": 50,
+    "failed": 0
   },
-  "native_ui_prototype": "long_transcript_ui.swift; not compiled or executed"
+  "latest_ui_run": {
+    "id": 40167869834,
+    "url": "https://github.com/gumminseogi/openclient/actions/runs/40167869834",
+    "target_loaded": 2000,
+    "status": "completed",
+    "conclusion": "success",
+    "source_sha": "4711a6804fc70c9675271b70c677e715e4a4c1f2",
+    "current_attempt": 2,
+    "iphone": {
+      "attempt": 1,
+      "conclusion": "success",
+      "scenarios_passed": 6,
+      "artifact_id": 12589918546,
+      "rerun_in_attempt_2": false
+    },
+    "ipad_attempt_1": {
+      "conclusion": "failure",
+      "stage": "Connected home before any transcript API request"
+    },
+    "ipad_attempt_2": {
+      "job_id": 121098958683,
+      "status": "completed",
+      "conclusion": "success",
+      "scenarios_passed": 6,
+      "artifact_id": 12590851995
+    },
+    "completed_at": "2026-10-25T07:17:34Z",
+    "swift_tests_rerun": false,
+    "stream_tested_part_type": "text",
+    "reasoning_native_ui_tested": false
+  },
+  "artifact_retention_days": 3,
+  "artifact_format": "readable XCTest JSON, exported attachments and logs; raw xcresult and DerivedData are not uploaded",
+  "main_modified": false,
+  "workflow_trigger": "performance-lab branch push; workflow_dispatch unavailable until workflow exists on default branch",
+  "repository_files_sha256": {
+    "performance-lab/lab.py": "e44628677674e7e32796da394d0e95cf7281c6dc412f550a6635a04c51b93699",
+    "performance-lab/test_lab.py": "21770f2d4ed7dd16468b6767f6bb2a71f6036bcc149a15973e207a112a6e6c90",
+    "performance-lab/test_stream_edges.py": "07021525c0b9a75c470a452499a29e123960d35c4061f16159dc32cfd8716ae5",
+    "performance-lab/run-native-tests.sh": "107932db752ac162369043b8a1f0c806c88739c361cc7c0f1715b61f2762e6b8",
+    "performance-lab/long_transcript_ui.swift": "65947ae3d73c49c13655b8fa6a442412bc03c733ed0f524c7c884bcb28050ed2",
+    "performance-lab/README.md": "bb44d5e9452bd44477a01766df2e82361c3e2f266749ed6c612982cb75baf592",
+    "performance-lab/validation.json": "4f7b8ca24c78c4a88ad37e90e740d4fe6fc6dc84f8cc73c0ef83f28a3fa922bc",
+    "performance-lab/.gitignore": "6820e8001265aa42342263af043d55d21370f09b2ce3b5565a30f649fd02b766",
+    ".github/workflows/openclient-performance.yml": "23c2f9c8fc0c87c7fdd5a2f24f0d7077641104292257cb33e5ca3ac1f4331ab9"
+  },
+  "hash_scope": "repository-relative file paths; source_manifest.json itself excluded"
 }

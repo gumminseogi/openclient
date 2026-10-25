@@ -1,6 +1,8 @@
 {
   "date": "2026-10-25",
-  "host": "Linux",
+  "repository": "https://github.com/gumminseogi/openclient",
+  "branch": "performance-lab",
+  "baseline_production_sha": "6b3054a18e731f342a3b98009c259191f5e67f51",
   "python_contract_tests": {
     "passed": 11,
     "failed": 0
@@ -9,8 +11,485 @@
   "native_runner_bash_syntax": "passed",
   "workflow_yaml_and_shell_syntax": "passed",
   "native_runner_linux_preflight": "correctly rejects execution and records xcodebuild_started=false",
-  "iOS_build": "not_run",
-  "Swift_UI_prototype_compile": "not_run",
-  "GitHub_Actions_execution": "not_run",
-  "measurement_warning": "These results validate the synthetic fixture, not OpenClient frame rate, latency improvements, or device thermals."
+  "iOS_build": "passed on iPhone and iPad simulators",
+  "Swift_UI_prototype_compile": "passed on iPhone and iPad simulators",
+  "GitHub_Actions_execution": "completed successfully in run 40167869834 attempt 2; iPhone full-profile success reused from attempt 1, iPad full profile passed in attempt 2",
+  "native_environment": {
+    "xcode": "27.1",
+    "ios_simulator_runtime": "27.0",
+    "iphone": "iPhone 18 Pro Max",
+    "ipad": "iPad Pro 13-inch (M5)"
+  },
+  "runs": [
+    {
+      "id": 40164300946,
+      "url": "https://github.com/gumminseogi/openclient/actions/runs/40164300946",
+      "status": "completed",
+      "overall_conclusion": "failure",
+      "swift_tests": {
+        "iphone": {
+          "passed": 50,
+          "failed": 0
+        },
+        "ipad": {
+          "passed": 50,
+          "failed": 0
+        }
+      },
+      "ui": "initial smoke failed on both devices; Swift test success is separate from workflow failure"
+    },
+    {
+      "id": 40166110713,
+      "url": "https://github.com/gumminseogi/openclient/actions/runs/40166110713",
+      "status": "completed",
+      "overall_conclusion": "failure",
+      "swift_tests": "skipped; UI-only run",
+      "ui_target_loaded": 80,
+      "iphone": {
+        "job_conclusion": "success",
+        "ui_tests_passed": 2
+      },
+      "ipad": {
+        "job_conclusion": "failure",
+        "new_chatview_smoke_scenarios_passed": 6,
+        "failure": "existing separate grouping screen launch test failed"
+      },
+      "scenario_matrix": "seeds 20, 200, 2000; grouping on and off; required loaded is min(seed, target)"
+    },
+    {
+      "id": 40167869834,
+      "url": "https://github.com/gumminseogi/openclient/actions/runs/40167869834",
+      "status": "completed",
+      "overall_conclusion": "success",
+      "swift_tests": "skipped; UI-only run; prior 50 tests per device were not rerun",
+      "ui_target_loaded": 2000,
+      "iphone": {
+        "status": "completed",
+        "conclusion": "success",
+        "verified_in_attempt": 1,
+        "rerun_in_attempt_2": false,
+        "ui_tests_passed": 1,
+        "scenarios_passed": 6,
+        "xctest_elapsed_seconds": 1378.497,
+        "elapsed_scope": "entire XCTest UI procedure including control and observation overhead; not frame rate or per-operation latency",
+        "scenarios": [
+          {
+            "seed_messages": 20,
+            "minimum_loaded_messages": 20,
+            "observed_coverage_lower_bound": 20,
+            "grouping": true,
+            "stream_active_before_typing": true,
+            "stream_active_after_typing": true,
+            "refresh_requests": [
+              {
+                "request_id": 45,
+                "path": "/session/ses_20/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "20"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 81961
+              },
+              {
+                "request_id": 66,
+                "path": "/session/ses_20/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "20"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 81961
+              }
+            ]
+          },
+          {
+            "seed_messages": 20,
+            "minimum_loaded_messages": 20,
+            "observed_coverage_lower_bound": 20,
+            "grouping": false,
+            "stream_active_before_typing": true,
+            "stream_active_after_typing": true,
+            "refresh_requests": [
+              {
+                "request_id": 153,
+                "path": "/session/ses_20/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "22"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 84724
+              }
+            ]
+          },
+          {
+            "seed_messages": 200,
+            "minimum_loaded_messages": 200,
+            "observed_coverage_lower_bound": 200,
+            "grouping": true,
+            "stream_active_before_typing": true,
+            "stream_active_after_typing": true,
+            "refresh_requests": [
+              {
+                "request_id": 278,
+                "path": "/session/ses_200/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "200"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 839642
+              }
+            ]
+          },
+          {
+            "seed_messages": 200,
+            "minimum_loaded_messages": 200,
+            "observed_coverage_lower_bound": 200,
+            "grouping": false,
+            "stream_active_before_typing": true,
+            "stream_active_after_typing": true,
+            "refresh_requests": [
+              {
+                "request_id": 367,
+                "path": "/session/ses_200/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "202"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 842377
+              }
+            ]
+          },
+          {
+            "seed_messages": 2000,
+            "minimum_loaded_messages": 2000,
+            "observed_coverage_lower_bound": 2000,
+            "grouping": true,
+            "stream_active_before_typing": true,
+            "stream_active_after_typing": true,
+            "refresh_requests": [
+              {
+                "request_id": 798,
+                "path": "/session/ses_2000/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "2000"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 8410893
+              }
+            ]
+          },
+          {
+            "seed_messages": 2000,
+            "minimum_loaded_messages": 2000,
+            "observed_coverage_lower_bound": 2000,
+            "grouping": false,
+            "stream_active_before_typing": true,
+            "stream_active_after_typing": true,
+            "refresh_requests": [
+              {
+                "request_id": 892,
+                "path": "/session/ses_2000/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "2002"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 8413640
+              }
+            ]
+          }
+        ],
+        "source_artifact_id": 12589918546,
+        "api_aggregate": {
+          "app_api_excluding_lab_control": {
+            "request_records": 692,
+            "server_body_written_bytes": 75175062,
+            "zero_body_records": 3
+          },
+          "transcript": {
+            "request_records": 208,
+            "server_body_written_bytes": 74046206,
+            "zero_body_records": 3
+          }
+        }
+      },
+      "ipad": {
+        "status": "completed",
+        "conclusion": "success",
+        "verified_in_attempt": 2,
+        "job_id": 121098958683,
+        "source_artifact_id": 12590851995,
+        "ui_tests_passed": 1,
+        "ui_tests_failed": 0,
+        "ui_tests_skipped": 0,
+        "scenarios_passed": 6,
+        "xctest_elapsed_seconds": 1124.063,
+        "elapsed_scope": "entire XCTest UI procedure including control and observation overhead; not frame rate or per-operation latency",
+        "scenarios": [
+          {
+            "seed_messages": 20,
+            "minimum_loaded_messages": 20,
+            "observed_coverage_lower_bound": 20,
+            "grouping": true,
+            "stream_active_before_typing": true,
+            "stream_active_after_typing": true,
+            "source_attachment": "472D4B3A-841D-4991-A2FD-B717D0BDF70E.json",
+            "refresh_requests": [
+              {
+                "request_id": 61,
+                "path": "/session/ses_20/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "20"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 81961
+              }
+            ]
+          },
+          {
+            "seed_messages": 20,
+            "minimum_loaded_messages": 20,
+            "observed_coverage_lower_bound": 20,
+            "grouping": false,
+            "stream_active_before_typing": true,
+            "stream_active_after_typing": true,
+            "source_attachment": "940BF694-1407-44B1-8FDA-5F1B808F6F2C.json",
+            "refresh_requests": [
+              {
+                "request_id": 152,
+                "path": "/session/ses_20/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "22"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 84724
+              }
+            ]
+          },
+          {
+            "seed_messages": 200,
+            "minimum_loaded_messages": 200,
+            "observed_coverage_lower_bound": 200,
+            "grouping": true,
+            "stream_active_before_typing": true,
+            "stream_active_after_typing": true,
+            "source_attachment": "82A0888B-BB34-48CF-AB1D-3B6C35052358.json",
+            "refresh_requests": [
+              {
+                "request_id": 273,
+                "path": "/session/ses_200/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "200"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 839642
+              }
+            ]
+          },
+          {
+            "seed_messages": 200,
+            "minimum_loaded_messages": 200,
+            "observed_coverage_lower_bound": 200,
+            "grouping": false,
+            "stream_active_before_typing": true,
+            "stream_active_after_typing": true,
+            "source_attachment": "1555AF9E-D315-479E-A844-5F4BFDF2C461.json",
+            "refresh_requests": [
+              {
+                "request_id": 368,
+                "path": "/session/ses_200/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "202"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 842375
+              }
+            ]
+          },
+          {
+            "seed_messages": 2000,
+            "minimum_loaded_messages": 2000,
+            "observed_coverage_lower_bound": 2000,
+            "grouping": true,
+            "stream_active_before_typing": true,
+            "stream_active_after_typing": true,
+            "source_attachment": "39F08982-301E-4885-8481-7772EDDDB178.json",
+            "refresh_requests": [
+              {
+                "request_id": 720,
+                "path": "/session/ses_2000/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "2000"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 8410893
+              }
+            ]
+          },
+          {
+            "seed_messages": 2000,
+            "minimum_loaded_messages": 2000,
+            "observed_coverage_lower_bound": 2000,
+            "grouping": false,
+            "stream_active_before_typing": true,
+            "stream_active_after_typing": true,
+            "source_attachment": "6A0E6EDB-63F0-4B58-9150-36719EC2E823.json",
+            "refresh_requests": [
+              {
+                "request_id": 813,
+                "path": "/session/ses_2000/message",
+                "query": {
+                  "directory": [
+                    "/openclient-performance-lab"
+                  ],
+                  "limit": [
+                    "2002"
+                  ]
+                },
+                "status": 200,
+                "response_bytes": 8413639
+              }
+            ]
+          }
+        ],
+        "api_aggregate": {
+          "app_api_excluding_lab_control": {
+            "request_records": 694,
+            "server_body_written_bytes": 83679913,
+            "zero_body_records": 0
+          },
+          "transcript": {
+            "request_records": 207,
+            "server_body_written_bytes": 82550342,
+            "zero_body_records": 0
+          }
+        }
+      },
+      "source_sha": "4711a6804fc70c9675271b70c677e715e4a4c1f2",
+      "current_attempt": 2,
+      "fixture_tests": {
+        "passed": 11,
+        "failed": 0
+      },
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "completed",
+          "overall_conclusion": "failure",
+          "iphone": {
+            "conclusion": "success",
+            "scenarios_passed": 6
+          },
+          "ipad": {
+            "job_id": 121092561297,
+            "conclusion": "failure",
+            "scenarios_passed": 0,
+            "scenario_at_failure": "20 seed / grouping on / Connected home",
+            "transcript_api_requests": 0,
+            "main_thread_stall_ms": 143917,
+            "observed_spindump_stack": [
+              "SpeechVoiceStore.init(defaults:)",
+              "SpeechVoiceStore.refreshVoices()",
+              "AVSpeechSynthesisVoice.speechVoices()",
+              "AX synchronous request / semaphore wait"
+            ],
+            "interpretation": "startup failure before transcript loading; does not establish a long-transcript performance failure"
+          }
+        },
+        {
+          "attempt": 2,
+          "status": "completed",
+          "overall_conclusion": "success",
+          "source_sha": "4711a6804fc70c9675271b70c677e715e4a4c1f2",
+          "rerun_scope": "failed iPad job only; same source SHA",
+          "ipad": {
+            "job_id": 121098958683,
+            "status": "completed",
+            "conclusion": "success",
+            "ui_tests_passed": 1,
+            "scenarios_passed": 6,
+            "source_artifact_id": 12590851995
+          },
+          "iphone_rerun": false,
+          "swift_tests_rerun": false,
+          "completed_at": "2026-10-25T07:17:34Z",
+          "reused_results": "successful iPhone and fixture jobs from attempt 1"
+        }
+      ],
+      "completed_at": "2026-10-25T07:17:34Z",
+      "workflow_success_scope": "latest workflow verdict reuses successful iPhone and fixture results from attempt 1 and successful failed-job-only iPad rerun from attempt 2",
+      "stream_tested_part_type": "text",
+      "reasoning_native_ui_tested": false,
+      "api_aggregate_scope": "all six scenarios including startup, settings, paging, refresh and streaming; fixture handler body-written counters, not wire or cellular bytes, a single refresh cost, FPS or causal attribution; zero-body records do not prove zero wire traffic if a write was interrupted"
+    }
+  ],
+  "ui_loading_evidence": {
+    "page_coverage": "HTTP request coverage inference; not alone proof of canonical store contents",
+    "canonical_refresh": "app-originated bottom refresh uses max(20, canonical store message count) as limit; before absent and limit >= target supports loaded-in-store coverage",
+    "rendering_scope": "does not establish that all loaded message rows rendered simultaneously"
+  },
+  "artifact_retention_days": 3,
+  "uploaded_artifacts": "readable XCTest JSON summaries and tests, exported JSON/screenshots/text attachments, environment, commands, build and fixture logs, request logs and hang diagnostics; no raw xcresult or DerivedData",
+  "workflow_trigger": "performance-lab branch push; manual dispatch unavailable while workflow is absent from the default branch",
+  "main_modified": false,
+  "production_sources_modified": false,
+  "measurement_warning": "Synthetic fixture and Debug simulator XCTest validation do not establish a production performance fix, v1 lag resolution, whole-app speedup, FPS, exact render completion, iPhone 15 Pro performance, power or thermals."
 }

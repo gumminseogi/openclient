@@ -1,5 +1,5 @@
-// CI-only prototype. Append to the existing ToolGroupingUITests.swift so no
-// project target changes are needed. Not compiled or executed on macOS yet.
+// CI-only smoke test. Append to the existing ToolGroupingUITests.swift so no
+// project target changes are needed. Compiled and run on iPhone/iPad simulators.
 // This exercises the normal connected ChatView, not the screenshot fixture.
 import Foundation
 
