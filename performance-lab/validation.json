@@ -495,9 +495,37 @@
   "improvement": {
     "commit": "04b82e4127499d50b41e2ac8b83874c5b82f1fec",
     "run_id": 40175478549,
-    "status": "in_progress",
-    "conclusion": null,
+    "status": "completed",
+    "conclusion": "success",
     "unit_tests_expected": 51,
-    "scope": "v1 legacy idle echo suppression and cancellation guard; no measured speedup yet"
+    "scope": "Debug simulator synthetic v1 text-stream workload; confirmed reduced terminal reconciliation requests, not FPS or physical device heat improvement",
+    "result_url": "https://github.com/gumminseogi/openclient/actions/runs/40175478549",
+    "native_tests_per_device": {
+      "passed": 51,
+      "failed": 0
+    },
+    "ui_tests_per_device": {
+      "passed": 2,
+      "failed": 0
+    },
+    "chat_scenarios_per_device": 6,
+    "comparison_2000_grouping_on": {
+      "baseline_run": 40167869834,
+      "measurement_window": "Requests initiated after stream control and before per-scenario final evidence snapshot; not total cellular bytes",
+      "iphone": {
+        "before_requests": 2,
+        "after_requests": 1,
+        "before_body_bytes": 16827280,
+        "after_body_bytes": 8413639
+      },
+      "ipad": {
+        "before_requests": 2,
+        "after_requests": 1,
+        "before_body_bytes": 16827278,
+        "after_body_bytes": 8413642
+      },
+      "limits": "2002 messages after two synthetic messages were added",
+      "limitations": "Single run per variant; other workflow phases differ in cache/OS/XCTest scheduling. One complete canonical fetch remains, including manual refresh. No measured whole-app speedup."
+    }
   }
 }

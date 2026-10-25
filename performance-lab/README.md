@@ -4,7 +4,9 @@
 
 Python fixture는 OpenCode v1 API의 필요한 부분을 구현해 긴 기록, 큰 도구 출력, SSE 스트리밍을 만듭니다. 실제 OpenCode 프로세스나 모델은 사용하지 않습니다.
 
-현재 개선 패치: `04b82e4127499d50b41e2ac8b83874c5b82f1fec`는 v1 legacy idle 중복 재조회와 취소된 reload 실행을 방지합니다. [개선 후 CI](https://github.com/gumminseogi/openclient/actions/runs/40175478549)는 진행 중이며, 아래 측정값은 개선 전 기준입니다. 개선 효과는 아직 확정하지 않았습니다.
+개선 패치 `04b82e4127499d50b41e2ac8b83874c5b82f1fec`는 v1 legacy idle 중복 재조회와 취소된 reload 실행을 방지합니다. [개선 후 CI](https://github.com/gumminseogi/openclient/actions/runs/40175478549)는 두 기기 모두 성공했습니다. Swift 검사 각각 51개, UI 검사 각각 2개(긴 채팅 6개 시나리오 포함)가 통과했습니다.
+
+2,000개/grouping ON에서 스트림 제어 이후 시나리오 종료 증거 수집 전까지의 canonical 조회는 두 기기 모두 **2건 → 1건**이었습니다. iPhone 응답 본문 합계는 16,827,280 → 8,413,639바이트, iPad는 16,827,278 → 8,413,642바이트였습니다. 이것은 해당 구간의 합성 HTTP 본문 크기 비교이며 전체 통신량·FPS·실기기 체감 속도를 뜻하지 않습니다. 수동 새로고침과 종료 동기화의 전체 기록 조회 한 번은 유지합니다. 아래 표는 개선 전 기준입니다.
 
 ## 확인된 결과
 
