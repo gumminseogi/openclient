@@ -1343,8 +1343,12 @@ extension AppViewModel {
         reloadTask?.cancel()
 
         reloadTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
-            guard let self, self.isConnected else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(150))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self, self.isConnected else { return }
             self.markChatBreadcrumb("idle reconcile start", sessionID: session.id)
             do {
                 try await self.loadMessages(for: session)

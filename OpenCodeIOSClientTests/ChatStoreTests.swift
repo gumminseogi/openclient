@@ -1882,3 +1882,43 @@ private final class V2ProjectionFixtureProtocol: URLProtocol {
 
     override func stopLoading() {}
 }
+
+@MainActor
+extension ChatStoreTests {
+    func testLegacyIdleEchoDoesNotRepeatCanonicalReconciliation() {
+        let session = OpenCodeSession(id: "ses_idle", title: "Idle", workspaceID: nil,
+            directory: "/tmp/idle", projectID: "project", parentID: nil)
+        var sessions = [session]
+        var selected: OpenCodeSession? = session
+        var statuses: [String: String] = [:]
+        var sync = OpenCodeDirectorySyncState()
+        var messages: [OpenCodeMessageEnvelope] = []
+        var todos: [OpenCodeTodo] = []
+        var permissions: [OpenCodePermission] = []
+        var questions: [OpenCodeQuestionRequest] = []
+        func apply(_ event: OpenCodeTypedEvent) -> Bool {
+            let result = OpenCodeStateReducer.applyDirectoryEvent(event: event,
+                sessions: &sessions, selectedSession: &selected, sessionStatuses: &statuses,
+                syncState: &sync, messages: &messages, todos: &todos,
+                permissions: &permissions, questions: &questions)
+            if case .idle = result { return true }
+            return false
+        }
+        // Legacy-only servers still get their first reconciliation.
+        XCTAssertTrue(apply(.sessionIdle(sessionID: session.id)))
+        XCTAssertFalse(apply(.sessionIdle(sessionID: session.id)))
+        // Authoritative status remains actionable even after a cached idle.
+        XCTAssertTrue(apply(.sessionStatus(sessionID: session.id, status: "idle")))
+        XCTAssertFalse(apply(.sessionIdle(sessionID: session.id)))
+        // A new response must get a new completion reconciliation.
+        XCTAssertFalse(apply(.sessionStatus(sessionID: session.id, status: "busy")))
+        XCTAssertTrue(apply(.sessionStatus(sessionID: session.id, status: "idle")))
+        XCTAssertFalse(apply(.sessionIdle(sessionID: session.id)))
+        XCTAssertEqual(statuses[session.id], "idle")
+        XCTAssertEqual(sync.sessionStatusesBySessionID[session.id], "idle")
+        selected = nil
+        statuses[session.id] = "busy"
+        XCTAssertFalse(apply(.sessionIdle(sessionID: session.id)))
+        XCTAssertEqual(statuses[session.id], "idle")
+    }
+}

@@ -78,9 +78,12 @@ enum OpenCodeStateReducer {
             syncState.sessionStatusesBySessionID[sessionID] = status
             return status == "idle" && selectedSession?.id == sessionID ? .idle : .statusChanged
         case let .sessionIdle(sessionID):
+            // v1 emits session.status(idle) followed by the legacy session.idle.
+            // Keep status events authoritative, but reconcile their legacy echo only once.
+            let wasIdle = sessionStatuses[sessionID] == "idle"
             sessionStatuses[sessionID] = "idle"
             syncState.sessionStatusesBySessionID[sessionID] = "idle"
-            return selectedSession?.id == sessionID ? .idle : .statusChanged
+            return !wasIdle && selectedSession?.id == sessionID ? .idle : .statusChanged
         case let .sessionDiff(sessionID, diff):
             syncState.sessionDiffsBySessionID[sessionID] = diff.sorted { $0.file < $1.file }
             return .statusChanged

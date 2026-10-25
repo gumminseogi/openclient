@@ -24,6 +24,7 @@ sdk_version=''
 xcodebuild_started=false
 preflight_error=''
 tests=(
+  'ChatStoreTests/testLegacyIdleEchoDoesNotRepeatCanonicalReconciliation'
   ForegroundChatRefreshTests
   V2TranscriptPerformanceTests
   OpenCodeLocalCacheRepositoryTests
