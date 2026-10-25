@@ -1,0 +1,30 @@
+{
+  "created_date": "2026-10-25",
+  "upstream_repository": "https://github.com/ntoporcov/openclient",
+  "upstream_commit": "6b3054a18e731f342a3b98009c259191f5e67f51",
+  "server_contract_reference": "https://github.com/anomalyco/opencode/blob/733b2c627e5aec39cb33cc22373bdce33053ef2c/packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts",
+  "native_execution_completed": false,
+  "python_contract_tests_passed": 11,
+  "not_measured": [
+    "iOS app compilation",
+    "full ChatView performance",
+    "iPhone frame pacing",
+    "iPhone power and heat"
+  ],
+  "ci_actions": {
+    "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "actions/upload-artifact": "cf430e030ddbb5b0abf93d22962f4752f3646cd9"
+  },
+  "upstream_production_sources_modified": false,
+  "packaged_sha256": {
+    "lab.py": "e44628677674e7e32796da394d0e95cf7281c6dc412f550a6635a04c51b93699",
+    "test_lab.py": "21770f2d4ed7dd16468b6767f6bb2a71f6036bcc149a15973e207a112a6e6c90",
+    "test_stream_edges.py": "07021525c0b9a75c470a452499a29e123960d35c4061f16159dc32cfd8716ae5",
+    "run-native-tests.sh": "107932db752ac162369043b8a1f0c806c88739c361cc7c0f1715b61f2762e6b8",
+    "long_transcript_ui.swift": "b89dffad736ebf22a1ee4b7c7b8596cd99e5396051a051ea6f3bbd88d04f3803",
+    "README.md": "c147c80b5797a539a2aaa86b1fe71309e7defce248ac4e6c83360d11f0b63681",
+    "validation.json": "eb8f9dd3e38a30690ae56f9e8ef60e52d487f6603913632f4fbec4b5c4316282",
+    ".gitignore": "6820e8001265aa42342263af043d55d21370f09b2ce3b5565a30f649fd02b766"
+  },
+  "native_ui_prototype": "long_transcript_ui.swift; not compiled or executed"
+}

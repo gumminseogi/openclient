@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-25",
+  "host": "Linux",
+  "python_contract_tests": {
+    "passed": 11,
+    "failed": 0
+  },
+  "python_syntax": "passed",
+  "native_runner_bash_syntax": "passed",
+  "workflow_yaml_and_shell_syntax": "passed",
+  "native_runner_linux_preflight": "correctly rejects execution and records xcodebuild_started=false",
+  "iOS_build": "not_run",
+  "Swift_UI_prototype_compile": "not_run",
+  "GitHub_Actions_execution": "not_run",
+  "measurement_warning": "These results validate the synthetic fixture, not OpenClient frame rate, latency improvements, or device thermals."
+}

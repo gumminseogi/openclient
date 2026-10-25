@@ -1,0 +1,123 @@
+name: OpenClient performance checks
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [performance-lab]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openclient-performance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fixture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check synthetic server contracts
+        run: python3 -B -m unittest discover -s performance-lab -p 'test_*.py' -v
+
+  native:
+    needs: fixture
+    runs-on: xcode-27
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        device: [iphone, ipad]
+    env:
+      OPENCLIENT_RESULTS: ${{ runner.temp }}/openclient-results
+      OPENCLIENT_DEVICE_KIND: ${{ matrix.device }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Select an available Pro Max or 13-inch iPad Pro simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$OPENCLIENT_RESULTS"
+          xcodebuild -version
+          xcrun simctl list devices available --json > "$OPENCLIENT_RESULTS/simulators.json"
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+          devices = json.loads((Path(os.environ['OPENCLIENT_RESULTS']) / 'simulators.json').read_text())['devices']
+          pattern = r'^iPhone ([0-9]+) Pro Max$' if os.environ['OPENCLIENT_DEVICE_KIND'] == 'iphone' else r'^iPad Pro 13-inch \(M([0-9]+)\)$'
+          candidates = [(runtime, device) for runtime, rows in devices.items()
+                        if '.iOS-' in runtime for device in rows
+                        if device.get('isAvailable') and re.fullmatch(pattern, device['name'])]
+          if not candidates:
+              raise SystemExit('Required Pro Max or 13-inch iPad Pro simulator is unavailable; native tests were not run.')
+          runtime, device = max(candidates, key=lambda item: (tuple(map(int, re.findall(r'[0-9]+', item[0]))), int(re.fullmatch(pattern, item[1]['name']).group(1))))
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('OPENCLIENT_DESTINATION=platform=iOS Simulator,id=' + device['udid'] + '\n')
+          print('Selected simulator:', runtime, device['name'], device['udid'])
+          PY
+      - name: Run actual OpenClient Swift tests
+        shell: bash
+        run: bash performance-lab/run-native-tests.sh "$GITHUB_WORKSPACE" "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/native"
+      - name: Run grouping UI and real ChatView smoke against the synthetic server
+        if: success()
+        shell: bash
+        env:
+          TEST_RUNNER_OPENCLIENT_LAB_UI_URL: http://127.0.0.1:14097
+          TEST_RUNNER_OPENCLIENT_LAB_UI_PASSWORD: ci-fixture-only
+          TEST_RUNNER_OPENCLIENT_LAB_UI_TARGET_LOADED: '80'
+          TEST_RUNNER_OPENCLIENT_LAB_UI_MAX_SWIPES: '240'
+        run: |
+          set -euo pipefail
+          cat performance-lab/long_transcript_ui.swift >> OpenCodeIOSClientUITests/ToolGroupingUITests.swift
+          python3 -u performance-lab/lab.py serve \
+            --port 14097 --password ci-fixture-only \
+            --log "$OPENCLIENT_RESULTS/requests.jsonl" \
+            > "$OPENCLIENT_RESULTS/fixture.log" 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          import base64
+          import json
+          import time
+          import urllib.request
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          request = urllib.request.Request('http://127.0.0.1:14097/_lab/status', headers={
+              'Authorization': 'Basic ' + base64.b64encode(b'opencode:ci-fixture-only').decode()})
+          for attempt in range(50):
+              try:
+                  with opener.open(request, timeout=1) as response:
+                      assert json.load(response)['synthetic'] is True
+                  break
+              except OSError:
+                  time.sleep(0.1)
+          else:
+              raise SystemExit('Synthetic server did not become ready')
+          PY
+          xcodebuild -quiet \
+            -project OpenCodeIOSClient.xcodeproj \
+            -scheme OpenCodeIOSClient \
+            -destination "$OPENCLIENT_DESTINATION" \
+            -parallel-testing-enabled NO \
+            -derivedDataPath "$OPENCLIENT_RESULTS/native/DerivedData" \
+            -resultBundlePath "$OPENCLIENT_RESULTS/grouping-ui.xcresult" \
+            -only-testing:OpenCodeIOSClientUITests/ToolGroupingUITests \
+            DEVELOPMENT_TEAM= \
+            test 2>&1 | tee "$OPENCLIENT_RESULTS/grouping-ui.log"
+      - name: Keep environment, build logs and XCTest results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openclient-performance-${{ matrix.device }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.OPENCLIENT_RESULTS }}
+            !${{ env.OPENCLIENT_RESULTS }}/native/DerivedData/**
+          retention-days: 3
+          if-no-files-found: warn
