@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 2
       matrix:
         device: [iphone, ipad]
     env:
@@ -131,6 +131,29 @@ jobs:
             -only-testing:OpenCodeIOSClientUITests/ToolGroupingUITests \
             DEVELOPMENT_TEAM= \
             test 2>&1 | tee "$OPENCLIENT_RESULTS/grouping-ui.log"
+      - name: Export readable test results and hang diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="${OPENCLIENT_RESULTS:-$RUNNER_TEMP/openclient-results}"
+          mkdir -p "$results"
+          for name in native/tests grouping-ui; do
+            bundle="$results/$name.xcresult"
+            if [[ -d "$bundle" ]]; then
+              stem="${name//\//-}"
+              xcrun xcresulttool get test-results summary --path "$bundle" > "$results/$stem-summary.json" || true
+              xcrun xcresulttool get test-results tests --path "$bundle" > "$results/$stem-tests.json" || true
+              xcrun xcresulttool export attachments --path "$bundle" --output-path "$results/$stem-attachments" || true
+              cat "$results/$stem-summary.json"
+            fi
+          done
+          if [[ -n "${OPENCLIENT_DESTINATION:-}" ]]; then
+            device_id="${OPENCLIENT_DESTINATION##*id=}"
+            xcrun simctl spawn "$device_id" log show --style json --last 45m \
+              --predicate 'subsystem == "com.ntoporcov.openclient" AND (category == "Hangs" OR category == "SessionSwitch")' \
+              > "$results/app-hangs.json" 2> "$results/app-hangs-export.log" || true
+          fi
       - name: Keep environment, build logs and XCTest results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

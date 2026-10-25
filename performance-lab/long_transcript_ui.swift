@@ -115,7 +115,11 @@ extension ToolGroupingUITests {
                 app.typeKey("a", modifierFlags: .command)
                 input.typeText(draft)
                 XCTAssertEqual(input.value as? String, draft, "Typing during streaming must not lose the draft.")
-                transcript.swipeDown(velocity: .slow)
+                let origin = app.coordinate(withNormalizedOffset: .zero)
+                let dismissStart = origin.withOffset(CGVector(dx: transcript.frame.midX, dy: input.frame.minY - 100))
+                let dismissEnd = origin.withOffset(CGVector(dx: transcript.frame.midX, dy: app.frame.maxY - 30))
+                dismissStart.press(forDuration: 0.05, thenDragTo: dismissEnd,
+                                   withVelocity: .slow, thenHoldForDuration: 0.1)
                 try await labWait("Interactive keyboard dismissal") { !app.keyboards.firstMatch.exists }
                 try await labReturnToBottom(app: app, transcript: transcript)
                 let finalText = String(repeating: "d", count: 120 * 16)
