@@ -29,6 +29,7 @@ extension ToolGroupingUITests {
             let requiredLoaded = min(size, target)
             for grouped in [true, false] {
                 print("LAB scenario seed=\(size) grouping=\(grouped) target=\(requiredLoaded)")
+                let scenarioBaseline = labLastRequestID(try await labRequest(baseURL, password: password, path: "/_lab/status"))
                 app.launchEnvironment = [
                     "OPENCODE_UI_TEST_MODE": "1", "OPENCODE_UI_TEST_AUTO_CONNECT": "1",
                     "OPENCODE_UI_TEST_BASE_URL": baseURL.absoluteString,
@@ -63,7 +64,8 @@ extension ToolGroupingUITests {
                 for swipe in 0...maximumSwipes {
                     let status = try await labRequest(baseURL, password: password, path: "/_lab/status")
                     let rows = (status["recent_requests"] as? [[String: Any]] ?? []).filter {
-                        $0["path"] as? String == "/session/\(sessionID)/message" && $0["status"] as? Int == 200
+                        ($0["request_id"] as? Int ?? 0) > scenarioBaseline
+                            && $0["path"] as? String == "/session/\(sessionID)/message" && $0["status"] as? Int == 200
                     }
                     let seen = Set(observed.compactMap { $0["request_id"] as? Int })
                     observed += rows.filter { !seen.contains($0["request_id"] as? Int ?? -1) }
@@ -107,8 +109,9 @@ extension ToolGroupingUITests {
                 var status = try await labRequest(baseURL, password: password, path: "/_lab/status")
                 guard (status["sse_connections"] as? Int ?? 0) > 0 else { throw labFailure("No live SSE consumer before streaming.") }
                 let streamAt = ProcessInfo.processInfo.systemUptime
+                let chunkBytes = grouped ? 16 : 17
                 _ = try await labRequest(baseURL, password: password, path: "/_lab/stream", body: [
-                    "sessionID": sessionID, "chunks": 120, "interval_ms": 100, "chunk_bytes": 16, "part_type": "text"
+                    "sessionID": sessionID, "chunks": 120, "interval_ms": 100, "chunk_bytes": chunkBytes, "part_type": "text"
                 ])
                 let stop = app.buttons.matching(NSPredicate(format: "identifier IN %@", ["chat.stream.stop", "chat.stop"])).firstMatch
                 try await labWait("Native streaming state", timeout: 10) { stop.exists }
@@ -126,7 +129,7 @@ extension ToolGroupingUITests {
                                    withVelocity: .slow, thenHoldForDuration: 0.1)
                 try await labWait("Interactive keyboard dismissal") { !app.keyboards.firstMatch.exists }
                 try await labReturnToBottom(app: app, transcript: transcript)
-                let finalText = String(repeating: "d", count: 120 * 16)
+                let finalText = String(repeating: "d", count: 120 * chunkBytes)
                 try await labWait("Complete stream rendered", timeout: 35) {
                     let selectable = transcript.textViews.matching(NSPredicate(format: "value == %@", finalText)).firstMatch.exists
                     let plain = transcript.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", finalText)).firstMatch.exists

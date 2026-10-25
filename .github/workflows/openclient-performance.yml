@@ -37,7 +37,7 @@ jobs:
   native:
     needs: fixture
     runs-on: xcode-27
-    timeout-minutes: 45
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -45,6 +45,7 @@ jobs:
         device: [iphone, ipad]
     env:
       OPENCLIENT_DEVICE_KIND: ${{ matrix.device }}
+      OPENCLIENT_UI_ONLY: ${{ inputs.test_scope == 'ui' || contains(github.event.head_commit.message, '[ui-only]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -95,6 +96,13 @@ jobs:
               output.write('OPENCLIENT_DESTINATION=platform=iOS Simulator,id=' + device['udid'] + '\n')
           print('Selected simulator:', runtime, device['name'], device['udid'])
           PY
+      - name: Boot the selected simulator before starting XCTest
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          device_id="${OPENCLIENT_DESTINATION##*id=}"
+          xcrun simctl bootstatus "$device_id" -b 2>&1 | tee "$OPENCLIENT_RESULTS/simulator-boot.log"
       - name: Run actual OpenClient Swift tests
         if: (github.event_name == 'workflow_dispatch' && inputs.test_scope == 'all') || (github.event_name != 'workflow_dispatch' && !contains(github.event.head_commit.message, '[ui-only]'))
         shell: bash
@@ -105,8 +113,8 @@ jobs:
         env:
           TEST_RUNNER_OPENCLIENT_LAB_UI_URL: http://127.0.0.1:14097
           TEST_RUNNER_OPENCLIENT_LAB_UI_PASSWORD: ci-fixture-only
-          TEST_RUNNER_OPENCLIENT_LAB_UI_TARGET_LOADED: ${{ inputs.loaded_messages || '80' }}
-          TEST_RUNNER_OPENCLIENT_LAB_UI_MAX_SWIPES: ${{ inputs.loaded_messages == '2000' && '600' || '240' }}
+          TEST_RUNNER_OPENCLIENT_LAB_UI_TARGET_LOADED: ${{ inputs.loaded_messages || '2000' }}
+          TEST_RUNNER_OPENCLIENT_LAB_UI_MAX_SWIPES: ${{ inputs.loaded_messages == '80' && '240' || '600' }}
         run: |
           set -euo pipefail
           cat performance-lab/long_transcript_ui.swift >> OpenCodeIOSClientUITests/ToolGroupingUITests.swift
@@ -134,6 +142,10 @@ jobs:
           else:
               raise SystemExit('Synthetic server did not become ready')
           PY
+          ui_test='OpenCodeIOSClientUITests/ToolGroupingUITests'
+          if [[ "$OPENCLIENT_UI_ONLY" == 'true' ]]; then
+            ui_test="$ui_test/testNativeLongTranscriptLabSmoke"
+          fi
           xcodebuild \
             -project OpenCodeIOSClient.xcodeproj \
             -scheme OpenCodeIOSClient \
@@ -141,7 +153,7 @@ jobs:
             -parallel-testing-enabled NO \
             -derivedDataPath "$OPENCLIENT_RESULTS/native/DerivedData" \
             -resultBundlePath "$OPENCLIENT_RESULTS/grouping-ui.xcresult" \
-            -only-testing:OpenCodeIOSClientUITests/ToolGroupingUITests \
+            "-only-testing:$ui_test" \
             DEVELOPMENT_TEAM= \
             test 2>&1 | tee "$OPENCLIENT_RESULTS/grouping-ui.log"
       - name: Export readable test results and hang diagnostics
