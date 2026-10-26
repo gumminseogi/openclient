@@ -37,7 +37,7 @@ jobs:
   native:
     needs: fixture
     runs-on: xcode-27
-    timeout-minutes: 120
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       max-parallel: 2
