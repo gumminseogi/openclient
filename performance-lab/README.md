@@ -1,6 +1,6 @@
 # OpenClient 성능 테스트 환경
 
-2026-10-25. [테스트 포크의 `performance-lab` 브랜치](https://github.com/gumminseogi/openclient/tree/performance-lab)에서 실제 앱을 빌드하고 iPhone·iPad 시뮬레이터의 XCTest를 실행합니다. 기준 production 소스는 `ntoporcov/openclient@6b3054a18e731f342a3b98009c259191f5e67f51`입니다. `main`은 유지하며, 테스트 브랜치에는 개선 패치를 추가했습니다.
+2026-10-26. [테스트 포크의 `performance-lab` 브랜치](https://github.com/gumminseogi/openclient/tree/performance-lab)에서 실제 앱을 빌드하고 iPhone·iPad 시뮬레이터의 XCTest를 실행합니다. 기준 production 소스는 `ntoporcov/openclient@6b3054a18e731f342a3b98009c259191f5e67f51`입니다. `main`은 유지하며, 테스트 브랜치에는 개선 패치를 추가했습니다.
 
 Python fixture는 OpenCode v1 API의 필요한 부분을 구현해 긴 기록, 큰 도구 출력, SSE 스트리밍을 만듭니다. 실제 OpenCode 프로세스나 모델은 사용하지 않습니다.
 
@@ -8,7 +8,13 @@ Python fixture는 OpenCode v1 API의 필요한 부분을 구현해 긴 기록, �
 
 2,000개/grouping ON에서 스트림 제어 이후 시나리오 종료 증거 수집 전까지의 canonical 조회는 두 기기 모두 **2건 → 1건**이었습니다. iPhone 응답 본문 합계는 16,827,280 → 8,413,639바이트, iPad는 16,827,278 → 8,413,642바이트였습니다. 이것은 해당 구간의 합성 HTTP 본문 크기 비교이며 전체 통신량·FPS·실기기 체감 속도를 뜻하지 않습니다. 수동 새로고침과 종료 동기화의 전체 기록 조회 한 번은 유지합니다. 아래 표는 개선 전 기준입니다.
 
-## 확인된 결과
+## 추가 응답성 비교
+
+선택된 v1 세션의 canonical state를 화면에 발행할 때 반복하던 중복 제거·정렬을 줄였습니다. HTTP·cache에서 읽는 메시지의 normalization은 유지합니다. 해당 helper의 Debug microbenchmark와 실제 ChatView의 입력·스크롤 비교는 범위가 다릅니다. [응답성 실험 기록](RESPONSIVENESS_RESULTS.md)에 코드, 동일 바이너리의 경로 비교 방법, trial별 결과와 실패를 분리해 기록합니다.
+
+아래 결과와 UI 범위는 2026-10-25의 최초 검증 및 idle 중복 조회 수정에 해당합니다. 추가 실험의 `text`·`reasoning` 비교와 혼합하지 않습니다.
+
+## 최초 검증 결과
 
 | 실행 | 확인된 결과 | 제한 |
 | --- | --- | --- |
@@ -41,12 +47,13 @@ iPad attempt 1에는 transcript API 요청이 없었고 `Connected home`에서 �
 
 **seed 수와 앱이 로딩한 수는 다릅니다.** 목표는 각 seed와 설정값 중 작은 수입니다. 페이지 요청의 coverage는 HTTP 관측에 따른 추정이며, 최종 하단 refresh의 `before` 없는 요청과 `limit >= 목표`를 함께 확인합니다. 기준 앱은 canonical store의 메시지 수로 이 refresh limit을 정하므로 앱 store의 로딩 근거가 됩니다. 모든 메시지 행을 동시에 렌더링했다는 뜻은 아닙니다.
 
-첨부 시간은 XCTest 제어·관찰 비용이 포함된 smoke 기록입니다. 기존 V2 replacement 측정은 production 상태 함수와 테스트 안의 legacy 구현을 비교하는 unit microbenchmark입니다. 전체 앱 속도, v1 문제 해결, FPS, 정확한 렌더 완료 시간, Release 성능, 발열·전력을 입증하지 않습니다. 이 작업은 재현·검증 환경을 만들며 production 성능 수정을 포함하지 않습니다.
+첨부 시간은 XCTest 제어·관찰 비용이 포함된 smoke 기록입니다. 기존 V2 replacement 측정은 이미 있던 production 상태 함수와 테스트 안의 legacy 구현을 비교하는 unit microbenchmark이며 이번 변경의 개선율이 아닙니다. 전체 앱 속도, v1 문제 해결, FPS, 정확한 렌더 완료 시간, Release 성능, 발열·전력을 입증하지 않습니다.
 
 ## CI 실행과 결과 보관
 
 - `performance-lab` 브랜치 push로 실행합니다. 현재 workflow는 기본 브랜치에 없으므로 Actions 수동 실행은 사용할 수 없습니다.
 - 일반 push는 fixture → 실제 Swift 테스트 → UI를 실행합니다. 커밋 메시지의 `[ui-only]`는 이미 통과한 Swift 테스트를 생략합니다.
+- 커밋 메시지의 `[responsiveness]`는 별도 비교를 실행합니다. 이 경로는 관련 Swift 검사 3개와 기기별 12개 UI case를 선택하며, 일반 경로의 전체 Swift 검사를 재실행한 결과가 아닙니다.
 - 현재 push의 UI loaded 목표는 2,000개입니다. `TEST_RUNNER_OPENCLIENT_LAB_UI_TARGET_LOADED`와 최대 swipe 안에서 목표에 도달하지 못하면 실패합니다.
 - 커밋, Xcode/SDK, 시뮬레이터, 명령, 빌드 로그, 읽을 수 있는 XCTest JSON 요약·테스트 목록, JSON·스크린샷 첨부, fixture 요청과 hang 로그를 **3일간** 보관합니다. raw `.xcresult`와 DerivedData는 업로드하지 않습니다.
 

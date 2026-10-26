@@ -1,11 +1,12 @@
 {
-  "date": "2026-10-25",
+  "date": "2026-10-26",
   "repository": "https://github.com/gumminseogi/openclient",
   "branch": "performance-lab",
   "baseline_production_sha": "6b3054a18e731f342a3b98009c259191f5e67f51",
   "python_contract_tests": {
     "passed": 11,
-    "failed": 0
+    "failed": 0,
+    "scope": "Initial 2026-10-25 contract test count; current fixture/analyzer total is under responsiveness_validation"
   },
   "python_syntax": "passed",
   "native_runner_bash_syntax": "passed",
@@ -13,7 +14,7 @@
   "native_runner_linux_preflight": "correctly rejects execution and records xcodebuild_started=false",
   "iOS_build": "passed on iPhone and iPad simulators",
   "Swift_UI_prototype_compile": "passed on iPhone and iPad simulators",
-  "GitHub_Actions_execution": "completed successfully in run 40167869834 attempt 2; iPhone full-profile success reused from attempt 1, iPad full profile passed in attempt 2",
+  "GitHub_Actions_execution": "Latest run 40269284935 completed: iPhone success; iPad failure due two idle draft-clearing UI assertions. Older completed runs are retained separately.",
   "native_environment": {
     "xcode": "27.1",
     "ios_simulator_runtime": "27.0",
@@ -479,6 +480,691 @@
       "stream_tested_part_type": "text",
       "reasoning_native_ui_tested": false,
       "api_aggregate_scope": "all six scenarios including startup, settings, paging, refresh and streaming; fixture handler body-written counters, not wire or cellular bytes, a single refresh cost, FPS or causal attribution; zero-body records do not prove zero wire traffic if a write was interrupted"
+    },
+    {
+      "date": "2026-10-26",
+      "id": 40269284935,
+      "url": "https://github.com/gumminseogi/openclient/actions/runs/40269284935",
+      "source_sha": "bc3349bcd322ee910720969afcc6c4f912ddd09a",
+      "production_fix_commit": "21825e4945a069e6aeab1429672aab8fb4cd2f20",
+      "overall_conclusion": "failure",
+      "comparison_mode": "One instrumented binary; CI-only runtime publication switch, not two separately built revisions",
+      "expected_measured_cases_per_device": 12,
+      "expected_pairs_per_condition": 3,
+      "python_tests_passed": 17,
+      "devices": {
+        "iphone": {
+          "job_conclusion": "success",
+          "artifact_id": 12632530813,
+          "selected_swift_passed": 3,
+          "selected_swift_failed": 0,
+          "measured_ui_passed": 12,
+          "measured_ui_failed": 0,
+          "analysis_complete": true,
+          "valid_full_cases": 12,
+          "valid_partial_cases": 0,
+          "helper_legacy_ms_per_update": 31.433277777788742,
+          "helper_reduced_ms_per_update": 2.509107638881384,
+          "whole_stream_paired_metrics": [
+            {
+              "grouping": true,
+              "phase": "reasoning_whole_stream",
+              "paired_n": 3,
+              "metrics": {
+                "callback_overlap_excess_after_25ms_ms_per_second": {
+                  "baseline_median": 771.1708056418455,
+                  "candidate_median": 761.4599025082878,
+                  "paired_delta_median": 21.540616645077534,
+                  "paired_delta_min": -85.67379470306935,
+                  "paired_delta_max": 84.63326031963925,
+                  "decreased_pairs": 1,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 771.1708056418455,
+                      "candidate": 685.4970109387762
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 676.8266421886485,
+                      "candidate": 761.4599025082878
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 802.3596599157867,
+                      "candidate": 823.9002765608642
+                    }
+                  ]
+                },
+                "callback_overlap_full_interval_p95_ms": {
+                  "baseline_median": 391.29379166661226,
+                  "candidate_median": 349.46669999953866,
+                  "paired_delta_median": 33.93099375034592,
+                  "paired_delta_min": -134.50479999992234,
+                  "paired_delta_max": 97.96828333255675,
+                  "decreased_pairs": 1,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 391.29379166661226,
+                      "candidate": 256.7889916666899
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 251.4984166669819,
+                      "candidate": 349.46669999953866
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 435.58302708306644,
+                      "candidate": 469.51402083341236
+                    }
+                  ]
+                },
+                "heartbeat_overlap_full_interval_p95_ms": {
+                  "baseline_median": 332.084093749927,
+                  "candidate_median": 301.7635208335377,
+                  "paired_delta_median": -32.4059666663743,
+                  "paired_delta_min": -96.85475208325443,
+                  "paired_delta_max": 53.57168750024351,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 332.084093749927,
+                      "candidate": 235.22934166667255
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 248.1918333332942,
+                      "candidate": 301.7635208335377
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 355.80495833346504,
+                      "candidate": 323.39899166709074
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "grouping": true,
+              "phase": "text_whole_stream",
+              "paired_n": 3,
+              "metrics": {
+                "callback_overlap_excess_after_25ms_ms_per_second": {
+                  "baseline_median": 795.2198599821562,
+                  "candidate_median": 832.8670965300978,
+                  "paired_delta_median": 3.1806739963431028,
+                  "paired_delta_min": -12.250270884697557,
+                  "paired_delta_max": 102.94397025421506,
+                  "decreased_pairs": 1,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 795.2198599821562,
+                      "candidate": 782.9695890974587
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 753.9206335243772,
+                      "candidate": 856.8646037785923
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 829.6864225337547,
+                      "candidate": 832.8670965300978
+                    }
+                  ]
+                },
+                "callback_overlap_full_interval_p95_ms": {
+                  "baseline_median": 405.42381249997555,
+                  "candidate_median": 475.37929375021093,
+                  "paired_delta_median": -4.658681249475364,
+                  "paired_delta_min": -54.60720833343652,
+                  "paired_delta_max": 259.0078041667307,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 405.42381249997555,
+                      "candidate": 350.81660416653904
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 328.0931895834783,
+                      "candidate": 587.100993750209
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 480.0379749996863,
+                      "candidate": 475.37929375021093
+                    }
+                  ]
+                },
+                "heartbeat_overlap_full_interval_p95_ms": {
+                  "baseline_median": 340.64701041668286,
+                  "candidate_median": 348.30413750069044,
+                  "paired_delta_median": -10.76464999960092,
+                  "paired_delta_min": -70.4323854165296,
+                  "paired_delta_max": 125.28519791571824,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 340.64701041668286,
+                      "candidate": 270.21462500015326
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 259.0293583336461,
+                      "candidate": 384.31455624936433
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 359.06878750029136,
+                      "candidate": 348.30413750069044
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "grouping": false,
+              "phase": "reasoning_whole_stream",
+              "paired_n": 3,
+              "metrics": {
+                "callback_overlap_excess_after_25ms_ms_per_second": {
+                  "baseline_median": 652.4870814090301,
+                  "candidate_median": 700.9421033848637,
+                  "paired_delta_median": -29.8727848580819,
+                  "paired_delta_min": -86.9378476978892,
+                  "paired_delta_max": 69.1386577861698,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 652.4870814090301,
+                      "candidate": 565.5492337111409
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 631.8034455986939,
+                      "candidate": 700.9421033848637
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 740.8881856721238,
+                      "candidate": 711.0154008140419
+                    }
+                  ]
+                },
+                "callback_overlap_full_interval_p95_ms": {
+                  "baseline_median": 229.08096041624023,
+                  "candidate_median": 256.36251666655875,
+                  "paired_delta_median": -50.17355416653123,
+                  "paired_delta_min": -62.77036041587937,
+                  "paired_delta_max": 50.602227083209044,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 229.08096041624023,
+                      "candidate": 166.31060000036086
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 205.7602895833497,
+                      "candidate": 256.36251666655875
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 318.06371249963377,
+                      "candidate": 267.89015833310253
+                    }
+                  ]
+                },
+                "heartbeat_overlap_full_interval_p95_ms": {
+                  "baseline_median": 214.59774999998447,
+                  "candidate_median": 228.71605000009365,
+                  "paired_delta_median": -16.59904166695017,
+                  "paired_delta_min": -59.7153500000332,
+                  "paired_delta_max": 39.94054166623758,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 214.59774999998447,
+                      "candidate": 154.88239999995128
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 188.77550833385607,
+                      "candidate": 228.71605000009365
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 257.1701479170315,
+                      "candidate": 240.57110625008133
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "grouping": false,
+              "phase": "text_whole_stream",
+              "paired_n": 3,
+              "metrics": {
+                "callback_overlap_excess_after_25ms_ms_per_second": {
+                  "baseline_median": 704.6120663831005,
+                  "candidate_median": 704.2830257634276,
+                  "paired_delta_median": -21.963803260017812,
+                  "paired_delta_min": -117.33278874056384,
+                  "paired_delta_max": 84.10342342241506,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 704.6120663831005,
+                      "candidate": 587.2792776425366
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 620.1796023410126,
+                      "candidate": 704.2830257634276
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 748.4497238083856,
+                      "candidate": 726.4859205483677
+                    }
+                  ]
+                },
+                "callback_overlap_full_interval_p95_ms": {
+                  "baseline_median": 269.79955625010905,
+                  "candidate_median": 289.2277083331463,
+                  "paired_delta_median": -19.627456248872136,
+                  "paired_delta_min": -76.62617083296925,
+                  "paired_delta_max": 76.71438333263728,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 269.79955625010905,
+                      "candidate": 193.1733854171398
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 212.51332500050904,
+                      "candidate": 289.2277083331463
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 332.2508999995986,
+                      "candidate": 312.62344375072644
+                    }
+                  ]
+                },
+                "heartbeat_overlap_full_interval_p95_ms": {
+                  "baseline_median": 250.42382291678675,
+                  "candidate_median": 289.7504583327643,
+                  "paired_delta_median": -15.424408332364408,
+                  "paired_delta_min": -71.14578749949493,
+                  "paired_delta_max": 93.10414999918041,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 250.42382291678675,
+                      "candidate": 179.27803541729182
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 196.6463083335839,
+                      "candidate": 289.7504583327643
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 319.9913833332172,
+                      "candidate": 304.5669750008528
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "stream_duration_range_seconds": [
+            125.71456480026245,
+            140.83665895462036
+          ]
+        },
+        "ipad": {
+          "job_conclusion": "failure",
+          "artifact_id": 12631738312,
+          "selected_swift_passed": 3,
+          "selected_swift_failed": 0,
+          "measured_ui_passed": 10,
+          "measured_ui_failed": 2,
+          "analysis_complete": false,
+          "valid_full_cases": 10,
+          "valid_partial_cases": 2,
+          "helper_legacy_ms_per_update": 33.78874305555731,
+          "helper_reduced_ms_per_update": 2.5560486111165424,
+          "whole_stream_paired_metrics": [
+            {
+              "grouping": true,
+              "phase": "reasoning_whole_stream",
+              "paired_n": 1,
+              "metrics": {
+                "callback_overlap_excess_after_25ms_ms_per_second": {
+                  "baseline_median": 851.4377697469624,
+                  "candidate_median": 859.4903801794823,
+                  "paired_delta_median": 8.052610432519828,
+                  "paired_delta_min": 8.052610432519828,
+                  "paired_delta_max": 8.052610432519828,
+                  "decreased_pairs": 0,
+                  "pairs": [
+                    {
+                      "trial": "pair3",
+                      "baseline": 851.4377697469624,
+                      "candidate": 859.4903801794823
+                    }
+                  ]
+                },
+                "callback_overlap_full_interval_p95_ms": {
+                  "baseline_median": 517.8503541665123,
+                  "candidate_median": 575.2257166665456,
+                  "paired_delta_median": 57.37536250003336,
+                  "paired_delta_min": 57.37536250003336,
+                  "paired_delta_max": 57.37536250003336,
+                  "decreased_pairs": 0,
+                  "pairs": [
+                    {
+                      "trial": "pair3",
+                      "baseline": 517.8503541665123,
+                      "candidate": 575.2257166665456
+                    }
+                  ]
+                },
+                "heartbeat_overlap_full_interval_p95_ms": {
+                  "baseline_median": 440.5901500005711,
+                  "candidate_median": 434.2530604166769,
+                  "paired_delta_median": -6.337089583894226,
+                  "paired_delta_min": -6.337089583894226,
+                  "paired_delta_max": -6.337089583894226,
+                  "decreased_pairs": 1,
+                  "pairs": [
+                    {
+                      "trial": "pair3",
+                      "baseline": 440.5901500005711,
+                      "candidate": 434.2530604166769
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "grouping": true,
+              "phase": "text_whole_stream",
+              "paired_n": 3,
+              "metrics": {
+                "callback_overlap_excess_after_25ms_ms_per_second": {
+                  "baseline_median": 820.7695414625053,
+                  "candidate_median": 766.2167457382492,
+                  "paired_delta_median": -47.79597307877327,
+                  "paired_delta_min": -54.55279572425616,
+                  "paired_delta_max": 9.982806657022365,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 777.5375415759418,
+                      "candidate": 729.7415684971685
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 820.7695414625053,
+                      "candidate": 766.2167457382492
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 825.9987054399303,
+                      "candidate": 835.9815120969527
+                    }
+                  ]
+                },
+                "callback_overlap_full_interval_p95_ms": {
+                  "baseline_median": 461.7088229164892,
+                  "candidate_median": 351.59282499998875,
+                  "paired_delta_median": -84.10682083301714,
+                  "paired_delta_min": -132.12249791699816,
+                  "paired_delta_max": 40.9416937506648,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 391.62192916644466,
+                      "candidate": 307.5151083334275
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 483.7153229169869,
+                      "candidate": 351.59282499998875
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 461.7088229164892,
+                      "candidate": 502.650516667154
+                    }
+                  ]
+                },
+                "heartbeat_overlap_full_interval_p95_ms": {
+                  "baseline_median": 401.4135270831956,
+                  "candidate_median": 338.6583437495574,
+                  "paired_delta_median": -17.38590416650817,
+                  "paired_delta_min": -75.19333125073877,
+                  "paired_delta_max": 7.230191666576616,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 300.63688749996794,
+                      "candidate": 283.25098333345977
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 413.85167500029615,
+                      "candidate": 338.6583437495574
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 401.4135270831956,
+                      "candidate": 408.64371874977223
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "grouping": false,
+              "phase": "reasoning_whole_stream",
+              "paired_n": 3,
+              "metrics": {
+                "callback_overlap_excess_after_25ms_ms_per_second": {
+                  "baseline_median": 809.3158092974156,
+                  "candidate_median": 689.8490160301777,
+                  "paired_delta_median": -72.50943312914194,
+                  "paired_delta_min": -119.4667932672379,
+                  "paired_delta_max": -45.57447373888624,
+                  "decreased_pairs": 3,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 692.8609158228687,
+                      "candidate": 647.2864420839825
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 816.6768064174047,
+                      "candidate": 744.1673732882628
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 809.3158092974156,
+                      "candidate": 689.8490160301777
+                    }
+                  ]
+                },
+                "callback_overlap_full_interval_p95_ms": {
+                  "baseline_median": 431.1499666665439,
+                  "candidate_median": 263.48234999986715,
+                  "paired_delta_median": -127.20736250043956,
+                  "paired_delta_min": -167.66761666667674,
+                  "paired_delta_max": -22.197535416808023,
+                  "decreased_pairs": 3,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 242.37065416675696,
+                      "candidate": 220.17311874994894
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 462.39652083327184,
+                      "candidate": 335.1891583328323
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 431.1499666665439,
+                      "candidate": 263.48234999986715
+                    }
+                  ]
+                },
+                "heartbeat_overlap_full_interval_p95_ms": {
+                  "baseline_median": 337.3879458337796,
+                  "candidate_median": 252.25134166721546,
+                  "paired_delta_median": -57.18997916724214,
+                  "paired_delta_min": -85.13660416656415,
+                  "paired_delta_max": -15.02878541680272,
+                  "decreased_pairs": 3,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 225.65128958351576,
+                      "candidate": 210.62250416671304
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 358.649383333568,
+                      "candidate": 301.45940416632584
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 337.3879458337796,
+                      "candidate": 252.25134166721546
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "grouping": false,
+              "phase": "text_whole_stream",
+              "paired_n": 3,
+              "metrics": {
+                "callback_overlap_excess_after_25ms_ms_per_second": {
+                  "baseline_median": 649.5267577595629,
+                  "candidate_median": 619.825216802364,
+                  "paired_delta_median": -37.36292620433346,
+                  "paired_delta_min": -112.84552054128835,
+                  "paired_delta_max": -23.532005795923283,
+                  "decreased_pairs": 3,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 643.7999469600568,
+                      "candidate": 606.4370207557233
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 732.6707373436524,
+                      "candidate": 619.825216802364
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 649.5267577595629,
+                      "candidate": 625.9947519636396
+                    }
+                  ]
+                },
+                "callback_overlap_full_interval_p95_ms": {
+                  "baseline_median": 228.4894291663474,
+                  "candidate_median": 215.1323541668262,
+                  "paired_delta_median": -17.593683333689057,
+                  "paired_delta_min": -100.25660416654313,
+                  "paired_delta_max": -12.25384166586963,
+                  "decreased_pairs": 3,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 220.02896666672297,
+                      "candidate": 202.4352833330339
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 315.3889583333693,
+                      "candidate": 215.1323541668262
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 228.4894291663474,
+                      "candidate": 216.23558750047778
+                    }
+                  ]
+                },
+                "heartbeat_overlap_full_interval_p95_ms": {
+                  "baseline_median": 214.57862500028568,
+                  "candidate_median": 209.9083375000189,
+                  "paired_delta_median": -14.437968749643886,
+                  "paired_delta_min": -112.56887083377501,
+                  "paired_delta_max": 9.99957916619664,
+                  "decreased_pairs": 2,
+                  "pairs": [
+                    {
+                      "trial": "pair1",
+                      "baseline": 213.0812687499201,
+                      "candidate": 198.6433000002762
+                    },
+                    {
+                      "trial": "pair2",
+                      "baseline": 322.4772083337939,
+                      "candidate": 209.9083375000189
+                    },
+                    {
+                      "trial": "pair3",
+                      "baseline": 214.57862500028568,
+                      "candidate": 224.57820416648232
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "stream_duration_range_seconds": [
+            121.27259802818298,
+            131.73554873466492
+          ]
+        }
+      },
+      "limitations": [
+        "Debug synthetic v1 API fixture on iOS simulator",
+        "Callback gaps and heartbeat delays are not presented FPS or exact keyboard latency",
+        "Actual configured-chunks/run-duration rates differ; UI causal effect not isolated",
+        "Physical iPhone 15 Pro, heat, battery and Release-device speedup not measured",
+        "Partial medians must be recalculated from paired=true trials only"
+      ]
     }
   ],
   "ui_loading_evidence": {
@@ -527,5 +1213,690 @@
       "limits": "2002 messages after two synthetic messages were added",
       "limitations": "Single run per variant; other workflow phases differ in cache/OS/XCTest scheduling. One complete canonical fetch remains, including manual refresh. No measured whole-app speedup."
     }
+  },
+  "responsiveness_validation": {
+    "date": "2026-10-26",
+    "id": 40269284935,
+    "url": "https://github.com/gumminseogi/openclient/actions/runs/40269284935",
+    "source_sha": "bc3349bcd322ee910720969afcc6c4f912ddd09a",
+    "production_fix_commit": "21825e4945a069e6aeab1429672aab8fb4cd2f20",
+    "overall_conclusion": "failure",
+    "comparison_mode": "One instrumented binary; CI-only runtime publication switch, not two separately built revisions",
+    "expected_measured_cases_per_device": 12,
+    "expected_pairs_per_condition": 3,
+    "python_tests_passed": 17,
+    "devices": {
+      "iphone": {
+        "job_conclusion": "success",
+        "artifact_id": 12632530813,
+        "selected_swift_passed": 3,
+        "selected_swift_failed": 0,
+        "measured_ui_passed": 12,
+        "measured_ui_failed": 0,
+        "analysis_complete": true,
+        "valid_full_cases": 12,
+        "valid_partial_cases": 0,
+        "helper_legacy_ms_per_update": 31.433277777788742,
+        "helper_reduced_ms_per_update": 2.509107638881384,
+        "whole_stream_paired_metrics": [
+          {
+            "grouping": true,
+            "phase": "reasoning_whole_stream",
+            "paired_n": 3,
+            "metrics": {
+              "callback_overlap_excess_after_25ms_ms_per_second": {
+                "baseline_median": 771.1708056418455,
+                "candidate_median": 761.4599025082878,
+                "paired_delta_median": 21.540616645077534,
+                "paired_delta_min": -85.67379470306935,
+                "paired_delta_max": 84.63326031963925,
+                "decreased_pairs": 1,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 771.1708056418455,
+                    "candidate": 685.4970109387762
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 676.8266421886485,
+                    "candidate": 761.4599025082878
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 802.3596599157867,
+                    "candidate": 823.9002765608642
+                  }
+                ]
+              },
+              "callback_overlap_full_interval_p95_ms": {
+                "baseline_median": 391.29379166661226,
+                "candidate_median": 349.46669999953866,
+                "paired_delta_median": 33.93099375034592,
+                "paired_delta_min": -134.50479999992234,
+                "paired_delta_max": 97.96828333255675,
+                "decreased_pairs": 1,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 391.29379166661226,
+                    "candidate": 256.7889916666899
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 251.4984166669819,
+                    "candidate": 349.46669999953866
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 435.58302708306644,
+                    "candidate": 469.51402083341236
+                  }
+                ]
+              },
+              "heartbeat_overlap_full_interval_p95_ms": {
+                "baseline_median": 332.084093749927,
+                "candidate_median": 301.7635208335377,
+                "paired_delta_median": -32.4059666663743,
+                "paired_delta_min": -96.85475208325443,
+                "paired_delta_max": 53.57168750024351,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 332.084093749927,
+                    "candidate": 235.22934166667255
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 248.1918333332942,
+                    "candidate": 301.7635208335377
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 355.80495833346504,
+                    "candidate": 323.39899166709074
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "grouping": true,
+            "phase": "text_whole_stream",
+            "paired_n": 3,
+            "metrics": {
+              "callback_overlap_excess_after_25ms_ms_per_second": {
+                "baseline_median": 795.2198599821562,
+                "candidate_median": 832.8670965300978,
+                "paired_delta_median": 3.1806739963431028,
+                "paired_delta_min": -12.250270884697557,
+                "paired_delta_max": 102.94397025421506,
+                "decreased_pairs": 1,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 795.2198599821562,
+                    "candidate": 782.9695890974587
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 753.9206335243772,
+                    "candidate": 856.8646037785923
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 829.6864225337547,
+                    "candidate": 832.8670965300978
+                  }
+                ]
+              },
+              "callback_overlap_full_interval_p95_ms": {
+                "baseline_median": 405.42381249997555,
+                "candidate_median": 475.37929375021093,
+                "paired_delta_median": -4.658681249475364,
+                "paired_delta_min": -54.60720833343652,
+                "paired_delta_max": 259.0078041667307,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 405.42381249997555,
+                    "candidate": 350.81660416653904
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 328.0931895834783,
+                    "candidate": 587.100993750209
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 480.0379749996863,
+                    "candidate": 475.37929375021093
+                  }
+                ]
+              },
+              "heartbeat_overlap_full_interval_p95_ms": {
+                "baseline_median": 340.64701041668286,
+                "candidate_median": 348.30413750069044,
+                "paired_delta_median": -10.76464999960092,
+                "paired_delta_min": -70.4323854165296,
+                "paired_delta_max": 125.28519791571824,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 340.64701041668286,
+                    "candidate": 270.21462500015326
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 259.0293583336461,
+                    "candidate": 384.31455624936433
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 359.06878750029136,
+                    "candidate": 348.30413750069044
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "grouping": false,
+            "phase": "reasoning_whole_stream",
+            "paired_n": 3,
+            "metrics": {
+              "callback_overlap_excess_after_25ms_ms_per_second": {
+                "baseline_median": 652.4870814090301,
+                "candidate_median": 700.9421033848637,
+                "paired_delta_median": -29.8727848580819,
+                "paired_delta_min": -86.9378476978892,
+                "paired_delta_max": 69.1386577861698,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 652.4870814090301,
+                    "candidate": 565.5492337111409
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 631.8034455986939,
+                    "candidate": 700.9421033848637
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 740.8881856721238,
+                    "candidate": 711.0154008140419
+                  }
+                ]
+              },
+              "callback_overlap_full_interval_p95_ms": {
+                "baseline_median": 229.08096041624023,
+                "candidate_median": 256.36251666655875,
+                "paired_delta_median": -50.17355416653123,
+                "paired_delta_min": -62.77036041587937,
+                "paired_delta_max": 50.602227083209044,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 229.08096041624023,
+                    "candidate": 166.31060000036086
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 205.7602895833497,
+                    "candidate": 256.36251666655875
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 318.06371249963377,
+                    "candidate": 267.89015833310253
+                  }
+                ]
+              },
+              "heartbeat_overlap_full_interval_p95_ms": {
+                "baseline_median": 214.59774999998447,
+                "candidate_median": 228.71605000009365,
+                "paired_delta_median": -16.59904166695017,
+                "paired_delta_min": -59.7153500000332,
+                "paired_delta_max": 39.94054166623758,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 214.59774999998447,
+                    "candidate": 154.88239999995128
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 188.77550833385607,
+                    "candidate": 228.71605000009365
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 257.1701479170315,
+                    "candidate": 240.57110625008133
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "grouping": false,
+            "phase": "text_whole_stream",
+            "paired_n": 3,
+            "metrics": {
+              "callback_overlap_excess_after_25ms_ms_per_second": {
+                "baseline_median": 704.6120663831005,
+                "candidate_median": 704.2830257634276,
+                "paired_delta_median": -21.963803260017812,
+                "paired_delta_min": -117.33278874056384,
+                "paired_delta_max": 84.10342342241506,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 704.6120663831005,
+                    "candidate": 587.2792776425366
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 620.1796023410126,
+                    "candidate": 704.2830257634276
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 748.4497238083856,
+                    "candidate": 726.4859205483677
+                  }
+                ]
+              },
+              "callback_overlap_full_interval_p95_ms": {
+                "baseline_median": 269.79955625010905,
+                "candidate_median": 289.2277083331463,
+                "paired_delta_median": -19.627456248872136,
+                "paired_delta_min": -76.62617083296925,
+                "paired_delta_max": 76.71438333263728,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 269.79955625010905,
+                    "candidate": 193.1733854171398
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 212.51332500050904,
+                    "candidate": 289.2277083331463
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 332.2508999995986,
+                    "candidate": 312.62344375072644
+                  }
+                ]
+              },
+              "heartbeat_overlap_full_interval_p95_ms": {
+                "baseline_median": 250.42382291678675,
+                "candidate_median": 289.7504583327643,
+                "paired_delta_median": -15.424408332364408,
+                "paired_delta_min": -71.14578749949493,
+                "paired_delta_max": 93.10414999918041,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 250.42382291678675,
+                    "candidate": 179.27803541729182
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 196.6463083335839,
+                    "candidate": 289.7504583327643
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 319.9913833332172,
+                    "candidate": 304.5669750008528
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "stream_duration_range_seconds": [
+          125.71456480026245,
+          140.83665895462036
+        ]
+      },
+      "ipad": {
+        "job_conclusion": "failure",
+        "artifact_id": 12631738312,
+        "selected_swift_passed": 3,
+        "selected_swift_failed": 0,
+        "measured_ui_passed": 10,
+        "measured_ui_failed": 2,
+        "analysis_complete": false,
+        "valid_full_cases": 10,
+        "valid_partial_cases": 2,
+        "helper_legacy_ms_per_update": 33.78874305555731,
+        "helper_reduced_ms_per_update": 2.5560486111165424,
+        "whole_stream_paired_metrics": [
+          {
+            "grouping": true,
+            "phase": "reasoning_whole_stream",
+            "paired_n": 1,
+            "metrics": {
+              "callback_overlap_excess_after_25ms_ms_per_second": {
+                "baseline_median": 851.4377697469624,
+                "candidate_median": 859.4903801794823,
+                "paired_delta_median": 8.052610432519828,
+                "paired_delta_min": 8.052610432519828,
+                "paired_delta_max": 8.052610432519828,
+                "decreased_pairs": 0,
+                "pairs": [
+                  {
+                    "trial": "pair3",
+                    "baseline": 851.4377697469624,
+                    "candidate": 859.4903801794823
+                  }
+                ]
+              },
+              "callback_overlap_full_interval_p95_ms": {
+                "baseline_median": 517.8503541665123,
+                "candidate_median": 575.2257166665456,
+                "paired_delta_median": 57.37536250003336,
+                "paired_delta_min": 57.37536250003336,
+                "paired_delta_max": 57.37536250003336,
+                "decreased_pairs": 0,
+                "pairs": [
+                  {
+                    "trial": "pair3",
+                    "baseline": 517.8503541665123,
+                    "candidate": 575.2257166665456
+                  }
+                ]
+              },
+              "heartbeat_overlap_full_interval_p95_ms": {
+                "baseline_median": 440.5901500005711,
+                "candidate_median": 434.2530604166769,
+                "paired_delta_median": -6.337089583894226,
+                "paired_delta_min": -6.337089583894226,
+                "paired_delta_max": -6.337089583894226,
+                "decreased_pairs": 1,
+                "pairs": [
+                  {
+                    "trial": "pair3",
+                    "baseline": 440.5901500005711,
+                    "candidate": 434.2530604166769
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "grouping": true,
+            "phase": "text_whole_stream",
+            "paired_n": 3,
+            "metrics": {
+              "callback_overlap_excess_after_25ms_ms_per_second": {
+                "baseline_median": 820.7695414625053,
+                "candidate_median": 766.2167457382492,
+                "paired_delta_median": -47.79597307877327,
+                "paired_delta_min": -54.55279572425616,
+                "paired_delta_max": 9.982806657022365,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 777.5375415759418,
+                    "candidate": 729.7415684971685
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 820.7695414625053,
+                    "candidate": 766.2167457382492
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 825.9987054399303,
+                    "candidate": 835.9815120969527
+                  }
+                ]
+              },
+              "callback_overlap_full_interval_p95_ms": {
+                "baseline_median": 461.7088229164892,
+                "candidate_median": 351.59282499998875,
+                "paired_delta_median": -84.10682083301714,
+                "paired_delta_min": -132.12249791699816,
+                "paired_delta_max": 40.9416937506648,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 391.62192916644466,
+                    "candidate": 307.5151083334275
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 483.7153229169869,
+                    "candidate": 351.59282499998875
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 461.7088229164892,
+                    "candidate": 502.650516667154
+                  }
+                ]
+              },
+              "heartbeat_overlap_full_interval_p95_ms": {
+                "baseline_median": 401.4135270831956,
+                "candidate_median": 338.6583437495574,
+                "paired_delta_median": -17.38590416650817,
+                "paired_delta_min": -75.19333125073877,
+                "paired_delta_max": 7.230191666576616,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 300.63688749996794,
+                    "candidate": 283.25098333345977
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 413.85167500029615,
+                    "candidate": 338.6583437495574
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 401.4135270831956,
+                    "candidate": 408.64371874977223
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "grouping": false,
+            "phase": "reasoning_whole_stream",
+            "paired_n": 3,
+            "metrics": {
+              "callback_overlap_excess_after_25ms_ms_per_second": {
+                "baseline_median": 809.3158092974156,
+                "candidate_median": 689.8490160301777,
+                "paired_delta_median": -72.50943312914194,
+                "paired_delta_min": -119.4667932672379,
+                "paired_delta_max": -45.57447373888624,
+                "decreased_pairs": 3,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 692.8609158228687,
+                    "candidate": 647.2864420839825
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 816.6768064174047,
+                    "candidate": 744.1673732882628
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 809.3158092974156,
+                    "candidate": 689.8490160301777
+                  }
+                ]
+              },
+              "callback_overlap_full_interval_p95_ms": {
+                "baseline_median": 431.1499666665439,
+                "candidate_median": 263.48234999986715,
+                "paired_delta_median": -127.20736250043956,
+                "paired_delta_min": -167.66761666667674,
+                "paired_delta_max": -22.197535416808023,
+                "decreased_pairs": 3,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 242.37065416675696,
+                    "candidate": 220.17311874994894
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 462.39652083327184,
+                    "candidate": 335.1891583328323
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 431.1499666665439,
+                    "candidate": 263.48234999986715
+                  }
+                ]
+              },
+              "heartbeat_overlap_full_interval_p95_ms": {
+                "baseline_median": 337.3879458337796,
+                "candidate_median": 252.25134166721546,
+                "paired_delta_median": -57.18997916724214,
+                "paired_delta_min": -85.13660416656415,
+                "paired_delta_max": -15.02878541680272,
+                "decreased_pairs": 3,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 225.65128958351576,
+                    "candidate": 210.62250416671304
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 358.649383333568,
+                    "candidate": 301.45940416632584
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 337.3879458337796,
+                    "candidate": 252.25134166721546
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "grouping": false,
+            "phase": "text_whole_stream",
+            "paired_n": 3,
+            "metrics": {
+              "callback_overlap_excess_after_25ms_ms_per_second": {
+                "baseline_median": 649.5267577595629,
+                "candidate_median": 619.825216802364,
+                "paired_delta_median": -37.36292620433346,
+                "paired_delta_min": -112.84552054128835,
+                "paired_delta_max": -23.532005795923283,
+                "decreased_pairs": 3,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 643.7999469600568,
+                    "candidate": 606.4370207557233
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 732.6707373436524,
+                    "candidate": 619.825216802364
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 649.5267577595629,
+                    "candidate": 625.9947519636396
+                  }
+                ]
+              },
+              "callback_overlap_full_interval_p95_ms": {
+                "baseline_median": 228.4894291663474,
+                "candidate_median": 215.1323541668262,
+                "paired_delta_median": -17.593683333689057,
+                "paired_delta_min": -100.25660416654313,
+                "paired_delta_max": -12.25384166586963,
+                "decreased_pairs": 3,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 220.02896666672297,
+                    "candidate": 202.4352833330339
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 315.3889583333693,
+                    "candidate": 215.1323541668262
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 228.4894291663474,
+                    "candidate": 216.23558750047778
+                  }
+                ]
+              },
+              "heartbeat_overlap_full_interval_p95_ms": {
+                "baseline_median": 214.57862500028568,
+                "candidate_median": 209.9083375000189,
+                "paired_delta_median": -14.437968749643886,
+                "paired_delta_min": -112.56887083377501,
+                "paired_delta_max": 9.99957916619664,
+                "decreased_pairs": 2,
+                "pairs": [
+                  {
+                    "trial": "pair1",
+                    "baseline": 213.0812687499201,
+                    "candidate": 198.6433000002762
+                  },
+                  {
+                    "trial": "pair2",
+                    "baseline": 322.4772083337939,
+                    "candidate": 209.9083375000189
+                  },
+                  {
+                    "trial": "pair3",
+                    "baseline": 214.57862500028568,
+                    "candidate": 224.57820416648232
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "stream_duration_range_seconds": [
+          121.27259802818298,
+          131.73554873466492
+        ]
+      }
+    },
+    "limitations": [
+      "Debug synthetic v1 API fixture on iOS simulator",
+      "Callback gaps and heartbeat delays are not presented FPS or exact keyboard latency",
+      "Actual configured-chunks/run-duration rates differ; UI causal effect not isolated",
+      "Physical iPhone 15 Pro, heat, battery and Release-device speedup not measured",
+      "Partial medians must be recalculated from paired=true trials only"
+    ]
   }
 }

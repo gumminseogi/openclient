@@ -18,65 +18,34 @@
     "actions/upload-artifact": "cf430e030ddbb5b0abf93d22962f4752f3646cd9"
   },
   "upstream_production_sources_modified": true,
-  "native_ui_prototype": "full loaded-target-2000 profile passed six text-streaming ChatView scenarios on each device at 4711a6804fc70c9675271b70c677e715e4a4c1f2; iPhone verified in attempt 1 and iPad in attempt 2; first iPad startup failure retained in validation.json; reasoning stream not native-UI tested",
   "test_repository": "https://github.com/gumminseogi/openclient",
   "test_branch": "performance-lab",
-  "native_validation_run": "https://github.com/gumminseogi/openclient/actions/runs/40164300946",
-  "native_swift_tests": {
-    "iphone_passed": 50,
-    "ipad_passed": 50,
-    "failed": 0
-  },
-  "latest_ui_run": {
-    "id": 40167869834,
-    "url": "https://github.com/gumminseogi/openclient/actions/runs/40167869834",
-    "target_loaded": 2000,
-    "status": "completed",
-    "conclusion": "success",
-    "source_sha": "4711a6804fc70c9675271b70c677e715e4a4c1f2",
-    "current_attempt": 2,
-    "iphone": {
-      "attempt": 1,
-      "conclusion": "success",
-      "scenarios_passed": 6,
-      "artifact_id": 12589918546,
-      "rerun_in_attempt_2": false
-    },
-    "ipad_attempt_1": {
-      "conclusion": "failure",
-      "stage": "Connected home before any transcript API request"
-    },
-    "ipad_attempt_2": {
-      "job_id": 121098958683,
-      "status": "completed",
-      "conclusion": "success",
-      "scenarios_passed": 6,
-      "artifact_id": 12590851995
-    },
-    "completed_at": "2026-10-25T07:17:34Z",
-    "swift_tests_rerun": false,
-    "stream_tested_part_type": "text",
-    "reasoning_native_ui_tested": false
-  },
   "artifact_retention_days": 3,
   "artifact_format": "readable XCTest JSON, exported attachments and logs; raw xcresult and DerivedData are not uploaded",
   "main_modified": false,
   "workflow_trigger": "performance-lab branch push; workflow_dispatch unavailable until workflow exists on default branch",
   "repository_files_sha256": {
-    "performance-lab/lab.py": "e44628677674e7e32796da394d0e95cf7281c6dc412f550a6635a04c51b93699",
-    "performance-lab/test_lab.py": "21770f2d4ed7dd16468b6767f6bb2a71f6036bcc149a15973e207a112a6e6c90",
-    "performance-lab/test_stream_edges.py": "07021525c0b9a75c470a452499a29e123960d35c4061f16159dc32cfd8716ae5",
-    "performance-lab/run-native-tests.sh": "22517e77f6ea601c95d16dc9adfdfb111e146732265b2f16f31913849781b3ae",
+    "performance-lab/lab.py": "2516c37385b027ae1549378b350350def20fa14a8b292020aeed483a28ce9f5b",
+    "performance-lab/test_lab.py": "d7382e7aebb519050ddf839d641536bbfac007a4f709a0fe36ef37ae25d18b1c",
+    "performance-lab/test_stream_edges.py": "1d7a31e1cf76a312780e397fab70c493e3b7a60c549d2018318ef57669415f68",
+    "performance-lab/run-native-tests.sh": "bde428a2f4fe689416407967855f3df849dcc023621236f1d7a0a2c7803e62e5",
     "performance-lab/long_transcript_ui.swift": "65947ae3d73c49c13655b8fa6a442412bc03c733ed0f524c7c884bcb28050ed2",
-    "performance-lab/README.md": "7fdc4f7ccbb570cf16419c4b92cc854fdfae954f7a896409b67a8e099dae02d2",
-    "performance-lab/validation.json": "24b2183a57bafd21c9ee6aab25d21b84ca939cf47062278a35f008b849d31a02",
+    "performance-lab/README.md": "77160172ce3ccc2b3b58b362383ec64ce9228c01ce6cba304836553e2ad48fbb",
+    "performance-lab/validation.json": "5b07540d1f5cb19ea982e199c9ca0402afd3aa69e21bf1052ce148526aee5ad7",
     "performance-lab/.gitignore": "6820e8001265aa42342263af043d55d21370f09b2ce3b5565a30f649fd02b766",
-    ".github/workflows/openclient-performance.yml": "23c2f9c8fc0c87c7fdd5a2f24f0d7077641104292257cb33e5ca3ac1f4331ab9",
+    ".github/workflows/openclient-performance.yml": "e99fe24c9c93a82910704356322c76d0c1999cf7596486ffac36c99c4467c88c",
     "OpenCodeIOSClient/Models/OpenCodeStateReducer.swift": "49382b9a241b98bbbc76f9d91dd434739eac7cd49480dbcc7e47b2f8b7cce308",
-    "OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel+Events.swift": "152ac63599b0ba4cb99db328b57cd2d4190b61ffce8a8ddd46d0be69149cf42c",
-    "OpenCodeIOSClientTests/ChatStoreTests.swift": "945ca2225fec91ed69b967999766f8d6a5b73398b24c06b81b26c2d0a0f283b7"
+    "OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel+Events.swift": "68cd39599675cf3f8e9878469d10a552c38641cae3bb8951dde417ae0772d363",
+    "OpenCodeIOSClientTests/ChatStoreTests.swift": "a3d1d1601610833fad3b8655f154cbbf1dfdeea1408950044c20cdc4e9d3b758",
+    "performance-lab/test_responsiveness_analysis.py": "44cf6dba857d918e75b33de61444a186bc0b09e8b38905f327a70e967329604e",
+    "performance-lab/analyze_responsiveness.py": "7322d99d59aa8d1ea0669bef12ebc5ced9977c6751a04383616ba9d156a5f3d5",
+    "performance-lab/performance_probe.swift": "87ad39c342ec8b331880420fbb814407d28d70a8d5b0f792fe6696429cdadd73",
+    "performance-lab/responsiveness_ui.swift": "fc7e17531586e450f2fc91f454bddaf6887fdca1cef175db8eaf2f44b2bb27f6",
+    "performance-lab/run-responsiveness.sh": "07d0aa63ebb9cf27dea4f1d4ffa393bb85d1b52508de787359aa4f90ba9c62fe",
+    "performance-lab/RESPONSIVENESS_RESULTS.md": "cf83b3da911b686e86d9c58d8e55998d2c1920fcd2e1767fd0c11f530ecab5fc",
+    "OpenCodeIOSClient/Stores/ChatStore.swift": "bf802039bf48e015ec38f6decc54f0de7201fa53edefc066236a7194cdc6f30d"
   },
-  "hash_scope": "repository-relative file paths; source_manifest.json itself excluded",
+  "hash_scope": "Repository-relative file hashes. Native measured code and harness match bc3349bcd322ee910720969afcc6c4f912ddd09a; documentation/validation files were updated after the run. source_manifest.json itself excluded.",
   "active_improvement": {
     "commit": "04b82e4127499d50b41e2ac8b83874c5b82f1fec",
     "run_id": 40175478549,
@@ -112,5 +81,76 @@
       "limits": "2002 messages after two synthetic messages were added",
       "limitations": "Single run per variant; other workflow phases differ in cache/OS/XCTest scheduling. One complete canonical fetch remains, including manual refresh. No measured whole-app speedup."
     }
+  },
+  "updated_date": "2026-10-26",
+  "initial_full_profile_ui_run": {
+    "id": 40167869834,
+    "url": "https://github.com/gumminseogi/openclient/actions/runs/40167869834",
+    "target_loaded": 2000,
+    "status": "completed",
+    "conclusion": "success",
+    "source_sha": "4711a6804fc70c9675271b70c677e715e4a4c1f2",
+    "current_attempt": 2,
+    "iphone": {
+      "attempt": 1,
+      "conclusion": "success",
+      "scenarios_passed": 6,
+      "artifact_id": 12589918546,
+      "rerun_in_attempt_2": false
+    },
+    "ipad_attempt_1": {
+      "conclusion": "failure",
+      "stage": "Connected home before any transcript API request"
+    },
+    "ipad_attempt_2": {
+      "job_id": 121098958683,
+      "status": "completed",
+      "conclusion": "success",
+      "scenarios_passed": 6,
+      "artifact_id": 12590851995
+    },
+    "completed_at": "2026-10-25T07:17:34Z",
+    "swift_tests_rerun": false,
+    "stream_tested_part_type": "text",
+    "reasoning_native_ui_tested": false
+  },
+  "initial_native_validation_run": "https://github.com/gumminseogi/openclient/actions/runs/40164300946",
+  "initial_native_swift_tests": {
+    "iphone_passed": 50,
+    "ipad_passed": 50,
+    "failed": 0
+  },
+  "initial_native_ui_prototype": "full loaded-target-2000 profile passed six text-streaming ChatView scenarios on each device at 4711a6804fc70c9675271b70c677e715e4a4c1f2; iPhone verified in attempt 1 and iPad in attempt 2; first iPad startup failure retained in validation.json; reasoning stream not native-UI tested",
+  "latest_responsiveness_run": {
+    "id": 40269284935,
+    "url": "https://github.com/gumminseogi/openclient/actions/runs/40269284935",
+    "source_sha": "bc3349bcd322ee910720969afcc6c4f912ddd09a",
+    "production_fix_commit": "21825e4945a069e6aeab1429672aab8fb4cd2f20",
+    "overall_conclusion": "failure",
+    "comparison_mode": "One instrumented binary; CI-only runtime publication switch, not two separately built revisions",
+    "report": "performance-lab/RESPONSIVENESS_RESULTS.md",
+    "devices": {
+      "iphone": {
+        "job_conclusion": "success",
+        "artifact_id": 12632530813,
+        "selected_swift_passed": 3,
+        "measured_ui_passed": 12,
+        "measured_ui_failed": 0,
+        "analysis_complete": true
+      },
+      "ipad": {
+        "job_conclusion": "failure",
+        "artifact_id": 12631738312,
+        "selected_swift_passed": 3,
+        "measured_ui_passed": 10,
+        "measured_ui_failed": 2,
+        "analysis_complete": false
+      }
+    }
+  },
+  "python_tests_current": {
+    "passed": 17,
+    "failed": 0,
+    "scope": "fixture contracts plus responsiveness analyzer"
   }
 }
