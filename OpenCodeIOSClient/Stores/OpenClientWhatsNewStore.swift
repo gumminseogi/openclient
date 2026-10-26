@@ -14,6 +14,7 @@ struct OpenClientReleaseNotes: Identifiable, Equatable {
         case conversationControl
         case chatContinuity
         case activityWorkflow
+        case smootherConversations
     }
 
     struct Feature: Identifiable, Equatable {
@@ -317,6 +318,30 @@ enum OpenClientReleaseNotesCatalog {
             summary: "Spot unread replies and organize your conversations around the way you work.",
             features: [],
             hero: .activityWorkflow,
+            showsSetup: false
+        ),
+        OpenClientReleaseNotes(
+            version: "1.0.26",
+            title: "Smoother conversations",
+            summary: "Less waiting. More room to answer.",
+            features: [
+                .init(title: "Lighter streaming", detail: "Long conversations do less work as replies arrive, especially with grouped tools.", systemImage: "bolt.fill"),
+                .init(title: "Room to answer", detail: "Expand questions, write multiline answers, and keep your drafts. Custom answers join multiple selections automatically.", systemImage: "text.bubble.fill"),
+                .init(title: "Ready for iPhone Duo", detail: "Built with the iOS 27.1 SDK for full-display support on iPhone Duo.", systemImage: "iphone")
+            ],
+            hero: .smootherConversations,
+            showsSetup: false
+        ),
+        OpenClientReleaseNotes(
+            version: "1.0.27",
+            title: "Tools within reach",
+            summary: "Your favorite tools, permission controls, and projects are easier to reach.",
+            features: [
+                .init(title: "Tools within reach", detail: "Open photos, files, and chat tools from the plus button in both composer styles. Pin skills beside your favorite commands.", systemImage: "plus.circle.fill"),
+                .init(title: "Permission control per chat", detail: "Turn automatic permission approval on or off from the chat header on supported servers.", systemImage: "bolt.shield.fill"),
+                .init(title: "A tidier project list", detail: "Enjoy a cleaner sidebar and hide projects directly with Remove from List.", systemImage: "sidebar.left")
+            ],
+            hero: .smootherConversations,
             showsSetup: false
         ),
     ]

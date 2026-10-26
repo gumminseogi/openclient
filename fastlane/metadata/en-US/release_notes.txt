@@ -1,18 +1,8 @@
-Follow the work. See what changed. Pick up where you left off.
+Tools within reach.
 
-• A new animated 3D status pill shows when the assistant is thinking, reading, editing, or working. Long-press it for a playful surprise.
-• Review file changes for an individual response with the Changes button beside Copy. Unchanged lines start collapsed so you can focus on the diff.
-• Browse older messages with more stable scrolling as conversation history loads.
-• Switch workspaces from the chat header and enjoy more reliable session moves between workspaces on OpenCode v2.
-• Pending prompts on OpenCode v1 now appear below the status pill.
-• Improved OpenCode v1 bridge discovery behind reverse proxies.
-• Fixed OpenAI usage setup on OpenCode v2, provider settings navigation, and scrolling in half-height settings sheets.
-• Rename OpenCode v2 projects and customize their color and image. Project names now appear in the navigation bar.
-• Find more project logos with filename search and Show More batches of 48 images.
-• Explore recorded token usage, response timing, and model details in the context sheet.
-• Choose your chat line height in Chat Appearance, with a live preview in the announcement.
-• Organize Activity as a list or board, group sessions by status, and customize status names, colors, and icons.
-• Mark sessions read or unread, or mark all as read. Read state and session statuses sync on supported servers.
-• Smoother streaming and improved Mac performance, including a fix for the Mac paywall crash.
+• Pin skills beside your favorite commands for quick access in the composer.
+• Turn automatic permission approval on or off per chat from the chat header on supported servers.
+• Enjoy a cleaner project sidebar and hide projects directly with Remove from List.
+• Fixed the plus button in the Assistant composer and widened the tools popover so attachment labels have more room in both composer styles.
 
-OpenClient supports OpenCode v1 and v2. Per-response file changes require OpenCode v2 and recorded file snapshots.
+OpenClient supports OpenCode v1 and v2.

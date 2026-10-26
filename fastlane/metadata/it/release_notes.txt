@@ -1,18 +1,8 @@
-Segui il lavoro. Scopri cosa è cambiato. Riprendi da dove eri rimasto.
+Strumenti a portata di mano.
 
-• Un nuovo indicatore di stato 3D animato mostra quando l'assistente sta pensando, leggendo, modificando o lavorando. Tienilo premuto per una sorpresa divertente.
-• Esamina le modifiche ai file di una singola risposta con il pulsante Modifiche accanto a Copia. Le righe invariate sono inizialmente nascoste per mettere in risalto le differenze.
-• Consulta i messaggi meno recenti con uno scorrimento più stabile durante il caricamento della cronologia.
-• Passa da uno spazio di lavoro all'altro dall'intestazione della chat e sposta le sessioni tra spazi in modo più affidabile con OpenCode v2.
-• I messaggi in attesa su OpenCode v1 ora appaiono sotto l'indicatore di stato.
-• Migliorato il rilevamento del bridge OpenCode v1 dietro proxy inversi.
-• Corretti la configurazione dell’utilizzo di OpenAI su OpenCode v2, la navigazione nelle impostazioni dei provider e lo scorrimento dei pannelli delle impostazioni a metà altezza.
-• Rinomina i progetti OpenCode v2 e personalizza il colore e l’immagine. Il nome del progetto ora compare nella barra di navigazione.
-• Trova più loghi dei progetti con la ricerca per nome del file e Mostra altro in gruppi di 48 immagini.
-• Esplora l’utilizzo registrato dei token, i tempi di risposta e i dettagli del modello nel pannello del contesto.
-• Scegli l’interlinea in Aspetto della chat, con un’anteprima interattiva nell’annuncio.
-• Organizza Attività come elenco o bacheca, raggruppa le sessioni per stato e personalizza nomi, colori e icone degli stati.
-• Segna le sessioni come lette o non lette, oppure segnale tutte come lette. Lo stato di lettura e gli stati delle sessioni si sincronizzano sui server compatibili.
-• Streaming più fluido e prestazioni migliorate su Mac, con una correzione dell’arresto anomalo della schermata Pro.
+• Fissa le skill accanto ai tuoi comandi preferiti per accedervi rapidamente dal compositore.
+• Attiva o disattiva l’approvazione automatica delle autorizzazioni per ogni chat dall’intestazione, sui server supportati.
+• Una barra laterale dei progetti più pulita e la possibilità di nascondere i progetti direttamente con Rimuovi dall’elenco.
+• Corretto il pulsante più nel compositore Assistente e ampliato il popover degli strumenti per dare più spazio alle etichette degli allegati in entrambi gli stili di composizione.
 
-OpenClient supporta OpenCode v1 e v2. Le modifiche ai file per singola risposta richiedono OpenCode v2 e istantanee dei file registrate.
+OpenClient supporta OpenCode v1 e v2.

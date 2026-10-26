@@ -853,6 +853,7 @@ final class DirectoryStore: ObservableObject {
             session.agent = previous?.agent
             session.model = previous?.model
             session.metadata = data["metadata"]?.objectValue ?? previous?.metadata
+            session.permissions = previous?.permissions
             insertV2Session(session)
             return true
         case "session.deleted":

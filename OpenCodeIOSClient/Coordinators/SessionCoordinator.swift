@@ -2,6 +2,19 @@ import Foundation
 
 @MainActor
 final class SessionCoordinator {
+    func setYOLOMode(_ enabled: Bool, sessionID: String, client: OpenCodeAPIClient) async throws -> OpenCodeSession {
+        let current = try await client.getV2Session(sessionID: sessionID)
+        try Task.checkCancellation()
+        guard current.allowsAllSessionPermissions != enabled else { return current }
+        var rules = current.permissions ?? []
+        if enabled {
+            rules.append(.allowAll)
+        } else {
+            rules.removeLast()
+        }
+        return try await client.updateV2SessionPermissions(sessionID: sessionID, permissions: rules)
+    }
+
     /// Enumerate every workspace/page before sending acknowledgements. Known sessions
     /// retain their tap-time watermark; unseen sessions are bounded by the tap time.
     func unreadSessions(connection: BackendConnection, projectIDs: [String],

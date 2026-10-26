@@ -14,6 +14,7 @@ struct OpenCodeDirectoryEventState: Equatable {
 struct OpenCodeDirectoryEventApplication {
     var state: OpenCodeDirectoryEventState
     var results: [SessionEventResult]
+    var didProjectSelectedMessages = false
 
     var result: SessionEventResult {
         results.last ?? .ignored("no events")
@@ -241,6 +242,7 @@ final class EventSyncCoordinator {
     func applyDirectoryEvents(_ events: [OpenCodeTypedEvent], to state: DirectoryEventState) -> DirectoryEventApplication {
         var nextState = state
         var results: [SessionEventResult] = []
+        var needsProjection = false
 
         for event in events {
             let result = OpenCodeStateReducer.applyDirectoryEvent(
@@ -252,12 +254,34 @@ final class EventSyncCoordinator {
                 messages: &nextState.messages,
                 todos: &nextState.todos,
                 permissions: &nextState.permissions,
-                questions: &nextState.questions
+                questions: &nextState.questions,
+                projectsSelectedMessages: false
             )
             results.append(result)
+            if case .message = result, let selectedID = nextState.selectedSession?.id {
+                switch event {
+                case let .messageUpdated(message):
+                    needsProjection = needsProjection || message.sessionID == selectedID
+                case let .messagePartUpdated(part):
+                    needsProjection = needsProjection || part.sessionID == selectedID
+                case let .messagePartDelta(sessionID, _, _, _, _), let .messageRemoved(sessionID, _):
+                    needsProjection = needsProjection || sessionID == selectedID
+                case let .messagePartRemoved(messageID, _):
+                    needsProjection = needsProjection || nextState.syncState.messagesBySessionID[selectedID]?.contains { $0.id == messageID } == true
+                default:
+                    break
+                }
+            }
         }
 
-        return DirectoryEventApplication(state: nextState, results: results)
+        // Canonical state is reduced in order; materialize the selected transcript
+        // once per batch rather than once per part/delta in the batch.
+        if needsProjection, let sessionID = nextState.selectedSession?.id {
+            nextState.messages = nextState.syncState.messageEnvelopes(forSessionID: sessionID)
+        }
+
+        return DirectoryEventApplication(state: nextState, results: results,
+            didProjectSelectedMessages: needsProjection && nextState.selectedSession != nil)
     }
 
     nonisolated static func isLiveActivityMessageEventType(_ type: String) -> Bool {

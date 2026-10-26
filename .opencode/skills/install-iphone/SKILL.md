@@ -30,7 +30,7 @@ Use this shell guard before install/launch commands:
 Build for iPhone using repo-local derived data so the install path is fresh and deterministic:
 
 ```bash
-xcodebuild -quiet -project OpenCodeIOSClient.xcodeproj -scheme OpenCodeIOSClient -sdk iphoneos -derivedDataPath .derived-data-device build
+LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 xcodebuild -quiet -project OpenCodeIOSClient.xcodeproj -scheme OpenCodeIOSClient -sdk iphoneos -derivedDataPath .derived-data-device build
 ```
 
 Do not install from stale global DerivedData or old repo-local paths. The expected fresh install artifact is:
@@ -63,6 +63,8 @@ Launch the installed app:
 
 ## Failure Handling
 
+If `devicectl` hangs or times out, use the **Direct CoreDevice fallback** below before concluding that the iPhone is unavailable. Repeated `devicectl list devices` calls can hang even when direct CoreDevice installation works.
+
 If install or launch fails because the iPhone is locked, unavailable, disconnected, or not paired, then verify device availability:
 
 ```bash
@@ -78,6 +80,49 @@ Common fixes:
 - Verify `Connect via network` in Xcode Devices and Simulators.
 
 If install succeeds but launch fails because the iPhone is locked or unavailable, say that the install may have succeeded and the app can be opened manually after unlocking.
+
+## Direct CoreDevice Fallback
+
+Validated on this machine on 2026-10-24: `devicectl` discovery timed out, but calling CoreDevice directly connected to the configured iPhone and installed the fresh build successfully.
+
+The crucial sequence is **discover → select by configured UDID → explicitly connect → install**. A device initially reported as `Disconnected` is not sufficient evidence that installation is impossible. Calling `installApplication` before `connect` returned:
+
+```text
+com.apple.dt.CoreDeviceError Code=4000
+RemoteServiceDiscovery connectivity is not available to the device
+```
+
+Calling `RemoteDevice.connect(targetQueue:completionHandler:)` first resolved that failure. Wait for its success callback before starting installation.
+
+The bundled helper, `scripts/coredevice-install.swift` (relative to this skill), calls `/Library/Developer/PrivateFrameworks/CoreDevice.framework/CoreDevice` directly. It does not invoke `devicectl`. From the repository root:
+
+```bash
+workdir="$HOME/Library/Application Support/OpenCode-v2-stable/tmp/opencode"
+mkdir -p "$workdir"
+xcrun swiftc .opencode/skills/install-iphone/scripts/coredevice-install.swift \
+  -F /Library/Developer/PrivateFrameworks -framework CoreDevice \
+  -Xlinker -rpath -Xlinker /Library/Developer/PrivateFrameworks \
+  -o "$workdir/coredevice-install"
+
+# Validate framework symbols and result metadata without connecting or installing.
+"$workdir/coredevice-install" --check
+
+[ -f .opencode/.env ] && set -a && . .opencode/.env && set +a
+: "${OPENCLIENT_IPHONE_UDID:?Set OPENCLIENT_IPHONE_UDID to the target iPhone UDID}"
+"$workdir/coredevice-install" \
+  "$PWD/.derived-data-device/Build/Products/Debug-iphoneos/OpenClient.app"
+```
+
+Run installation with a bounded tool timeout (180 seconds worked). Success requires the completion callback to print `INSTALL SUCCEEDED` and exit zero; discovery, connection, or returned `Progress` alone does not confirm installation.
+
+Implementation notes for future Xcode/macOS changes:
+
+- This is a private Swift ABI workaround, not a public SDK. Keep it in tooling, never the app target.
+- The framework has no importable Swift module here. The helper binds the observed mangled symbols and opens the real installation-result metadata for the generic callback.
+- `_typeByName("CoreDevice.AppInstallationResult")` returned `nil`. The working approach resolves its symbolic type reference through `swift_getTypeByMangledNameInContext`.
+- The helper derives image offsets from `nm` rather than retaining the original hardcoded offsets. ABI/signature changes still require inspecting the new framework. Do not guess replacements if compilation or `--check` fails.
+- The compiler currently warns about directly referencing the reserved Swift runtime symbol; a future compiler may reject it.
+- This fallback installs only. It does not launch the app or verify UI behavior. Report installation separately and ask the user to open OpenClient manually when launch tooling remains unavailable.
 
 ## When Xcode Project Generation Is Needed
 

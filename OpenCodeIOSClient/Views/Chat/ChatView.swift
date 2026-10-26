@@ -1835,6 +1835,41 @@ private struct TimedChatDisplaySnapshot {
     let snapshot: ChatDisplaySnapshot
 }
 
+private struct GroupedProjectionInput: Equatable {
+    let message: OpenCodeMessageEnvelope
+    let detail: OpenCodeMessageEnvelope?
+    let isStreaming: Bool
+}
+
+private struct GroupedProjectionContext: Equatable {
+    let showsTools: Bool
+    let showsReasoning: Bool
+    let showsContext: Bool
+    let isBusy: Bool
+    let isGame: Bool
+}
+
+private struct ChatDisplaySnapshotCacheKey: Equatable {
+    let sourceID: ObjectIdentifier
+    let version: Int
+    let sessionID: String
+    let fallback: [OpenCodeMessageEnvelope]
+    let recoveries: [ChatStore.SubmissionRecovery]
+    let details: [String: OpenCodeMessageEnvelope]
+    let configuration: String
+    let requestedCount: Int
+    let additionalCount: Int
+    let isBusy: Bool
+    let hasOlder: Bool
+    let loadingOlder: Bool
+    let pendingMessageID: String?
+    let blocksThinking: Bool
+    let reservesTail: Bool
+    let findPlaceID: String?
+    let findBugID: String?
+    let isGame: Bool
+}
+
 enum ChatPreviousUserContextPolicy {
     static func displayText(for message: OpenCodeMessageEnvelope) -> String {
         if let text = textPart(in: message, includesSynthetic: false) {
@@ -2121,6 +2156,13 @@ private struct EquatableMessageComposerHost: View, Equatable {
     let mentionableSkills: [OpenCodeSkill]
     let pinnedCommands: [OpenCodeCommand]
     let pinnedCommandNames: Set<String>
+    let pinnedSkills: [ComposerMentionCandidate]
+    let onPinSkill: (ComposerMentionCandidate) -> Void
+    let onUnpinSkill: (ComposerMentionCandidate) -> Void
+    let todoCount: Int
+    let completedTodoCount: Int
+    let todosExpanded: Bool
+    let onExpandTodos: () -> Void
     let attachmentCount: Int
     let isBusy: Bool
     let canFork: Bool
@@ -2168,6 +2210,8 @@ private struct EquatableMessageComposerHost: View, Equatable {
 
     nonisolated static func == (lhs: EquatableMessageComposerHost, rhs: EquatableMessageComposerHost) -> Bool {
         lhs.snapshot == rhs.snapshot && lhs.streamingDelivery == rhs.streamingDelivery
+            && lhs.pinnedSkills == rhs.pinnedSkills && lhs.todoCount == rhs.todoCount
+            && lhs.completedTodoCount == rhs.completedTodoCount && lhs.todosExpanded == rhs.todosExpanded
     }
 
     var body: some View {
@@ -2179,6 +2223,13 @@ private struct EquatableMessageComposerHost: View, Equatable {
             mentionableSkills: mentionableSkills,
             pinnedCommands: pinnedCommands,
             pinnedCommandNames: pinnedCommandNames,
+            pinnedSkills: pinnedSkills,
+            onPinSkill: onPinSkill,
+            onUnpinSkill: onUnpinSkill,
+            todoCount: todoCount,
+            completedTodoCount: completedTodoCount,
+            todosExpanded: todosExpanded,
+            onExpandTodos: onExpandTodos,
             attachmentCount: attachmentCount,
             isBusy: isBusy,
             canFork: canFork,
@@ -2375,6 +2426,7 @@ struct ChatView: View {
     @State private var promptDraftRevision: UInt = 0
     @State private var promptRetryDraft: OpenCodeV2RetryDraft?
     @StateObject private var pinnedCommandStore = PinnedCommandStore()
+    @StateObject private var pinnedSkillStore = PinnedCommandStore(storageKey: "pinnedSkillsByScope")
     @StateObject private var conversationController: ConversationModeController
     @State private var conversationContextID: String?
     @State private var isComposerInputFocused = false
@@ -2417,6 +2469,8 @@ struct ChatView: View {
     @State private var animatedBottomScrollToken = 0
     @State private var largeMessageChunkCache = OpenCodeLargeMessageChunkCache()
     @State private var chatDisplayItemCache = ChatDisplayItemCache()
+    @State private var groupedProjectionCache = TranscriptProjectionCache<GroupedProjectionInput, GroupedProjectionContext, ChatDisplayItem>()
+    @State private var displaySnapshotCache = TranscriptSnapshotCache<ChatDisplaySnapshotCacheKey, TimedChatDisplaySnapshot>()
     @State private var coveredTranscriptSnapshotCache = CoveredTranscriptSnapshotCache<TimedChatDisplaySnapshot>()
     @State private var responseActionsVisibility = ResponseActionsVisibility()
     @State private var turnChangesRequest: TurnChangesRequest?
@@ -3174,6 +3228,8 @@ struct ChatView: View {
         let overlaySnapshot = composerOverlaySnapshot
         let modeSnapshot = composerOverlayModeSnapshot(overlaySnapshot: overlaySnapshot, headerSnapshot: chatHeaderSnapshot)
         let sessionForms = chatFacade.sessionForms(forSessionID: sessionID)
+        let showsTodoPillInComposer = modeSnapshot.mode == .activeComposer
+            && !chatFacade.isReadOnly && sessionForms.isEmpty && appCustomizationStore.isTodoStripMinimized
 
         VStack(spacing: 6) {
             let recoveryInputs = chatFacade.recoveryInputs(sessionID: sessionID)
@@ -3197,9 +3253,9 @@ struct ChatView: View {
                         chatFacade.dismissPresentationError(error, contextID: contextID)
                     }
             }
-            if overlaySnapshot.showsAccessoryArea {
+            if overlaySnapshot.showsAccessoryArea && (!showsTodoPillInComposer || !overlaySnapshot.attachments.isEmpty) {
                 ComposerAccessoryArea(
-                    todos: overlaySnapshot.todos,
+                    todos: showsTodoPillInComposer ? [] : overlaySnapshot.todos,
                     attachments: overlaySnapshot.attachments,
                     expansion: $composerAccessoryExpansion,
                     isTodoStripMinimized: appCustomizationStore.isTodoStripMinimized,
@@ -3519,6 +3575,12 @@ struct ChatView: View {
         let pinnedCommandSignature = [commandScopeKey, pinnedCommands.map(\.name).joined(separator: ",")].joined(separator: "|")
         let mentionableSkills = modelConfigurationStore.skills(directory: liveSession.directory ?? projectStore.selectedDirectory,
             workspaceID: liveSession.workspaceID)
+        let skillCandidates = ComposerMentionCandidate.candidates(agents: [], skills: mentionableSkills, query: "")
+        let pinnedSkills = pinnedSkillStore.pinnedNames(for: commandScopeKey).compactMap { name in
+            skillCandidates.first { $0.name == name }
+        }
+        let todos = composerOverlaySnapshot.todos
+        let hasActiveTodos = todos.contains { !$0.isComplete }
         let mentionableAgentSignature = mentionableAgents.map { "agent:\($0.name):\($0.description ?? "")" }.joined(separator: "|")
             + mentionableSkills.map { "skill:\($0.id):\($0.name):\($0.description ?? "")" }.joined(separator: "|")
         let snapshot = MessageComposerSnapshot(
@@ -3558,6 +3620,13 @@ struct ChatView: View {
             mentionableSkills: mentionableSkills,
             pinnedCommands: pinnedCommands,
             pinnedCommandNames: pinnedCommandNames,
+            pinnedSkills: pinnedSkills,
+            onPinSkill: { pinnedSkillStore.pin(name: $0.name, scopeKey: commandScopeKey) },
+            onUnpinSkill: { pinnedSkillStore.unpin(name: $0.name, scopeKey: commandScopeKey) },
+            todoCount: hasActiveTodos ? todos.count : 0,
+            completedTodoCount: todos.filter(\.isComplete).count,
+            todosExpanded: hasActiveTodos && !appCustomizationStore.isTodoStripMinimized,
+            onExpandTodos: { appCustomizationStore.setTodoStripMinimized(false) },
             attachmentCount: snapshot.attachmentCount,
             isBusy: composerSnapshot.isBusy,
             canFork: composerSnapshot.canFork,
@@ -3686,9 +3755,6 @@ struct ChatView: View {
 
         return composer
             .equatable()
-            .onChange(of: commandScopeKey + mentionableAgentSignature + commands.map(\.name).joined(separator: "|"), initial: true) { _, _ in
-                pinnedCommandStore.removeLegacySkillPins(commands: commands, skills: mentionableSkills, scopeKey: commandScopeKey)
-            }
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, activeComposerBottomPadding)
@@ -4180,7 +4246,22 @@ struct ChatView: View {
             key: sessionID,
             isCovered: chatFacade.isTranscriptCoveredByNewSessionSheet
         ) {
-            OpenClientPerformanceSignposts.interval("ChatDisplaySnapshot") { makeTimedChatDisplaySnapshot() }
+            let key = ChatDisplaySnapshotCacheKey(sourceID: ObjectIdentifier(directoryStore.syncStore),
+                version: directoryStore.syncStore.version, sessionID: sessionID,
+                fallback: directoryStore.syncStore.messageCount(forSessionID: sessionID) == 0 ? sessionScopedFallbackMessages : [],
+                recoveries: chatFacade.recoveryInputs(sessionID: sessionID), details: chatStore.toolMessageDetails,
+                configuration: transcriptContentInvalidationToken,
+                requestedCount: transcriptRequestedMessageCount, additionalCount: additionalLeadingMessageCount,
+                isBusy: isSessionBusy, hasOlder: chatFacade.hasOlderMessages(forSessionID: sessionID),
+                loadingOlder: chatFacade.isLoadingOlderMessages(forSessionID: sessionID),
+                pendingMessageID: thinkingPendingMessageID,
+                blocksThinking: thinkingEntryGate.blocksThinking(in: thinkingEntryContextID),
+                reservesTail: thinkingEntryGate.reservesTail(in: thinkingEntryContextID),
+                findPlaceID: findPlaceGame(for: sessionID)?.city.id, findBugID: findBugGame(for: sessionID)?.language.id,
+                isGame: isFunAndGamesSession(sessionID))
+            return displaySnapshotCache.value(for: key) {
+                OpenClientPerformanceSignposts.interval("ChatDisplaySnapshot") { makeTimedChatDisplaySnapshot() }
+            }
         }
     }
 
@@ -4192,7 +4273,7 @@ struct ChatView: View {
         let items: [ChatDisplayItem]
         if appCustomizationStore.groupsToolCalls {
             let allMessages = projected ?? transcriptSuffix(chatSourceMessageCount)
-            let allItems = displayedChatItems(for: allMessages)
+            let allItems = groupedDisplayItems(for: allMessages)
             let indices = Dictionary(uniqueKeysWithValues: allMessages.enumerated().map { ($0.element.id, $0.offset) })
             let ranges = allItems.compactMap { item -> ClosedRange<Int>? in
                 if case let .activitySlice(slice) = item, !shouldDisplayMessageRow(slice.message) { return nil }
@@ -4341,6 +4422,41 @@ struct ChatView: View {
         return groupTranscriptActivity(appendingResponseCaptions(to: items, messages: messages))
     }
 
+    private func groupedDisplayItems(for messages: [OpenCodeMessageEnvelope]) -> [ChatDisplayItem] {
+        // Game reveals have transcript-wide deduplication and setup suppression.
+        guard findPlaceGame(for: sessionID) == nil, findBugGame(for: sessionID) == nil else {
+            groupedProjectionCache.retain([])
+            return displayedChatItems(for: messages)
+        }
+        let ranges = TranscriptProjectionSegments.ranges(messages: messages, isVisible: shouldDisplayMessageRow)
+        let lastMessageID = lastSessionMessageID
+        var retained: Set<String> = []
+        var result: [ChatDisplayItem] = []
+        for range in ranges {
+            let segment = Array(messages[range])
+            let id = segment[0].id
+            retained.insert(id)
+            let input = segment.map { message in
+                GroupedProjectionInput(message: message, detail: chatStore.toolMessageDetails[message.id],
+                    isStreaming: isSessionBusy && message.isAssistantMessage
+                        && message.info.time?.completed == nil && message.id == lastMessageID)
+            }
+            // A following prompt has already closed this segment, even while the
+            // final segment is streaming. Captions retain their full turn context.
+            let busy = range.upperBound == messages.count && isSessionBusy
+            let context = GroupedProjectionContext(showsTools: appCustomizationStore.showsToolCalls,
+                showsReasoning: appCustomizationStore.showsReasoningBlocks,
+                showsContext: showsContextChanges, isBusy: busy, isGame: isFunAndGamesSession(sessionID))
+            result += groupedProjectionCache.output(id: id, input: input, context: context) {
+                let filtered = segment.map { TranscriptActivityGrouping.filteringContext($0, showsContextChanges: showsContextChanges) }
+                return groupTranscriptActivity(appendingResponseCaptions(to: makeDisplayItems(from: filtered),
+                    messages: filtered, isBusy: busy))
+            }
+        }
+        groupedProjectionCache.retain(retained)
+        return result
+    }
+
     private func timedDisplayedChatItems(for messages: [OpenCodeMessageEnvelope]) -> (items: [ChatDisplayItem], diagnostics: String) {
         let messages = messages.map { TranscriptActivityGrouping.filteringContext($0, showsContextChanges: showsContextChanges) }
         let (messagesByID, dictionaryMS) = chatMeasureMS {
@@ -4399,7 +4515,7 @@ struct ChatView: View {
         return result
     }
 
-    private func appendingResponseCaptions(to items: [ChatDisplayItem], messages: [OpenCodeMessageEnvelope]) -> [ChatDisplayItem] {
+    private func appendingResponseCaptions(to items: [ChatDisplayItem], messages: [OpenCodeMessageEnvelope], isBusy: Bool? = nil) -> [ChatDisplayItem] {
         let displayedMessageIDs = Set(items.compactMap { item -> String? in
             if case let .message(message) = item { return message.id }
             return nil
@@ -4419,7 +4535,7 @@ struct ChatView: View {
         let turns = AssistantResponseTurn.project(
             messages: effectiveMessages,
             displayedMessageIDs: displayedMessageIDs,
-            isSessionBusy: isSessionBusy
+            isSessionBusy: isBusy ?? isSessionBusy
         )
         let captionsByAnchor = Dictionary(uniqueKeysWithValues: turns.map { ($0.anchorMessageID, $0) })
         return items.flatMap { item -> [ChatDisplayItem] in

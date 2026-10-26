@@ -145,6 +145,14 @@ final class ChatStore: ObservableObject {
     }
 
     @Published var messages: [OpenCodeMessageEnvelope]
+
+    /// Match full canonical envelopes, but never scan unrelated message IDs.
+    /// Buckets preserve the former contains semantics even with duplicate IDs.
+    static func matchingCommittedMessages(_ committed: [OpenCodeMessageEnvelope],
+                                          in inventory: [OpenCodeMessageEnvelope]) -> [OpenCodeMessageEnvelope] {
+        let byID = Dictionary(grouping: inventory, by: \.id)
+        return committed.filter { byID[$0.id]?.contains($0) == true }
+    }
     @Published var cachedMessagesBySessionID: [String: [OpenCodeMessageEnvelope]]
     @Published var toolMessageDetails: [String: OpenCodeMessageEnvelope]
     @Published var isLoadingSelectedSession: Bool

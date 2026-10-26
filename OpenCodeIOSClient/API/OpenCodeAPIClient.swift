@@ -136,6 +136,7 @@ private struct OpenCodeV2Session: Decodable, Sendable {
     let agent: String?
     let model: OpenCodeV2ModelReference?
     let metadata: [String: OpenCodeJSONValue]?
+    let permissions: [OpenCodePermissionRule]?
 
     func normalized() -> OpenCodeSession {
         var session = OpenCodeSession(
@@ -149,6 +150,7 @@ private struct OpenCodeV2Session: Decodable, Sendable {
         session.time = OpenCodeMessageTime(created: time.created, updated: time.updated, archived: time.archived, idle: time.idle, viewed: time.viewed)
         session.agent = agent
         session.metadata = metadata
+        session.permissions = permissions
         session.model = model.map { OpenCodeMessageModelReference(providerID: $0.providerID, modelID: $0.id, variant: $0.variant) }
         return session
     }
@@ -984,6 +986,12 @@ struct OpenCodeAPIClient: Sendable {
     func updateV2SessionMetadata(sessionID: String, metadata: [String: OpenCodeJSONValue]) async throws -> OpenCodeSession {
         struct Update: Encodable { let metadata: [String: OpenCodeJSONValue] }
         try await sendNoContent(path: "/api/session/\(sessionID)", method: "PATCH", body: Update(metadata: metadata))
+        return try await getV2Session(sessionID: sessionID)
+    }
+
+    func updateV2SessionPermissions(sessionID: String, permissions: [OpenCodePermissionRule]) async throws -> OpenCodeSession {
+        struct Update: Encodable { let permissions: [OpenCodePermissionRule] }
+        try await sendNoContent(path: "/api/session/\(sessionID)", method: "PATCH", body: Update(permissions: permissions))
         return try await getV2Session(sessionID: sessionID)
     }
 

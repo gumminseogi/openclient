@@ -1893,6 +1893,37 @@ final class ChatFacade: ObservableObject {
         allowsHeaderActions(scope) && viewModel.liveActivityFacade.supportsLiveActivities
     }
 
+    func isHeaderYOLOModeEnabled(_ scope: HeaderScope) -> Bool {
+        directoryStore(forSessionID: scope.session.id).sessions.first { $0.id == scope.session.id }?.allowsAllSessionPermissions == true
+    }
+
+    func refreshHeaderPermissions(_ scope: HeaderScope) async {
+        await updateHeaderPermissions(scope, enabled: nil)
+    }
+
+    func setHeaderYOLOMode(_ enabled: Bool, scope: HeaderScope) async {
+        await updateHeaderPermissions(scope, enabled: enabled)
+    }
+
+    private func updateHeaderPermissions(_ scope: HeaderScope, enabled: Bool?) async {
+        guard supportsSessionTools(scope), let connection = viewModel.backendConnection,
+              let client = connection.openCodeCompatibility?.client else { return }
+        do {
+            let session: OpenCodeSession
+            if let enabled {
+                session = try await viewModel.sessionCoordinator.setYOLOMode(enabled, sessionID: scope.session.id, client: client)
+            } else {
+                session = try await client.getV2Session(sessionID: scope.session.id)
+            }
+            guard !Task.isCancelled, isCurrentHeaderScope(scope), viewModel.isCurrentBackendConnection(connection) else { return }
+            directoryStore(forSessionID: session.id).insertV2Session(session)
+        } catch {
+            guard !Task.isCancelled, isCurrentHeaderScope(scope), viewModel.isCurrentBackendConnection(connection) else { return }
+            if let windowContext { windowContext.errorMessage = error.localizedDescription }
+            else { connectionStore.errorMessage = error.localizedDescription }
+        }
+    }
+
     func isHeaderLiveActivityActive(_ scope: HeaderScope) -> Bool {
         isCurrentHeaderScope(scope) && viewModel.liveActivityFacade.isActive(sessionID: scope.session.id)
     }

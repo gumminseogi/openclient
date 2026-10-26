@@ -1,6 +1,200 @@
 import XCTest
 import UIKit
 
+/// Exercises the shipping V1 and V2 question panels with local-only DEBUG submissions.
+@MainActor
+final class QuestionPresentationUITests: XCTestCase {
+    private let draft = "First line of retained answer\nSecond line with implementation details"
+    override func setUpWithError() throws { continueAfterFailure = false }
+
+    func testLegacyExpandedQuestionDraftAndSubmission() throws { try exercise(legacy: true) }
+    func testV2ExpandedQuestionDraftAndSubmission() throws { try exercise(legacy: false) }
+    func testLegacyOptionExcludesRetainedCustomDraft() throws { try exercise(legacy: true, submitCustom: false) }
+    func testV2OptionExcludesRetainedCustomDraft() throws { try exercise(legacy: false, submitCustom: false) }
+
+    func testV2MultiselectCustomTextOnlyDirectSubmission() throws { try exerciseMultiselect(includeOption: false) }
+    func testV2MultiselectOptionAndMultilineDirectSubmission() throws { try exerciseMultiselect(includeOption: true) }
+
+    private func exerciseMultiselect(includeOption: Bool) throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["OPENCLIENT_SCREENSHOT_SCENE"] = "question"
+        app.launchEnvironment["OPENCLIENT_V2_QUESTION_FIXTURE"] = "1"
+        app.launchEnvironment["OPENCLIENT_QUESTION_MULTI_REGRESSION"] = "1"
+        app.launchEnvironment["OPENCODE_UI_TEST_AUTO_CONNECT"] = "0"
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
+        let expand = app.buttons["question.expand.visual-question"]
+        XCTAssertTrue(expand.waitForExistence(timeout: 15))
+        capture(app, "Multi-inline-card-edge")
+        expand.tap()
+        let close = app.buttons["question.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        capture(app, "Multi-expanded-long-prompt")
+        let editors = app.textFields.matching(identifier: "question.customAnswer")
+        let editor = editors.element(boundBy: editors.count - 1)
+        let submits = app.buttons.matching(identifier: "form.submit.visual-question")
+        let submit = submits.element(boundBy: submits.count - 1)
+        XCTAssertFalse(submit.isEnabled, "An empty required multiselect must not submit")
+        reveal(editor, app: app)
+        capture(app, "Multi-scrolled-custom-card-edge")
+        editor.tap()
+        editor.typeText(draft)
+        XCTAssertTrue(submit.isEnabled, "Pending custom text alone must satisfy the required multiselect")
+        XCTAssertFalse(app.buttons["Add"].exists, "Session forms submit custom drafts directly")
+        capture(app, "Multi-pending-text-enables-submit")
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 5))
+        expand.tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        reveal(editor, app: app)
+        XCTAssertEqual(editor.value as? String, draft)
+        if includeOption {
+            let options = app.buttons.matching(identifier: "form.option.approaches.Approach 8")
+            let option = options.element(boundBy: options.count - 1)
+            reveal(option, app: app, upward: false)
+            option.tap()
+            XCTAssertTrue(option.isSelected)
+            reveal(editor, app: app)
+            XCTAssertEqual(editor.value as? String, draft)
+            close.tap()
+            XCTAssertTrue(close.waitForNonExistence(timeout: 5))
+            expand.tap()
+            XCTAssertTrue(close.waitForExistence(timeout: 5))
+            reveal(editor, app: app)
+            XCTAssertEqual(editor.value as? String, draft)
+            XCTAssertTrue(option.isSelected, "Closing must preserve option selection as well as pending custom text")
+        }
+        capture(app, "Multi-reopened-retained-draft")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(2)
+        capture(app, "Multi-landscape-scroll-edge")
+        XCUIDevice.shared.orientation = .portrait
+        sleep(1)
+        XCTAssertTrue(submit.isEnabled)
+        submit.tap()
+        let result = app.staticTexts["form.fixture.result"]
+        XCTAssertTrue(result.waitForExistence(timeout: 5))
+        XCTAssertFalse(close.exists)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(result.label.data(using: .utf8))) as? [String: Any])
+        XCTAssertEqual(Set(payload.keys), ["approaches"])
+        XCTAssertEqual(payload["approaches"] as? [String], includeOption ? ["Approach 8", draft] : [draft])
+        capture(app, "Multi-direct-submission-payload")
+    }
+
+    private func capture(_ app: XCUIApplication, _ name: String) {
+        let image = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        image.name = name; image.lifetime = .keepAlways; add(image)
+        let hierarchy = XCTAttachment(string: app.debugDescription)
+        hierarchy.name = name + "-hierarchy"; hierarchy.lifetime = .keepAlways; add(hierarchy)
+    }
+
+    private func reveal(_ element: XCUIElement, app: XCUIApplication, upward: Bool = true) {
+        for _ in 0..<14 {
+            if element.exists && element.isHittable && element.frame.minY > 90 && element.frame.maxY < app.frame.height - 150 { return }
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: upward ? 0.65 : 0.3))
+            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: upward ? 0.3 : 0.65))
+            start.press(forDuration: 0.05, thenDragTo: end)
+        }
+        XCTAssertTrue(element.isHittable, app.debugDescription)
+    }
+
+    private func exercise(legacy: Bool, submitCustom: Bool = true) throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        let prefix = legacy ? "V1" : "V2"
+        app.launchEnvironment["OPENCLIENT_SCREENSHOT_SCENE"] = "question"
+        app.launchEnvironment["OPENCLIENT_V2_QUESTION_FIXTURE"] = "1"
+        app.launchEnvironment["OPENCLIENT_QUESTION_REGRESSION"] = "1"
+        app.launchEnvironment["OPENCLIENT_QUESTION_LEGACY"] = legacy ? "1" : "0"
+        app.launchEnvironment["OPENCODE_UI_TEST_AUTO_CONNECT"] = "0"
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
+        let expand = app.buttons["question.expand.visual-question"]
+        XCTAssertTrue(expand.waitForExistence(timeout: 15))
+        capture(app, prefix + "-inline-long-question")
+        expand.tap()
+        let close = app.buttons["question.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        capture(app, prefix + "-expanded-long-question")
+        // The covered inline tree remains in XCTest's hierarchy. Target page one
+        // of the presented copy, rather than the first (covered) editor.
+        let editors = app.textFields.matching(identifier: "question.customAnswer")
+        let editor = editors.element(boundBy: editors.count - 2)
+        reveal(editor, app: app)
+        capture(app, prefix + "-scrolled-editor")
+        editor.tap()
+        editor.typeText(draft)
+        capture(app, prefix + "-multiline-keyboard")
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 5))
+        expand.tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        reveal(editor, app: app)
+        XCTAssertEqual(editor.value as? String, draft)
+        let options = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Approach 8"))
+        let option = options.element(boundBy: options.count - 1)
+        reveal(option, app: app, upward: false)
+        option.tap()
+        let second = app.buttons.matching(identifier: "Question 2").allElementsBoundByIndex.last!
+        XCTAssertTrue(second.waitForExistence(timeout: 5))
+        XCTAssertEqual(second.value as? String, "Current")
+        capture(app, prefix + "-option-selected-page-two")
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 5))
+        expand.tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        XCTAssertEqual(second.value as? String, "Current", "Reopening must retain the selected page")
+        capture(app, prefix + "-reopened-page-two")
+        let target = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "All devices")).allElementsBoundByIndex.last!
+        let restoredPage = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: target)], timeout: 5) == .completed
+        continueAfterFailure = true
+        XCTAssertTrue(restoredPage, "The visible carousel page must agree with the retained page indicator after reopening")
+        continueAfterFailure = false
+        if !restoredPage {
+            // Keep the regression failure above, but exercise submission independently.
+            app.buttons.matching(identifier: "Question 1").allElementsBoundByIndex.last!.tap()
+            app.buttons.matching(identifier: "Question 2").allElementsBoundByIndex.last!.tap()
+        }
+        target.tap()
+        app.buttons.matching(identifier: "Question 1").allElementsBoundByIndex.last!.tap()
+        reveal(editor, app: app)
+        XCTAssertEqual(editor.value as? String, draft, "Selecting an option must not erase a custom draft")
+        let use = app.buttons.matching(identifier: "Use Custom Answer").allElementsBoundByIndex.last!
+        reveal(use, app: app)
+        capture(app, prefix + "-retained-inactive-draft")
+        use.tap()
+        XCTAssertTrue(use.waitForNonExistence(timeout: 5))
+        if !submitCustom {
+            reveal(option, app: app, upward: false)
+            option.tap()
+        }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(2)
+        capture(app, prefix + "-expanded-landscape")
+        XCUIDevice.shared.orientation = .portrait
+        sleep(1)
+        let submit = app.buttons.matching(identifier: legacy ? "question.submit.visual-question" : "form.submit.visual-question").allElementsBoundByIndex.last!
+        XCTAssertTrue(submit.isEnabled)
+        submit.tap()
+        let result = app.staticTexts["form.fixture.result"]
+        XCTAssertTrue(result.waitForExistence(timeout: 5), "Submitting the local fixture should dismiss the expanded panel")
+        XCTAssertFalse(close.exists)
+        let data = try XCTUnwrap(result.label.data(using: .utf8))
+        let payload = try JSONSerialization.jsonObject(with: data)
+        if legacy {
+            XCTAssertEqual(payload as? [[String]], [[submitCustom ? draft : "Approach 8"], ["All devices"]])
+        } else {
+            let values = try XCTUnwrap(payload as? [String: Any])
+            XCTAssertEqual(values["framework"] as? String, submitCustom ? draft : "Approach 8")
+            XCTAssertEqual(values["target"] as? String, "All devices")
+        }
+        capture(app, prefix + "-local-submission-result")
+    }
+}
+
 @MainActor
 final class ChatHeaderUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
@@ -396,6 +590,52 @@ final class ChatHeaderUITests: XCTestCase {
         XCTAssertTrue(waitForPortrait(app))
         capture(app, "Header-Assistant-Portrait-After-Rotation")
         assertAssistantHeaderLayout(app)
+    }
+
+    func testMessengerComposerPlusMenuWithKeyboardAndReopening() {
+        exerciseComposerPlusMenu(assistant: false)
+    }
+
+    func testAssistantComposerPlusMenuWithKeyboardAndReopening() {
+        exerciseComposerPlusMenu(assistant: true)
+    }
+
+    private func exerciseComposerPlusMenu(assistant: Bool) {
+        let app = launch(window: false, assistant: assistant)
+        defer { app.terminate() }
+        let input = app.textViews["chat.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 15))
+        let menu = app.buttons["chat.composer.menu"]
+        let tools = app.navigationBars["Message Tools"]
+
+        // Exercise an empty composer, then repeat with a retained draft and keyboard.
+        for draft in ["", "Keep this draft"] {
+            if !draft.isEmpty {
+                input.tap()
+                input.typeText(draft)
+            }
+            XCTAssertTrue(menu.isHittable)
+            menu.tap()
+            XCTAssertTrue(tools.waitForExistence(timeout: 5))
+            let photos = app.buttons["chat.composer.photos"]
+            XCTAssertTrue(photos.waitForExistence(timeout: 3))
+            XCTAssertTrue(photos.isHittable)
+            XCTAssertTrue(app.buttons["chat.composer.files"].isHittable)
+            capture(app, "Composer-Plus-\(assistant ? "Assistant" : "Messenger")-\(draft.isEmpty ? "Empty" : "Draft")")
+            photos.tap()
+            let cancel = app.buttons["Cancel"].firstMatch
+            XCTAssertTrue(cancel.waitForExistence(timeout: 5))
+            cancel.tap()
+            XCTAssertTrue(cancel.waitForNonExistence(timeout: 5))
+            XCTAssertTrue(tools.waitForNonExistence(timeout: 5))
+            if !draft.isEmpty { XCTAssertEqual(input.value as? String, draft) }
+
+            // A completed picker must leave the plus trigger reusable.
+            menu.tap()
+            XCTAssertTrue(tools.waitForExistence(timeout: 5))
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+            XCTAssertTrue(tools.waitForNonExistence(timeout: 5))
+        }
     }
 
     func testAssistantComposerMenuOpensDismissesAndModelMenuRemainsUsable() {

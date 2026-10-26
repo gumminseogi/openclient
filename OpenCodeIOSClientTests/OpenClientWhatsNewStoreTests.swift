@@ -28,6 +28,27 @@ final class OpenClientWhatsNewStoreTests: XCTestCase {
         XCTAssertNil(nextLaunch.presentedRelease)
     }
 
+    func testCurrentAnnouncementAppearsOnceAfterPreviousRelease() {
+        defaults.set("1.0.26", forKey: "whatsNew.lastOpenedVersion")
+        defaults.set("1.0.26", forKey: "whatsNew.lastPresentedRelease")
+        let store = OpenClientWhatsNewStore(defaults: defaults, currentVersion: "1.0.27")
+        XCTAssertEqual(store.presentedRelease?.id, "1.0.27")
+        store.dismiss()
+        let reopened = OpenClientWhatsNewStore(defaults: defaults, currentVersion: "1.0.27")
+        XCTAssertNil(reopened.presentedRelease)
+        reopened.presentLatestRelease()
+        XCTAssertEqual(reopened.presentedRelease?.id, "1.0.27")
+    }
+
+    func testCurrentAnnouncementDoesNotRepeatPreviouslyReleasedFeatures() throws {
+        let previous = try XCTUnwrap(OpenClientReleaseNotesCatalog.releases.first { $0.version == "1.0.26" })
+        let current = try XCTUnwrap(OpenClientReleaseNotesCatalog.releases.first { $0.version == "1.0.27" })
+        XCTAssertEqual(current.features.map(\.title), [
+            "Tools within reach", "Permission control per chat", "A tidier project list"
+        ])
+        XCTAssertTrue(Set(current.features.map(\.id)).isDisjoint(with: previous.features.map(\.id)))
+    }
+
     func testExistingInstallWithoutTrackedVersionPresentsCurrentRelease() {
         let store = makeStore(hasExistingConnection: true)
 
@@ -181,9 +202,10 @@ final class OpenClientWhatsNewStoreTests: XCTestCase {
         XCTAssertFalse(release.showsSetup)
         XCTAssertEqual(
             OpenClientReleaseNotesCatalog.releases.map(\.version),
-            ["1.0.15", "1.0.16", "1.0.17", "1.0.18", "1.0.19", "1.0.20", "1.0.21", "1.0.22", "1.0.23", "1.0.24", "1.0.25"]
+            ["1.0.15", "1.0.16", "1.0.17", "1.0.18", "1.0.19", "1.0.20", "1.0.21", "1.0.22", "1.0.23", "1.0.24", "1.0.25", "1.0.26", "1.0.27"]
         )
-        XCTAssertEqual(Set(OpenClientReleaseNotesCatalog.releases.map(\.version)).count, 11)
+        XCTAssertEqual(Set(OpenClientReleaseNotesCatalog.releases.map(\.version)).count,
+                       OpenClientReleaseNotesCatalog.releases.count)
     }
 
     func testCatalogPreservesPrivateWebPushRelease() throws {

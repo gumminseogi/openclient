@@ -46,14 +46,22 @@ final class PinnedCommandStore: ObservableObject {
     }
 
     func pin(_ command: OpenCodeCommand, scopeKey: String) {
+        pin(name: command.name, scopeKey: scopeKey)
+    }
+
+    func pin(name: String, scopeKey: String) {
         var names = pinnedNames(for: scopeKey)
-        guard !names.contains(command.name) else { return }
-        names.append(command.name)
+        guard !names.contains(name) else { return }
+        names.append(name)
         setPinnedNames(names, scopeKey: scopeKey)
     }
 
     func unpin(_ command: OpenCodeCommand, scopeKey: String) {
-        setPinnedNames(pinnedNames(for: scopeKey).filter { $0 != command.name }, scopeKey: scopeKey)
+        unpin(name: command.name, scopeKey: scopeKey)
+    }
+
+    func unpin(name: String, scopeKey: String) {
+        setPinnedNames(pinnedNames(for: scopeKey).filter { $0 != name }, scopeKey: scopeKey)
     }
 
     func toggle(_ command: OpenCodeCommand, scopeKey: String) {

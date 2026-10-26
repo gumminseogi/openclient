@@ -1063,7 +1063,8 @@ extension AppViewModel {
         let reduceElapsedMS = reduceStart.elapsedMilliseconds
         let publishStart = ContinuousClock.now
         OpenClientPerformanceSignposts.interval("StreamFlushPublish") {
-            applyDirectoryEventState(application.state, updatesSelectedMessages: true)
+            applyDirectoryEventState(application.state, updatesSelectedMessages: true,
+                projectedMessages: application.didProjectSelectedMessages ? application.state.messages : nil)
         }
         let publishElapsedMS = publishStart.elapsedMilliseconds
         OpenClientPerformanceSignposts.end("StreamFlush", flushSignpost)
@@ -1141,9 +1142,10 @@ extension AppViewModel {
 
     /// Keep existing presentation owners on the same canonical snapshot before releasing the shared visual bridge.
     func finishTranscriptCommit(in source: DirectoryStore, sessionID: String,
-                                completeInventory: [OpenCodeMessageEnvelope]? = nil) {
+                                completeInventory: [OpenCodeMessageEnvelope]? = nil,
+                                committedMessages: [OpenCodeMessageEnvelope]? = nil) {
         guard directoryStoreRegistry.key(for: source) != nil else { return }
-        let committed = source.syncState.messageEnvelopes(forSessionID: sessionID)
+        let committed = committedMessages ?? source.syncState.messageEnvelopes(forSessionID: sessionID)
         if windowSessionInterests.values.contains(sessionID),
            let session = source.sessions.first(where: { $0.id == sessionID })
                 ?? (source.selectedSession?.id == sessionID ? source.selectedSession : nil) {
@@ -1160,7 +1162,7 @@ extension AppViewModel {
                 }
             }
         }
-        let inventory = completeInventory.map { inventory in committed.filter { inventory.contains($0) } } ?? committed
+        let inventory = completeInventory.map { ChatStore.matchingCommittedMessages(committed, in: $0) } ?? committed
         chatStore.retireSubmissionPresentations(in: inventory, sessionID: sessionID, completeInventory: completeInventory != nil)
     }
 
@@ -1168,7 +1170,8 @@ extension AppViewModel {
         _ state: EventSyncCoordinator.DirectoryEventState,
         to targetStore: DirectoryStore? = nil,
         appliesToStore: Bool = true,
-        updatesSelectedMessages: Bool = true
+        updatesSelectedMessages: Bool = true,
+        projectedMessages alreadyProjectedMessages: [OpenCodeMessageEnvelope]? = nil
     ) {
         let targetStore = targetStore ?? directoryStore
         let targetDirectory = directoryStoreRegistry.key(for: targetStore)
@@ -1185,7 +1188,9 @@ extension AppViewModel {
         }
         if updatesSelectedMessages {
             let projectedMessages: [OpenCodeMessageEnvelope]
-            if let selectedSessionID = state.selectedSession?.id,
+            if let alreadyProjectedMessages {
+                projectedMessages = alreadyProjectedMessages
+            } else if let selectedSessionID = state.selectedSession?.id,
                state.syncState.messagesBySessionID[selectedSessionID] != nil {
                 projectedMessages = state.syncState.messageEnvelopes(forSessionID: selectedSessionID)
             } else {
@@ -1195,7 +1200,7 @@ extension AppViewModel {
                 chatStore.replaceActiveMessagesWithCanonical(projectedMessages)
             }
             if let sessionID = state.selectedSession?.id {
-                finishTranscriptCommit(in: targetStore, sessionID: sessionID)
+                finishTranscriptCommit(in: targetStore, sessionID: sessionID, committedMessages: projectedMessages)
             }
         }
         let selectedSessionID = state.selectedSession?.id

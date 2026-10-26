@@ -13,6 +13,7 @@ struct ProjectListView: View {
     @ObservedObject var games: FunAndGamesFacade
     let bridge: OpenClientBridgeFacade?
     let providerUsage: ProviderUsageFacade
+    let usesSidebarLayout: Bool
     let isActivitySelected: Bool
     let onActivityChosen: () -> Void
     let onProjectChosen: () -> Void
@@ -30,6 +31,7 @@ struct ProjectListView: View {
         games: FunAndGamesFacade,
         bridge: OpenClientBridgeFacade? = nil,
         providerUsage: ProviderUsageFacade,
+        usesSidebarLayout: Bool = false,
         isActivitySelected: Bool = false,
         onActivityChosen: @escaping () -> Void = {},
         onProjectChosen: @escaping () -> Void
@@ -40,6 +42,7 @@ struct ProjectListView: View {
         self.games = games
         self.bridge = bridge
         self.providerUsage = providerUsage
+        self.usesSidebarLayout = usesSidebarLayout
         self.isActivitySelected = isActivitySelected
         self.onActivityChosen = onActivityChosen
         self.onProjectChosen = onProjectChosen
@@ -76,29 +79,36 @@ struct ProjectListView: View {
                             Image(systemName: "waveform.path.ecg")
                                 .font(.headline)
                                 .foregroundStyle(isActivitySelected ? appAccentColor : .secondary)
-                                .frame(width: 32, height: 32)
-                                .background(appAccentColor.opacity(isActivitySelected ? 0.14 : 0.07), in: RoundedRectangle(cornerRadius: 9))
+                                .frame(width: usesSidebarLayout ? 24 : 32, height: 32)
+                                .background(appAccentColor.opacity(usesSidebarLayout ? 0 : (isActivitySelected ? 0.14 : 0.07)), in: RoundedRectangle(cornerRadius: 9))
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Activity")
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                Text("Monitor sessions across projects")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(.body.weight(usesSidebarLayout && !isActivitySelected ? .regular : .semibold))
+                                    .foregroundStyle(usesSidebarLayout && isActivitySelected ? appAccentColor : .primary)
+                                if !usesSidebarLayout {
+                                    Text("Monitor sessions across projects")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
 
                             Spacer(minLength: 8)
 
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.tertiary)
+                            if !usesSidebarLayout {
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
+                        .frame(minHeight: usesSidebarLayout ? 44 : nil)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("projects.activity")
+                    .accessibilityAddTraits(isActivitySelected ? .isSelected : [])
                     .listRowInsets(projectListRowInsets)
+                    .listRowBackground(sidebarRowBackground)
                 }
                 }
 
@@ -127,7 +137,8 @@ struct ProjectListView: View {
                                 usesSystemImageFallback: project.id == "global" || project.worktree == "/",
                                 isSelected: !isActivitySelected && facade.isSelected(project),
                                 isPreparing: facade.isPreparingSelection(project),
-                                subtitleLineLimit: isEditingProjects ? 2 : 1
+                                subtitleLineLimit: isEditingProjects ? 2 : 1,
+                                usesSidebarLayout: usesSidebarLayout && !isEditingProjects
                             )
 
                             if isEditingProjects {
@@ -157,6 +168,14 @@ struct ProjectListView: View {
                             }
                         }
                         .contextMenu {
+                            if !isEditingProjects {
+                                Button {
+                                    facade.setVisibility(false, for: project)
+                                } label: {
+                                    Label("Remove from List", systemImage: "eye.slash")
+                                }
+                                .accessibilityIdentifier("projects.remove.\(project.id)")
+                            }
                             if !facade.isReadOnly {
                                 if isEditingProjects {
                                     EmptyView()
@@ -192,10 +211,13 @@ struct ProjectListView: View {
                         }
                         .disabled(facade.isPreparingSelection(project))
                         .listRowInsets(projectListRowInsets)
+                        .listRowBackground(sidebarRowBackground)
+                        .accessibilityAddTraits(isEditingProjects ? [] : .isButton)
                     }
                     .onMove(perform: facade.moveProjects)
                 } header: {
                     ProjectListSectionHeader(
+                        usesSidebarLayout: usesSidebarLayout,
                         allowsEditing: !facade.isReadOnly,
                         isEditingProjects: isEditingProjects,
                         allowsProjectCreation: facade.allowsProjectCreation,
@@ -212,7 +234,8 @@ struct ProjectListView: View {
                             subtitle: String(localized: "Guess a secret city from live weather clues"),
                             systemImage: "map.fill",
                             usesSystemImageFallback: true,
-                            isSelected: false
+                            isSelected: false,
+                            usesSidebarLayout: usesSidebarLayout
                         )
                         .contentShape(Rectangle())
                         .onTapGesture {
@@ -225,7 +248,8 @@ struct ProjectListView: View {
                             subtitle: String(localized: "Spot the hidden bug in a generated code snippet"),
                             systemImage: "ladybug.fill",
                             usesSystemImageFallback: true,
-                            isSelected: false
+                            isSelected: false,
+                            usesSidebarLayout: usesSidebarLayout
                         )
                         .contentShape(Rectangle())
                         .onTapGesture {
@@ -386,11 +410,19 @@ struct ProjectListView: View {
     }
 
     private var projectListRowInsets: EdgeInsets? {
+        if usesSidebarLayout {
+            return EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 12)
+        }
         #if os(iOS) && !targetEnvironment(macCatalyst)
-        UIDevice.current.userInterfaceIdiom == .pad ? EdgeInsets() : nil
+        return UIDevice.current.userInterfaceIdiom == .pad ? EdgeInsets() : nil
         #else
-        nil
+        return nil
         #endif
+    }
+
+    private var sidebarRowBackground: Color? {
+        // Preserve native compact row surfaces; sidebar selection uses typography.
+        usesSidebarLayout ? .clear : nil
     }
 
     private var projectListBottomBarBottomPadding: CGFloat {
@@ -1801,6 +1833,7 @@ private struct NewChatInputBar: View {
 }
 
 private struct ProjectListSectionHeader: View {
+    var usesSidebarLayout = false
     let allowsEditing: Bool
     let isEditingProjects: Bool
     let allowsProjectCreation: Bool
@@ -1809,8 +1842,14 @@ private struct ProjectListSectionHeader: View {
 
     var body: some View {
         HStack {
-            Label("Projects", systemImage: "folder.fill")
-                .font(.headline)
+            if usesSidebarLayout {
+                Text("Projects")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            } else {
+                Label("Projects", systemImage: "folder.fill")
+                    .font(.headline)
+            }
 
             Spacer(minLength: 8)
 
@@ -1840,7 +1879,8 @@ private struct ProjectListSectionHeader: View {
             .disabled(!allowsEditing)
         }
         .padding(.leading, -16)
-        .padding(.trailing, -29)
+        // Extend the sidebar actions past the header's text inset to the toolbar edge.
+        .padding(.trailing, usesSidebarLayout ? -24 : -29)
     }
 
     private var projectEditingAccessibilityLabel: LocalizedStringResource {

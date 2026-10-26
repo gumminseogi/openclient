@@ -34,7 +34,8 @@ enum OpenCodeStateReducer {
         messages: inout [OpenCodeMessageEnvelope],
         todos: inout [OpenCodeTodo],
         permissions: inout [OpenCodePermission],
-        questions: inout [OpenCodeQuestionRequest]
+        questions: inout [OpenCodeQuestionRequest],
+        projectsSelectedMessages: Bool = true
     ) -> SessionEventResult {
         switch event {
         case let .sessionCreated(session):
@@ -92,13 +93,13 @@ enum OpenCodeStateReducer {
             return .todoChanged
         case let .messageUpdated(info):
             guard syncState.applyMessageUpdated(info) else { return .ignored("missing session") }
-            if info.sessionID == selectedSession?.id, let sessionID = info.sessionID {
+            if projectsSelectedMessages, info.sessionID == selectedSession?.id, let sessionID = info.sessionID {
                 messages = syncState.messageEnvelopes(forSessionID: sessionID)
             }
             return .message("message updated")
         case let .messagePartUpdated(part):
             guard syncState.applyPartUpdated(part) else { return .ignored("missing part/message id") }
-            if part.sessionID == selectedSession?.id, let sessionID = part.sessionID {
+            if projectsSelectedMessages, part.sessionID == selectedSession?.id, let sessionID = part.sessionID {
                 messages = syncState.messageEnvelopes(forSessionID: sessionID)
             }
             return .message("part updated")
@@ -106,7 +107,7 @@ enum OpenCodeStateReducer {
             guard syncState.applyPartDelta(messageID: messageID, partID: partID, field: field, delta: delta) else {
                 return .ignored("missing delta part")
             }
-            if sessionID == selectedSession?.id {
+            if projectsSelectedMessages, sessionID == selectedSession?.id {
                 messages = syncState.messageEnvelopes(forSessionID: sessionID)
             }
             return .message("delta applied")
@@ -114,7 +115,7 @@ enum OpenCodeStateReducer {
             guard syncState.removeMessage(sessionID: sessionID, messageID: messageID) else {
                 return .ignored("message missing")
             }
-            if sessionID == selectedSession?.id {
+            if projectsSelectedMessages, sessionID == selectedSession?.id {
                 messages = syncState.messageEnvelopes(forSessionID: sessionID)
             }
             return .message("message removed")
@@ -122,7 +123,7 @@ enum OpenCodeStateReducer {
             guard syncState.removePart(messageID: messageID, partID: partID) else {
                 return .ignored("part missing")
             }
-            if let selectedSessionID = selectedSession?.id,
+            if projectsSelectedMessages, let selectedSessionID = selectedSession?.id,
                syncState.messagesBySessionID[selectedSessionID]?.contains(where: { $0.id == messageID }) == true {
                 messages = syncState.messageEnvelopes(forSessionID: selectedSessionID)
             }

@@ -89,6 +89,14 @@ struct OpenCodeV2AdmittedInput: Decodable, Sendable {
     let data: Payload
 }
 
+struct OpenCodePermissionRule: Codable, Hashable, Sendable {
+    let action: String
+    let resource: String
+    let effect: String
+
+    static let allowAll = Self(action: "*", resource: "*", effect: "allow")
+}
+
 struct OpenCodeSession: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let title: String?
@@ -101,6 +109,9 @@ struct OpenCodeSession: Codable, Identifiable, Hashable, Sendable {
     var model: OpenCodeMessageModelReference? = nil
     /// Opaque, durable annotations supplied by V2 clients.
     var metadata: [String: OpenCodeJSONValue]? = nil
+    var permissions: [OpenCodePermissionRule]? = nil
+
+    var allowsAllSessionPermissions: Bool { permissions?.last == .allowAll }
 
     var isRootSession: Bool {
         parentID == nil
@@ -165,6 +176,7 @@ struct OpenCodeSession: Codable, Identifiable, Hashable, Sendable {
         session.agent = incoming.agent ?? agent
         session.model = incoming.model ?? model
         session.metadata = incoming.metadata ?? metadata
+        session.permissions = incoming.permissions ?? permissions
         return session
     }
 }

@@ -334,6 +334,13 @@ struct MessageComposer: View {
     var mentionableSkills: [OpenCodeSkill] = []
     let pinnedCommands: [OpenCodeCommand]
     let pinnedCommandNames: Set<String>
+    var pinnedSkills: [ComposerMentionCandidate] = []
+    var onPinSkill: (ComposerMentionCandidate) -> Void = { _ in }
+    var onUnpinSkill: (ComposerMentionCandidate) -> Void = { _ in }
+    var todoCount: Int = 0
+    var completedTodoCount: Int = 0
+    var todosExpanded: Bool = false
+    var onExpandTodos: () -> Void = {}
     let attachmentCount: Int
     let isBusy: Bool
     let canFork: Bool
@@ -622,16 +629,6 @@ struct MessageComposer: View {
         #endif
     }
 
-    private var usesWideAccessoryPopover: Bool {
-        #if targetEnvironment(macCatalyst)
-        true
-        #elseif os(iOS)
-        UIDevice.current.userInterfaceIdiom == .pad
-        #else
-        false
-        #endif
-    }
-
     private var composerGlassMergeSpacing: CGFloat {
         8
     }
@@ -719,7 +716,8 @@ struct MessageComposer: View {
     }
 
     private var showsPinnedCommands: Bool {
-        allowsTextTools && text.isEmpty && attachmentCount == 0 && !pinnedCommands.isEmpty
+        allowsTextTools && text.isEmpty && attachmentCount == 0 && !todosExpanded
+            && (!pinnedCommands.isEmpty || !pinnedSkills.isEmpty)
     }
 
     private var slashQuery: String? {
@@ -901,7 +899,10 @@ struct MessageComposer: View {
                 AgentMentionPicker(
                     agents: filteredMentionableAgents,
                     selectedAgentName: suggestionSelection.selectedID(in: suggestionContext),
-                    onSelect: insertAgentMention
+                    onSelect: insertAgentMention,
+                    pinnedSkillIDs: Set(pinnedSkills.map(\.name)),
+                    onPinSkill: onPinSkill,
+                    onUnpinSkill: onUnpinSkill
                 )
                 .transition(
                     .move(edge: .bottom)
@@ -910,12 +911,23 @@ struct MessageComposer: View {
                 )
             }
 
-            if showsPinnedCommands {
+            if showsPinnedCommands || (todoCount > 0 && !todosExpanded) {
                 PinnedCommandStrip(
-                    commands: pinnedCommands,
+                    commands: showsPinnedCommands ? pinnedCommands : [],
                     onSelect: onSelectCommand,
-                    onUnpin: onUnpinCommand
+                    onUnpin: onUnpinCommand,
+                    skills: showsPinnedCommands ? pinnedSkills : [],
+                    onSelectSkill: { skill in
+                        insertAgentMentionShortcut()
+                        insertAgentMention(skill)
+                    },
+                    onUnpinSkill: onUnpinSkill,
+                    todoCount: todoCount,
+                    completedTodoCount: completedTodoCount,
+                    onExpandTodos: onExpandTodos
                 )
+                .padding(.trailing, showsStopStreamButton && !usesAssistantComposerLayout ? composerActionButtonSize + 10 : 0)
+                .frame(minHeight: showsStopStreamButton ? composerActionButtonSize : 0, alignment: .bottom)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
@@ -1025,7 +1037,7 @@ struct MessageComposer: View {
                 .frame(maxWidth: .infinity)
                 .zIndex(1)
         }
-        .padding(.top, showsStopStreamButton && (showsCommandPicker || showsAgentMentionPicker || showsPinnedCommands)
+        .padding(.top, showsStopStreamButton && (showsCommandPicker || showsAgentMentionPicker)
             ? composerActionButtonSize + 10 : 0)
     }
 
@@ -1266,6 +1278,16 @@ struct MessageComposer: View {
             )
             #endif
         }
+        #if !targetEnvironment(macCatalyst)
+        .composerAccessoryTransitionSource(in: accessoryPresentationNamespace)
+        .popover(
+            isPresented: $isAccessoryMenuOpen,
+            attachmentAnchor: .rect(.bounds),
+            arrowEdge: .bottom
+        ) {
+            accessoryPopoverContent
+        }
+        #endif
     }
 
     private var catalystTrailingActionSlot: some View {
@@ -2093,7 +2115,7 @@ struct MessageComposer: View {
 
     private var accessoryPopoverContent: some View {
         accessoryNavigationContent
-        .frame(width: usesWideAccessoryPopover ? 400 : 350, height: accessoryPopoverHeight)
+        .frame(width: 400, height: accessoryPopoverHeight)
         .presentationCompactAdaptation(.popover)
         .composerAccessoryTransitionDestination(in: accessoryPresentationNamespace)
     }
@@ -3319,6 +3341,9 @@ private struct AgentMentionPicker: View {
     let agents: [ComposerMentionCandidate]
     let selectedAgentName: String?
     let onSelect: (ComposerMentionCandidate) -> Void
+    let pinnedSkillIDs: Set<String>
+    let onPinSkill: (ComposerMentionCandidate) -> Void
+    let onUnpinSkill: (ComposerMentionCandidate) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -3381,6 +3406,19 @@ private struct AgentMentionPicker: View {
                                 .id(agent.id)
                                 .accessibilityAddTraits(agent.id == selectedAgentName ? .isSelected : [])
                                 .accessibilityIdentifier("chat.\(agent.kind.rawValue)Mention.\(agent.name)")
+                                .contextMenu {
+                                    if agent.kind == .skill {
+                                        if pinnedSkillIDs.contains(agent.name) {
+                                            Button { onUnpinSkill(agent) } label: {
+                                                Label("Unpin", systemImage: "pin.slash")
+                                            }
+                                        } else {
+                                            Button { onPinSkill(agent) } label: {
+                                                Label("Pin", systemImage: "pin")
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         .padding(8)
@@ -3407,10 +3445,36 @@ private struct PinnedCommandStrip: View {
     let commands: [OpenCodeCommand]
     let onSelect: (OpenCodeCommand) -> Void
     let onUnpin: (OpenCodeCommand) -> Void
+    let skills: [ComposerMentionCandidate]
+    let onSelectSkill: (ComposerMentionCandidate) -> Void
+    let onUnpinSkill: (ComposerMentionCandidate) -> Void
+    let todoCount: Int
+    let completedTodoCount: Int
+    let onExpandTodos: () -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                if todoCount > 0 {
+                    TodoProgressPill(completedCount: completedTodoCount, totalCount: todoCount, onRestore: onExpandTodos)
+                }
+                ForEach(skills) { skill in
+                    Button { onSelectSkill(skill) } label: {
+                        Text(verbatim: "@\(skill.displayName)")
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.thinMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button { onUnpinSkill(skill) } label: {
+                            Label("Unpin", systemImage: "pin.slash")
+                        }
+                    }
+                    .accessibilityIdentifier("chat.pinned-skill.\(skill.name)")
+                }
                 ForEach(commands) { command in
                     Button {
                         onSelect(command)

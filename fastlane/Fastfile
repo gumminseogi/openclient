@@ -205,6 +205,24 @@ platform :ios do
     )
   end
 
+  desc "Submit an uploaded build and its existing metadata to App Review"
+  lane :submit_review do |options|
+    UI.user_error!("Pass version:<marketing version> and build:<build number>") unless options[:version] && options[:build]
+    deliver(
+      api_key: asc_api_key,
+      app_version: options[:version],
+      build_number: options[:build],
+      submit_for_review: true,
+      automatic_release: false,
+      force: true,
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_screenshots: true,
+      precheck_include_in_app_purchases: false,
+      submission_information: { export_compliance_uses_encryption: false }
+    )
+  end
+
   desc "Validate App Store metadata configuration"
   lane :metadata_check do
     api_key = asc_api_key
@@ -236,6 +254,8 @@ platform :ios do
     deliver(
       api_key: api_key,
       app_version: app_version,
+      build_number: options[:build],
+      submit_for_review: false,
       force: true,
       skip_binary_upload: true,
       skip_screenshots: skip_gallery,
@@ -244,6 +264,19 @@ platform :ios do
       precheck_include_in_app_purchases: false,
       metadata_path: metadata_path
     )
+    if options[:build]
+      app = Spaceship::ConnectAPI::App.find("com.ntoporcov.openclient")
+      version = app.get_app_store_versions(filter: { versionString: app_version, platform: "IOS" }).first
+      build = Spaceship::ConnectAPI::Build.all(
+        app_id: app.id, version: app_version, build_number: options[:build],
+        platform: "IOS", processing_states: "VALID"
+      ).first
+      UI.user_error!("No editable version #{app_version} or processed build #{options[:build]} found") unless version && build
+      version.select_build(build_id: build.id)
+      selected = version.get_build
+      UI.user_error!("Build selection could not be verified") unless selected&.id == build.id
+      UI.success("Verified App Store version #{app_version} uses build #{selected.version}")
+    end
   end
 
   desc "Download current App Store metadata into the repo"

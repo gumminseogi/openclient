@@ -6,6 +6,7 @@ import AppKit
 #endif
 
 struct ProjectRow: View {
+    @Environment(\.appAccentColor) private var appAccentColor
     let title: String
     let subtitle: String
     let systemImage: String
@@ -14,20 +15,24 @@ struct ProjectRow: View {
     let isSelected: Bool
     var isPreparing = false
     var subtitleLineLimit = 1
+    var usesSidebarLayout = false
 
     var body: some View {
         HStack(spacing: 12) {
-            ProjectAvatar(title: title, systemImage: systemImage, icon: icon, usesSystemImageFallback: usesSystemImageFallback, isSelected: isSelected)
+            ProjectAvatar(title: title, systemImage: systemImage, icon: icon, usesSystemImageFallback: usesSystemImageFallback, isSelected: isSelected && !usesSidebarLayout, size: usesSidebarLayout ? 24 : 30)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.primary)
+                    .font(.body.weight(usesSidebarLayout ? (isSelected ? .semibold : .regular) : .medium))
+                    .foregroundStyle(usesSidebarLayout && isSelected ? appAccentColor : .primary)
                     .lineLimit(1)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(subtitleLineLimit)
+                if !usesSidebarLayout {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(subtitleLineLimit)
+                }
             }
 
             Spacer()
@@ -39,9 +44,12 @@ struct ProjectRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: usesSidebarLayout ? 36 : nil)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .animation(opencodeSelectionAnimation, value: isSelected)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

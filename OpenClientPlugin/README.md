@@ -5,7 +5,7 @@ visuals, in-app browser automation, and optional OC Notify notifications.
 
 ## Install
 
-Version `0.4.0` supports OpenCode **V1 1.18.29+** and **V2**. Both hosts load
+Version `0.4.2` supports OpenCode **V1 1.18.29+** and **V2**. Both hosts load
 the same package and choose their native entry point automatically: V1 calls
 `server()`, while V2 calls `setup()`. No version-mode option is needed.
 
@@ -16,7 +16,7 @@ Add the plugin to `opencode.json(c)`:
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["@openclient-ios/opencode-plugin@0.4.0"]
+  "plugins": ["@openclient-ios/opencode-plugin@0.4.2"]
 }
 ```
 
@@ -30,7 +30,7 @@ V1 uses `plugin` (singular):
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["@openclient-ios/opencode-plugin@0.4.0"]
+  "plugin": ["@openclient-ios/opencode-plugin@0.4.2"]
 }
 ```
 
@@ -41,7 +41,7 @@ entry with the options form:
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    ["@openclient-ios/opencode-plugin@0.4.0", {
+    ["@openclient-ios/opencode-plugin@0.4.2", {
       "notifications": {
         "enabled": true,
         "publicOrigin": "https://notify.example.com",
@@ -70,22 +70,21 @@ OpenCode must be restarted after changing plugin code or configuration.
 Bridge discovery matches the advertised OpenCode port to the port in the app's
 server URL. If a proxy forwards `https://host.tailnet.ts.net` (port `443`) to
 OpenCode on port `4096`, set `serverURL` to `https://host.tailnet.ts.net`.
-This option supports both V1 and V2; V1 support requires the unreleased fix for
-#24 (it is not included in plugin `0.4.1`).
+This option supports both V1 and V2; V1 support requires plugin `0.4.2` or later.
 
 For V1, add the option to the plugin tuple:
 
 ```json
 {
   "plugin": [
-    ["file:///absolute/path/to/OpenClientPlugin/dist/index.js", {
+    ["@openclient-ios/opencode-plugin@0.4.2", {
       "serverURL": "https://host.tailnet.ts.net"
     }]
   ]
 }
 ```
 
-Build the local plugin as described above, then restart OpenCode. For V2, put
+Restart OpenCode after updating the plugin configuration. For V2, put
 the same `serverURL` in the `options` object shown below. Use an HTTP(S) origin
 without credentials, a path, query, or fragment; include any custom external port.
 The override also supplies the OpenCode origin used by notifications.
@@ -105,7 +104,7 @@ and tuple). For example, to configure the server origin and optional notificatio
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [{
-    "package": "@openclient-ios/opencode-plugin@0.4.0",
+    "package": "@openclient-ios/opencode-plugin@0.4.2",
     "options": {
       "serverURL": "http://127.0.0.1:4096",
       "notifications": {

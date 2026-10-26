@@ -43,6 +43,51 @@ final class V2SessionWorkflowTests: XCTestCase {
         XCTAssertEqual(updated?.isUnread, true)
     }
 
+    func testYOLOModePreservesSessionRulesAndReadsBackServerState() async throws {
+        let model = makeModel()
+        defer { model.stopEventStream() }
+        let client = try XCTUnwrap(model.requireBackendConnection().openCodeCompatibility?.client)
+        let original = [OpenCodePermissionRule(action: "shell", resource: "git push *", effect: "ask")]
+        var rules = original
+        var methods: [String] = []
+        V2SessionWorkflowURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/session/ses_yolo")
+            methods.append(request.httpMethod!)
+            if request.httpMethod == "PATCH" {
+                let payload = try JSONDecoder().decode([String: [OpenCodePermissionRule]].self, from: Self.body(request))
+                XCTAssertEqual(Set(payload.keys), ["permissions"])
+                rules = try XCTUnwrap(payload["permissions"])
+                return (204, "")
+            }
+            let raw = String(data: try JSONEncoder().encode(rules), encoding: .utf8)!
+            return (200, #"{"data":{"id":"ses_yolo","projectID":"proj_root","location":{"directory":"/repo"},"time":{"created":1,"updated":2},"permissions":\#(raw)}}"#)
+        }
+        let enabled = try await model.sessionCoordinator.setYOLOMode(true, sessionID: "ses_yolo", client: client)
+        XCTAssertTrue(enabled.allowsAllSessionPermissions)
+        XCTAssertEqual(rules, original + [.allowAll])
+        let disabled = try await model.sessionCoordinator.setYOLOMode(false, sessionID: "ses_yolo", client: client)
+        XCTAssertFalse(disabled.allowsAllSessionPermissions)
+        XCTAssertEqual(disabled.permissions, original)
+        XCTAssertEqual(methods, ["GET", "PATCH", "GET", "GET", "PATCH", "GET"])
+    }
+
+    func testYOLOModeFailedWriteDoesNotChangeCanonicalSession() async throws {
+        let model = makeModel()
+        defer { model.stopEventStream() }
+        let client = try XCTUnwrap(model.requireBackendConnection().openCodeCompatibility?.client)
+        let session = Self.session(id: "ses_yolo", directory: "/repo")
+        model.directoryStore.insertV2Session(session)
+        V2SessionWorkflowURLProtocol.handler = { request in
+            if request.httpMethod == "PATCH" { return (500, #"{"message":"Failed"}"#) }
+            return (200, #"{"data":{"id":"ses_yolo","projectID":"proj_root","location":{"directory":"/repo"},"time":{"created":1,"updated":2}}}"#)
+        }
+        do {
+            _ = try await model.sessionCoordinator.setYOLOMode(true, sessionID: "ses_yolo", client: client)
+            XCTFail("A failed write must be surfaced")
+        } catch { }
+        XCTAssertEqual(model.directoryStore.sessions.first, session)
+    }
+
     func testWorkflowAssignmentReadModifyWritesMetadataAndSurfacesFailure() async throws {
         let model = makeModel()
         defer { model.stopEventStream() }

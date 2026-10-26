@@ -171,11 +171,7 @@ private struct ActivityWorkflowList: View {
                                 facade.workflow.setCollapsed(!collapsedStatusIDs.contains(section.id), for: section.id)
                             }
                         }
-                        .modifier(ActivityWorkflowListDropTarget(facade: facade, status: section.status) {
-                            withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) {
-                                facade.workflow.setCollapsed(false, for: section.id)
-                            }
-                        })
+                        .modifier(ActivityWorkflowListDropTarget(facade: facade, status: section.status))
                         .contextMenu {
                             ActivityWorkflowStatusActions(facade: facade, status: section.status, onEdit: onEdit, onDelete: onDelete)
                         }
@@ -219,7 +215,6 @@ private struct ActivityWorkflowListHeader: View {
 private struct ActivityWorkflowListDropTarget: ViewModifier {
     let facade: ActivityFacade
     let status: ActivityWorkflowStatus
-    var onAccepted: () -> Void = {}
     @State private var isTargeted = false
 
     func body(content: Content) -> some View {
@@ -231,9 +226,7 @@ private struct ActivityWorkflowListDropTarget: ViewModifier {
                     .allowsHitTesting(false)
             }
             .dropDestination(for: String.self) { tokens, _ in
-                guard facade.dropWorkflowSessions(tokens, into: status) else { return false }
-                onAccepted()
-                return true
+                facade.dropWorkflowSessions(tokens, into: status)
             } isTargeted: { isTargeted = $0 }
     }
 }

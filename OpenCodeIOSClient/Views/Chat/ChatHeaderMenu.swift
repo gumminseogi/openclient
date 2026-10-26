@@ -153,6 +153,8 @@ private struct ChatHeaderPopover: View {
     @Binding var title: String
     @State private var saving = false
     @State private var changingLiveActivity = false
+    @State private var changingYOLOMode = false
+    @State private var loadingPermissions = true
     @State private var showsMoveSession = false
 
     var body: some View {
@@ -190,6 +192,14 @@ private struct ChatHeaderPopover: View {
                         }
                         .disabled(changingLiveActivity)
                         .accessibilityIdentifier("chat.header.liveActivity")
+                    }
+                    if facade.supportsSessionTools(scope) {
+                        Toggle(isOn: yoloModeBinding) {
+                            Label("Auto-approve permissions", systemImage: "bolt.fill")
+                                .foregroundStyle(.primary)
+                        }
+                        .disabled(changingYOLOMode || loadingPermissions)
+                        .accessibilityIdentifier("chat.header.yoloMode")
                     }
                     NavigationLink {
                         ChatAppearanceSettingsView(store: facade.appCustomizationStore, isV2Connection: facade.isV2Connection)
@@ -248,6 +258,10 @@ private struct ChatHeaderPopover: View {
         }
         .accessibilityIdentifier("chat.header.popover")
         .sheet(isPresented: $showsMoveSession) { MoveSessionSheet(facade: facade, scope: scope) }
+        .task(id: scope.id) {
+            await facade.refreshHeaderPermissions(scope)
+            loadingPermissions = false
+        }
     }
 
     private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -271,6 +285,17 @@ private struct ChatHeaderPopover: View {
                 await facade.toggleHeaderLiveActivity(scope)
                 guard facade.isCurrentHeaderScope(scope) else { return }
                 changingLiveActivity = false
+            }
+        })
+    }
+
+    private var yoloModeBinding: Binding<Bool> {
+        Binding(get: { facade.isHeaderYOLOModeEnabled(scope) }, set: { enabled in
+            guard !changingYOLOMode, !loadingPermissions else { return }
+            changingYOLOMode = true
+            Task {
+                await facade.setHeaderYOLOMode(enabled, scope: scope)
+                changingYOLOMode = false
             }
         })
     }

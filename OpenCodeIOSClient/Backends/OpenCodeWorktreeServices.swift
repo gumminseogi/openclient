@@ -39,13 +39,17 @@ final class OpenCodeWorktreeServices: BackendProjectLifecycleService, BackendWor
         let nodes = try await listDirectories(parent)
         let partial = URL(fileURLWithPath: candidate).lastPathComponent
         let matches = listsChildren ? nodes : nodes.filter { URL(fileURLWithPath: $0).lastPathComponent.localizedCaseInsensitiveContains(partial) }
-        // Browsing a selected directory is explicit server-side discovery; do not warm sessions or rename projects.
+        // Only resolveProject switches location; browsing must not discover projects.
         let selected = input.isEmpty ? nil : (listsChildren || nodes.contains(candidate) ? candidate : nil)
         return .init(directories: Array(matches.sorted().prefix(50)), selectedDirectory: selected)
     }
 
     private func listDirectories(_ directory: String) async throws -> [String] {
-        let nodes = try await (profile == .v2 ? client.listV2Files(directory: directory) : client.listFiles(directory: directory))
+        // Filesystem listing accepts an absolute path outside the location. Keep the
+        // location fixed so every folder visited does not enter the project catalog.
+        let nodes = try await (profile == .v2
+            ? client.listV2Files(directory: "/", path: directory)
+            : client.listFiles(directory: "/", path: directory))
         return nodes.filter(\.isDirectory).map(\.absolute)
     }
 

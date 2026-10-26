@@ -308,6 +308,25 @@ final class BackendWorktreeTests: XCTestCase {
         XCTAssertNil(result.selectedDirectory)
     }
 
+    func testBrowsingFoldersKeepsLocationFixedUntilSelection() async throws {
+        let service = OpenCodeWorktreeServices(client: makeClient(), profile: .v2)
+        var listedPaths: [String] = []
+        WorktreeURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/api/fs/list")
+            let query = Self.query(request)
+            XCTAssertEqual(query["location[directory]"], "/")
+            listedPaths.append(query["path"] ?? "")
+            return Self.response(request, body: #"{"location":{"directory":"/"},"data":[{"path":"repos/example","type":"directory"}]}"#)
+        }
+        for path in ["/", "/repos/", "/repos/example/"] {
+            let result = try await service.searchDirectories(query: path, root: "/home/user")
+            XCTAssertEqual(result.selectedDirectory, URL(fileURLWithPath: path).standardizedFileURL.path)
+            XCTAssertEqual(result.directories, ["/repos/example"])
+        }
+        XCTAssertEqual(listedPaths, ["/", "/repos", "/repos/example"])
+    }
+
     func testInventoryAndPageEpochsRejectLateResultsAndRemovedWorkspace() throws {
         let projects = ProjectStore()
         let key = BackendWorktreeInventoryKey(connectionID: UUID(), projectID: "project")

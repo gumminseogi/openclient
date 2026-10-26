@@ -18,7 +18,7 @@ struct SessionFormCoordinator {
         guard !Task.isCancelled, context.isCurrent(), let form = store.forms[context.reference.key],
               store.state(for: form.key).phase == .ready else { return }
         do {
-            let answer = try form.contract.answer(values: store.state(for: form.key).draft)
+            let answer = try form.contract.answer(values: store.answerDraft(for: form))
             await perform(context, answer: answer, cancel: false)
         } catch BackendFormError.invalidField(let title) {
             store.showValidationError(String(localized: "Check the value for \(String(title.prefix(100)))."), key: form.key)

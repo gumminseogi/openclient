@@ -308,7 +308,7 @@ struct ComposerAccessoryArea: View {
     }
 }
 
-private struct TodoProgressPill: View {
+struct TodoProgressPill: View {
     let completedCount: Int
     let totalCount: Int
     let onRestore: () -> Void

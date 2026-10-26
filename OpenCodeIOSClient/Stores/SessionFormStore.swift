@@ -11,6 +11,7 @@ final class SessionFormStore {
 
     struct EditingState: Equatable {
         var draft: BackendFormDraft = [:]
+        var customAnswerDrafts: [String: String] = [:]
         var phase: Phase = .ready
         var errorMessage: String? = nil
         var operationID: UUID? = nil
@@ -114,14 +115,27 @@ final class SessionFormStore {
         var state = canonical.state(for: key)
         let local = editedForms[key] == canonical.forms[key] ? editing[key] : nil
         state.draft = local?.draft ?? [:]
+        state.customAnswerDrafts = local?.customAnswerDrafts ?? [:]
         state.errorMessage = local?.errorMessage
         return state
     }
 
     func setValue(_ value: OpenCodeJSONValue?, fieldID: String, for key: BackendFormKey) {
-        guard let form = forms[key], form.fields.contains(where: { $0.id == fieldID }),
+        guard let form = forms[key], let field = form.fields.first(where: { $0.id == fieldID }),
               !state(for: key).phase.isBusy, state(for: key).phase != .unavailable else { return }
         var state = state(for: key)
+        if field.type == "string", field.allowsCustom, !field.options.isEmpty {
+            // Preserve a custom default or restored draft before a predefined choice replaces it.
+            let previous = state.draft[fieldID] ?? field.raw["default"]
+            if let previous, case .string(let text) = previous,
+               !field.options.contains(where: { $0["value"]?.v2FormEquals(previous) == true }) {
+                state.customAnswerDrafts[fieldID] = text
+            }
+            if let value, case .string(let text) = value,
+               !field.options.contains(where: { $0["value"]?.v2FormEquals(value) == true }) {
+                state.customAnswerDrafts[fieldID] = text
+            }
+        }
         state.draft[fieldID] = value ?? .null
         editedForms[key] = form
         if state.phase == .ready { state.errorMessage = nil }
@@ -129,7 +143,35 @@ final class SessionFormStore {
     }
 
     func canSubmit(_ form: BackendForm) -> Bool {
-        (try? form.contract.answer(values: state(for: form.key).draft)) != nil
+        (try? form.contract.answer(values: answerDraft(for: form))) != nil
+    }
+
+    /// Pending custom multiselect text is an answer, without an extra commit action.
+    /// Keep it separate while editing so clearing it cannot remove a selected option.
+    func answerDraft(for form: BackendForm) -> BackendFormDraft {
+        let state = state(for: form.key)
+        var draft = state.draft
+        for field in form.fields where field.type == "multiselect" && field.allowsCustom {
+            guard let text = state.customAnswerDrafts[field.id],
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            var selections = (draft[field.id] ?? field.raw["default"])?.arrayValue ?? []
+            let custom = OpenCodeJSONValue.string(text)
+            if !selections.contains(where: { $0.v2FormEquals(custom) == true }) {
+                selections.append(custom)
+            }
+            draft[field.id] = .array(selections)
+        }
+        return draft
+    }
+
+    func setCustomAnswerDraft(_ text: String, fieldID: String, for key: BackendFormKey) {
+        guard let form = forms[key], form.fields.contains(where: { $0.id == fieldID }),
+              !state(for: key).phase.isBusy, state(for: key).phase != .unavailable else { return }
+        var state = state(for: key)
+        state.customAnswerDrafts[fieldID] = text
+        if state.phase == .ready { state.errorMessage = nil }
+        editedForms[key] = form
+        editing[key] = state
     }
 
     func begin(_ phase: Phase, reference: BackendFormReference, connectionID: UUID) -> UUID? {

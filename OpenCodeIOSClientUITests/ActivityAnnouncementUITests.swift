@@ -2,6 +2,28 @@ import XCTest
 
 @MainActor
 final class ActivityAnnouncementUITests: XCTestCase {
+    func testCurrentAnnouncementShowsFeaturesAndDismisses() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["OPENCLIENT_SCREENSHOT_SCENE"] = "activity"
+        app.launchEnvironment["OPENCLIENT_CURRENT_ANNOUNCEMENT"] = "1"
+        app.launch()
+        defer { app.terminate() }
+        let sheet = element("new-features.smoother-conversations", in: app)
+        XCTAssertTrue(sheet.waitForExistence(timeout: 15))
+        capture(app, "current-announcement-top")
+        let scroll = app.scrollViews["new-features.scroll"]
+        for title in ["Tools within reach", "Permission control per chat", "A tidier project list"] {
+            let feature = app.staticTexts.matching(identifier: title).firstMatch
+            for _ in 0..<5 where !feature.isHittable { scroll.swipeUp() }
+            XCTAssertTrue(feature.isHittable, title)
+        }
+        capture(app, "current-announcement-bottom")
+        app.buttons["new-features.continue"].tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+    }
+
     func testLayoutChoicesApplyToActivityAndUnreadDemoIsInteractive() {
         continueAfterFailure = false
         let app = XCUIApplication()

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.2
 
 - Honor `serverURL` on V1 for bridge discovery behind HTTPS reverse proxies,
   including Tailscale Serve (#24). Set it to the OpenCode origin used in the app.

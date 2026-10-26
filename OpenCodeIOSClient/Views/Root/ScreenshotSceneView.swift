@@ -21,9 +21,12 @@ struct ScreenshotSceneView: View {
         .onAppear {
             requestLandscapeForiPadScreenshots()
             showsActivityAnnouncement = ProcessInfo.processInfo.environment["OPENCLIENT_ACTIVITY_ANNOUNCEMENT"] == "1"
+                || ProcessInfo.processInfo.environment["OPENCLIENT_CURRENT_ANNOUNCEMENT"] == "1"
         }
         .sheet(isPresented: $showsActivityAnnouncement) {
-            if let release = OpenClientReleaseNotesCatalog.releases.first(where: { $0.hero == .activityWorkflow }) {
+            if let release = ProcessInfo.processInfo.environment["OPENCLIENT_CURRENT_ANNOUNCEMENT"] == "1"
+                ? OpenClientReleaseNotesCatalog.releases.last
+                : OpenClientReleaseNotesCatalog.releases.first(where: { $0.hero == .activityWorkflow }) {
                 OpenClientWhatsNewView(release: release,
                                       connection: viewModel.connectionFacade, bridge: nil) {
                     showsActivityAnnouncement = false

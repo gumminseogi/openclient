@@ -203,6 +203,7 @@ struct RootView<ChatDestination: View>: View {
                     games: shell.funAndGames,
                     bridge: bridge,
                     providerUsage: shell.providerUsage,
+                    usesSidebarLayout: horizontalSizeClass == .regular,
                     isActivitySelected: shell.isActivitySelected,
                     onActivityChosen: {
                         shell.selectActivity()

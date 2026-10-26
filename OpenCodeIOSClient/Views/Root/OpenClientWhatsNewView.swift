@@ -14,7 +14,18 @@ struct OpenClientWhatsNewView: View {
         NavigationStack {
             ScrollView {
                 Group {
-                    if release.hero == .activityWorkflow {
+                    if release.hero == .smootherConversations {
+                        VStack(alignment: .leading, spacing: 24) {
+                            OpenClientWhatsNewHero(
+                                version: release.version, title: release.title,
+                                summary: release.summary, hero: release.hero
+                            )
+                            ForEach(Array(release.features.enumerated()), id: \.element.id) { index, feature in
+                                OpenClientWhatsNewFeatureRow(feature: feature, styleIndex: index)
+                            }
+                        }
+                        .accessibilityIdentifier("new-features.smoother-conversations")
+                    } else if release.hero == .activityWorkflow {
                         OpenClientWhatsNewActivityWorkflow(release: release, store: connection.activityWorkflowStore)
                     } else if release.hero == .chatContinuity {
                         OpenClientWhatsNewChatContinuity(release: release, store: connection.appCustomizationStore)
@@ -41,6 +52,7 @@ struct OpenClientWhatsNewView: View {
                 .padding(.bottom, 24)
                 .frame(maxWidth: .infinity)
             }
+            .accessibilityIdentifier("new-features.scroll")
             .background(OpenCodePlatformColor.groupedBackground)
             .safeAreaInset(edge: .bottom) {
                 OpenClientWhatsNewFooter(onDone: onDone)
@@ -807,7 +819,7 @@ struct OpenClientWhatsNewHero: View {
                         OpenClientWhatsNewTalkMark()
                     case .openCodeV2:
                         OpenClientWhatsNewV2Mark()
-                    case .activityWorkflow:
+                    case .activityWorkflow, .smootherConversations:
                         ActivityAnnouncementHeroMark()
                     case .personalControl, .conversationControl, .chatContinuity:
                         Image(systemName: "slider.horizontal.3")

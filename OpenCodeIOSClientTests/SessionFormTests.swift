@@ -29,6 +29,59 @@ final class SessionFormTests: XCTestCase {
         XCTAssertThrowsError(try session.contract.answer(values: ["choice": .string("Same")]))
     }
 
+    func testCustomDraftSurvivesOptionChangesWithoutLeakingIntoAnswer() throws {
+        let session = try form(#"[{"key":"choice","type":"string","required":true,"custom":true,"options":[{"value":"a","label":"Option A"}]}]"#)
+        let canonical = SessionFormStore()
+        canonical.upsert(session)
+        let store = SessionFormStore(canonical: canonical)
+        let text = "First line\nSecond line"
+        store.setCustomAnswerDraft(text, fieldID: "choice", for: session.key)
+        store.setValue(.string(text), fieldID: "choice", for: session.key)
+        store.setValue(.string("a"), fieldID: "choice", for: session.key)
+        canonical.upsert(session)
+        XCTAssertEqual(store.state(for: session.key).customAnswerDrafts["choice"], text)
+        XCTAssertEqual(try session.contract.answer(values: store.state(for: session.key).draft), ["choice": .string("a")])
+        store.setValue(.string(text), fieldID: "choice", for: session.key)
+        XCTAssertEqual(try session.contract.answer(values: store.state(for: session.key).draft), ["choice": .string(text)])
+        canonical.settle(session.key)
+        XCTAssertTrue(store.state(for: session.key).customAnswerDrafts.isEmpty)
+    }
+
+    func testCustomDefaultIsRetainedAndEditingRemainsSceneLocal() throws {
+        let session = try form(#"[{"key":"choice","type":"string","custom":true,"default":"Custom default","options":[{"value":"a","label":"Option A"}]}]"#)
+        let canonical = SessionFormStore()
+        canonical.upsert(session)
+        let first = SessionFormStore(canonical: canonical)
+        let second = SessionFormStore(canonical: canonical)
+        first.setValue(.string("a"), fieldID: "choice", for: session.key)
+        XCTAssertEqual(first.state(for: session.key).customAnswerDrafts["choice"], "Custom default")
+        XCTAssertTrue(second.state(for: session.key).customAnswerDrafts.isEmpty)
+        XCTAssertEqual(try session.contract.answer(values: second.state(for: session.key).draft),
+            ["choice": .string("Custom default")])
+    }
+
+    func testPendingMultiselectTextParticipatesInValidationAndSubmissionWithoutAdd() throws {
+        let session = try form(#"[{"key":"choices","type":"multiselect","required":true,"custom":true,"minItems":1,"maxItems":2,"options":[{"value":"a","label":"Option A"}]},{"key":"details","type":"string","default":"visible","when":[{"key":"choices","op":"eq","value":"custom"}]}]"#)
+        let store = SessionFormStore()
+        store.upsert(session)
+        XCTAssertFalse(store.canSubmit(session))
+        store.setCustomAnswerDraft("custom", fieldID: "choices", for: session.key)
+        XCTAssertTrue(store.canSubmit(session))
+        XCTAssertEqual(try session.contract.answer(values: store.answerDraft(for: session)),
+            ["choices": .strings(["custom"]), "details": .string("visible")])
+        store.setValue(.array([.string("a")]), fieldID: "choices", for: session.key)
+        store.setCustomAnswerDraft("First line\nSecond line", fieldID: "choices", for: session.key)
+        XCTAssertEqual(try session.contract.answer(values: store.answerDraft(for: session)),
+            ["choices": .strings(["a", "First line\nSecond line"])])
+        store.setCustomAnswerDraft("a", fieldID: "choices", for: session.key)
+        XCTAssertEqual(try session.contract.answer(values: store.answerDraft(for: session)), ["choices": .strings(["a"])])
+        store.setCustomAnswerDraft(" \n ", fieldID: "choices", for: session.key)
+        XCTAssertEqual(try session.contract.answer(values: store.answerDraft(for: session)), ["choices": .strings(["a"])])
+        store.setValue(.array([.string("a"), .string("existing")]), fieldID: "choices", for: session.key)
+        store.setCustomAnswerDraft("third", fieldID: "choices", for: session.key)
+        XCTAssertFalse(store.canSubmit(session))
+    }
+
     func testNativeCustomMultiselectMembershipAndMissingNeq() throws {
         let session = try form(#"[{"key":"regions","type":"multiselect","options":[{"value":"eu","label":"Europe"}],"custom":true,"minItems":1,"maxItems":3},{"key":"count","type":"integer","default":2},{"key":"extra","type":"string","default":"active","when":[{"key":"regions","op":"eq","value":"custom"},{"key":"regions","op":"neq","value":"us"},{"key":"count","op":"eq","value":2}]}]"#)
         XCTAssertTrue(session.contract.isSupported())
@@ -151,6 +204,19 @@ final class SessionFormTests: XCTestCase {
         XCTAssertEqual(store.state(for: f.key).draft["count"], .string("1.5"))
         await coordinator.cancel(ctx)
         XCTAssertEqual(service.cancelCount, 1)
+        XCTAssertNil(store.forms[f.key])
+    }
+
+    func testCoordinatorSendsUncommittedMultiselectText() async throws {
+        let f = try form(#"[{"key":"choices","type":"multiselect","required":true,"custom":true,"options":[{"value":"a","label":"Option A"}]}]"#)
+        let store = SessionFormStore()
+        store.upsert(f)
+        store.setValue(.array([.string("a")]), fieldID: "choices", for: f.key)
+        store.setCustomAnswerDraft("First line\nSecond line", fieldID: "choices", for: f.key)
+        let service = FormFakeService()
+        await SessionFormCoordinator(store: store).submit(context(service, f))
+        XCTAssertEqual(service.replies.count, 1)
+        XCTAssertEqual(service.replies.first?.1, ["choices": .strings(["a", "First line\nSecond line"])])
         XCTAssertNil(store.forms[f.key])
     }
 

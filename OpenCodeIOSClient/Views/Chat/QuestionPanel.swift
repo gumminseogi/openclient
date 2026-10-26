@@ -38,6 +38,7 @@ private struct QuestionRequestCarousel: View {
     @State private var selectedQuestionIndex: Int? = 0
 
     var body: some View {
+        QuestionPresentation(id: request.id) {
         VStack(spacing: 12) {
             if request.questions.isEmpty {
                 Text("No questions were provided.")
@@ -49,12 +50,14 @@ private struct QuestionRequestCarousel: View {
                     .opencodeGlassSurface(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                     .padding(.horizontal, 16)
             } else {
+                ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
                     HStack(alignment: .bottom, spacing: 12) {
                         ForEach(request.questions.indices, id: \.self) { index in
                             let question = request.questions[index]
                             let key = storageKey(index: index)
 
+                            QuestionPageContent {
                             QuestionCarouselPage(
                                 question: question,
                                 index: index,
@@ -64,11 +67,11 @@ private struct QuestionRequestCarousel: View {
                                 onSelectOption: { option in
                                     select(option: option, for: question, key: key, index: index)
                                 },
-                                onSubmitCustomAnswer: {
-                                    advance(after: index)
+                                onUseCustomAnswer: {
+                                    answers[key] = []
                                 }
                             )
-                            .padding(14)
+                            }
                             .opencodeGlassSurface(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                             .containerRelativeFrame(.horizontal)
                             .id(index)
@@ -83,6 +86,10 @@ private struct QuestionRequestCarousel: View {
                 .scrollPosition(id: $selectedQuestionIndex)
                 .animation(opencodeSelectionAnimation, value: selectedQuestionIndex)
                 .accessibilityIdentifier("question.carousel.\(request.id)")
+                .onAppear {
+                    proxy.scrollTo(selectedQuestionIndex ?? 0, anchor: .center)
+                }
+                }
 
                 if request.questions.count > 1 {
                     QuestionPageIndicator(
@@ -111,6 +118,7 @@ private struct QuestionRequestCarousel: View {
             )
             .padding(.horizontal, 16)
         }
+        }
     }
 
     private func storageKey(index: Int) -> String {
@@ -122,7 +130,7 @@ private struct QuestionRequestCarousel: View {
             let key = storageKey(index: index)
             let hasSelectedOption = !answers[key, default: []].isEmpty
             let customAnswer = customAnswers[key, default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
-            if hasSelectedOption || !customAnswer.isEmpty {
+            if hasSelectedOption || (request.questions[index].custom != false && !customAnswer.isEmpty) {
                 count += 1
             }
         }
@@ -163,7 +171,6 @@ private struct QuestionRequestCarousel: View {
             selected.removeAll()
         } else {
             selected = [option]
-            customAnswers[key] = ""
         }
 
         withAnimation(opencodeSelectionAnimation) {
@@ -185,7 +192,7 @@ private struct QuestionRequestCarousel: View {
             let selected = answers[key, default: []]
             var values = question.options.map(\.label).filter(selected.contains)
             let custom = customAnswers[key, default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !custom.isEmpty {
+            if question.custom != false && !custom.isEmpty && (question.multiple || values.isEmpty) {
                 values.append(custom)
             }
             return values
@@ -200,7 +207,7 @@ private struct QuestionCarouselPage: View {
     let selectedOptions: Set<String>
     @Binding var customAnswer: String
     let onSelectOption: (String) -> Void
-    let onSubmitCustomAnswer: () -> Void
+    let onUseCustomAnswer: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -220,8 +227,10 @@ private struct QuestionCarouselPage: View {
 
             Text(question.question)
                 .font(.headline)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: 8) {
                 ForEach(question.options) { option in
@@ -236,12 +245,9 @@ private struct QuestionCarouselPage: View {
             }
 
             if question.custom != false {
-                TextField("Type your answer", text: $customAnswer)
-                    .submitLabel(index < questionCount - 1 ? .next : .done)
-                    .onSubmit(onSubmitCustomAnswer)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .opencodeGlassSurface(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                QuestionCustomAnswerEditor(text: $customAnswer,
+                    isActive: question.multiple || selectedOptions.isEmpty,
+                    onUseAnswer: onUseCustomAnswer)
             }
         }
         .padding(.horizontal, 2)
@@ -269,11 +275,13 @@ struct QuestionOptionButton: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .foregroundStyle(.primary)
+                        .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
                     if !detail.isEmpty {
                         Text(detail)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }

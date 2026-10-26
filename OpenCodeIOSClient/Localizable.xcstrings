@@ -1,6 +1,24 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Your favorite tools, permission controls, and projects are easier to reach.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "I tuoi strumenti preferiti, i controlli delle autorizzazioni e i progetti sono più accessibili." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Suas ferramentas favoritas, os controles de permissões e os projetos estão mais acessíveis." } } } },
+    "Tools within reach": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Strumenti a portata di mano" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Ferramentas ao seu alcance" } } } },
+    "Open photos, files, and chat tools from the plus button in both composer styles. Pin skills beside your favorite commands.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Apri foto, file e strumenti della chat dal pulsante più in entrambi gli stili di composizione. Fissa le skill accanto ai tuoi comandi preferiti." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Abra fotos, arquivos e ferramentas de chat pelo botão de mais nos dois estilos de composição. Fixe habilidades ao lado dos seus comandos favoritos." } } } },
+    "Permission control per chat": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Controllo delle autorizzazioni per chat" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Controle de permissões por chat" } } } },
+    "Turn automatic permission approval on or off from the chat header on supported servers.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Attiva o disattiva l’approvazione automatica delle autorizzazioni dall’intestazione della chat sui server supportati." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Ative ou desative a aprovação automática de permissões pelo cabeçalho do chat nos servidores compatíveis." } } } },
+    "A tidier project list": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Un elenco progetti più ordinato" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Uma lista de projetos mais organizada" } } } },
+    "Enjoy a cleaner sidebar and hide projects directly with Remove from List.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Una barra laterale più pulita e la possibilità di nascondere i progetti direttamente con Rimuovi dall’elenco." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Aproveite uma barra lateral mais limpa e oculte projetos diretamente com Remover da lista." } } } },
+    "Auto-approve permissions" : { "comment" : "Session-only toggle allowing all tool permission checks.", "localizations" : { "it" : { "stringUnit" : { "state" : "translated", "value" : "Approva automaticamente le autorizzazioni" } }, "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Aprovar permissões automaticamente" } } } },
+    "Smoother conversations": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Conversazioni più fluide" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Conversas mais fluidas" } } } },
+    "Less waiting. More room to answer.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Meno attese. Più spazio per rispondere." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Menos espera. Mais espaço para responder." } } } },
+    "Lighter streaming": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Streaming più leggero" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Streaming mais leve" } } } },
+    "Long conversations do less work as replies arrive, especially with grouped tools.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Le conversazioni lunghe richiedono meno elaborazione mentre arrivano le risposte, soprattutto con gli strumenti raggruppati." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Conversas longas exigem menos processamento enquanto as respostas chegam, especialmente com ferramentas agrupadas." } } } },
+    "Room to answer": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Spazio per rispondere" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Espaço para responder" } } } },
+    "Expand questions, write multiline answers, and keep your drafts. Custom answers join multiple selections automatically.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Espandi le domande, scrivi risposte su più righe e conserva le bozze. Le risposte personalizzate vengono incluse automaticamente nelle selezioni multiple." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Expanda perguntas, escreva respostas em várias linhas e mantenha seus rascunhos. Respostas personalizadas são incluídas automaticamente nas seleções múltiplas." } } } },
+    "Ready for iPhone Duo": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Pronto per iPhone Duo" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Pronto para o iPhone Duo" } } } },
+    "Built with the iOS 27.1 SDK for full-display support on iPhone Duo.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Compilato con l’SDK di iOS 27.1 per supportare l’intero display di iPhone Duo." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Compilado com o SDK do iOS 27.1 para aproveitar toda a tela do iPhone Duo." } } } },
+    "Expand Questions": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Espandi domande" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Expandir perguntas" } } } },
+    "Use Custom Answer": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Usa risposta personalizzata" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Usar resposta personalizada" } } } },
     "Today": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Oggi" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Hoje" } } } },
     "Make room for what’s next.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Fai spazio a ciò che viene dopo." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Abra espaço para o próximo passo." } } } },
     "Spot unread replies and organize your conversations around the way you work.": { "localizations": { "it": { "stringUnit": { "state": "translated", "value": "Trova le risposte non lette e organizza le conversazioni in base al tuo modo di lavorare." } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Encontre respostas não lidas e organize suas conversas do seu jeito." } } } },
@@ -17612,6 +17630,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remover"
+          }
+        }
+      }
+    },
+    "Remove from List" : {
+      "comment" : "Hides a project from the list on this device; it can be restored in Edit. Does not delete files or sessions.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove from List"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rimuovi dall’elenco"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remover da lista"
           }
         }
       }

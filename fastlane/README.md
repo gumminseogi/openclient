@@ -63,6 +63,14 @@ Print the latest TestFlight build number for a version
 
 Submit the current build to App Store Connect
 
+### ios submit_review
+
+```sh
+[bundle exec] fastlane ios submit_review
+```
+
+Submit an uploaded build and its existing metadata to App Review
+
 ### ios metadata_check
 
 ```sh

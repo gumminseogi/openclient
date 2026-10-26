@@ -1,1 +1,1 @@
-Follow your assistant with a new 3D status indicator, review per-response file changes on OpenCode v2, and explore your chat history with smoother scrolling.
+Your tools, closer at hand. Pin skills, manage permissions per chat, and keep projects tidy while coding with OpenCode on the go.

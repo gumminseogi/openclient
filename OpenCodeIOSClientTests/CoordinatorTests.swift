@@ -789,6 +789,62 @@ final class CoordinatorTests: XCTestCase {
         XCTAssertEqual(application.state.messages.first?.parts.first?.text, "Hello world")
     }
 
+    func testMeasureLongTranscriptStreamingBatch() {
+        let coordinator = EventSyncCoordinator()
+        let session = makeSession(id: "stream-benchmark", directory: "/profiling")
+        let messages = (0..<2_000).map { index in
+            OpenCodeMessageEnvelope.local(role: "assistant", text: "Completed transcript \(index)",
+                messageID: "message-\(index)", sessionID: session.id, partID: "part-\(index)")
+        }
+        var sync = OpenCodeDirectorySyncState()
+        sync.replaceMessagesPreservingOrder(messages, forSessionID: session.id)
+        let state = EventSyncCoordinator.DirectoryEventState(sessions: [session], selectedSession: session,
+            sessionStatuses: [session.id: "busy"], syncState: sync, messages: messages,
+            todos: [], permissions: [], questions: [])
+        let events = (1...16).map { offset in
+            OpenCodeTypedEvent.messagePartDelta(sessionID: session.id, messageID: "message-\(2_000 - offset)",
+                partID: "part-\(2_000 - offset)", field: "text", delta: " streaming")
+        }
+        var result = state
+        measure {
+            for _ in 0..<10 { result = coordinator.applyDirectoryEvents(events, to: state).state }
+        }
+        XCTAssertEqual(result.messages.count, messages.count)
+        XCTAssertEqual(result.messages.last?.parts.first?.text, "Completed transcript 1999 streaming")
+    }
+
+    func testBatchProjectionMatchesIndividualEventsAcrossMessageAndSessionLifecycle() {
+        let coordinator = EventSyncCoordinator()
+        let session = makeSession(id: "selected", directory: "/profiling")
+        let background = makeSession(id: "background", directory: "/profiling")
+        let initial = OpenCodeMessageEnvelope.local(role: "assistant", text: "Initial",
+            messageID: "message", sessionID: session.id, partID: "part")
+        var sync = OpenCodeDirectorySyncState()
+        sync.replaceMessagesPreservingOrder([initial], forSessionID: session.id)
+        let state = EventSyncCoordinator.DirectoryEventState(sessions: [session, background], selectedSession: session,
+            sessionStatuses: [:], syncState: sync, messages: [initial], todos: [], permissions: [], questions: [])
+        let replacement = OpenCodePart(id: "reasoning", messageID: "message", sessionID: session.id,
+            type: "reasoning", mime: nil, filename: nil, url: nil, reason: nil, tool: nil, callID: nil, state: nil, text: "Reasoning")
+        let events: [OpenCodeTypedEvent] = [
+            .messagePartDelta(sessionID: session.id, messageID: "message", partID: "missing", field: "text", delta: "ignored"),
+            .messagePartDelta(sessionID: session.id, messageID: "message", partID: "part", field: "text", delta: " appended"),
+            .messagePartRemoved(messageID: "message", partID: "part"),
+            .messagePartUpdated(replacement),
+            .messagePartDelta(sessionID: session.id, messageID: "message", partID: "reasoning", field: "text", delta: " continues"),
+            .messageUpdated(OpenCodeMessage(id: "background-message", role: "assistant", sessionID: background.id,
+                time: nil, agent: nil, model: nil)),
+            .sessionIdle(sessionID: session.id),
+            .messageRemoved(sessionID: session.id, messageID: "message"),
+            .sessionDeleted(session)
+        ]
+        for count in 1...events.count {
+            let prefix = Array(events.prefix(count))
+            let expected = prefix.reduce(state) { coordinator.applyDirectoryEvents([$1], to: $0).state }
+            let actual = coordinator.applyDirectoryEvents(prefix, to: state).state
+            XCTAssertEqual(actual, expected, "Batch prefix \(count) must preserve event order and selected transcript")
+        }
+    }
+
     func testEventSyncCoordinatorDoesNotNeedVisibleMessagesToApplySelectedDelta() {
         let coordinator = EventSyncCoordinator()
         let selected = makeSession(id: "ses_selected", directory: "/tmp/project")

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BackendFormFieldEditor: View {
     let field: BackendFormField
+    var customDraft: Binding<String>? = nil
     @Binding var value: OpenCodeJSONValue?
     var usesQuestionStyle = false
     var onSelectAnswer: () -> Void = {}
@@ -10,8 +11,10 @@ struct BackendFormFieldEditor: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(usesQuestionStyle ? field.raw["description"]?.v2ConfigurationString ?? field.title : field.title)
                 .font(.headline)
-                .multilineTextAlignment(usesQuestionStyle ? .center : .leading)
-                .frame(maxWidth: .infinity, alignment: usesQuestionStyle ? .center : .leading)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if !usesQuestionStyle, let description = field.raw["description"]?.v2ConfigurationString {
                 Text(description).font(.caption).foregroundStyle(.secondary)
             }
@@ -37,16 +40,21 @@ struct BackendFormFieldEditor: View {
                 if field.allowsCustom {
                     if field.type == "multiselect" {
                         BackendFormCustomSelectionsEditor(value: $value, options: field.options,
-                            usesQuestionStyle: usesQuestionStyle)
+                            customDraft: customDraft)
                     } else {
-                        BackendFormTextEditor(field: field, value: $value, usesQuestionStyle: usesQuestionStyle)
+                        BackendFormTextEditor(field: field, value: $value, usesQuestionStyle: usesQuestionStyle,
+                            customDraft: customDraft)
                     }
                 }
             } else {
                 BackendFormTextEditor(field: field, value: $value, usesQuestionStyle: usesQuestionStyle)
             }
             if !field.required {
-                Button("Not Set") { value = nil }.disabled(value == nil)
+                Button("Not Set") {
+                    value = nil
+                    if field.type == "multiselect" { customDraft?.wrappedValue = "" }
+                }
+                .disabled(value == nil && (field.type != "multiselect" || (customDraft?.wrappedValue ?? "").isEmpty))
             }
         }
         .accessibilityElement(children: .contain)
@@ -58,8 +66,24 @@ private struct BackendFormTextEditor: View {
     let field: BackendFormField
     @Binding var value: OpenCodeJSONValue?
     var usesQuestionStyle = false
+    var customDraft: Binding<String>? = nil
 
     var body: some View {
+        if usesQuestionStyle && field.type == "string", let customDraft {
+            QuestionCustomAnswerEditor(text: Binding(
+                get: {
+                    if let value, !field.options.contains(where: { $0["value"]?.v2FormEquals(value) == true }) {
+                        return value.stringValue ?? customDraft.wrappedValue
+                    }
+                    return customDraft.wrappedValue
+                },
+                set: { text in
+                    customDraft.wrappedValue = text
+                    value = .string(text)
+                }
+            ), isActive: value != nil && value != .null && !field.options.contains { $0["value"]?.v2FormEquals(value ?? .null) == true },
+                onUseAnswer: { value = .string(customDraft.wrappedValue) })
+        } else {
         TextField(field.raw["placeholder"]?.v2ConfigurationString ?? field.title, text: Binding(
             get: {
                 if usesQuestionStyle && field.options.contains(where: { $0["value"]?.v2FormEquals(value ?? .null) == true }) {
@@ -82,6 +106,7 @@ private struct BackendFormTextEditor: View {
         #if os(iOS)
         .keyboardType(field.type == "number" || field.type == "integer" ? .numbersAndPunctuation : .default)
         #endif
+        }
     }
 }
 
@@ -143,9 +168,8 @@ private struct BackendFormOptionsEditor: View {
 private struct BackendFormCustomSelectionsEditor: View {
     @Binding var value: OpenCodeJSONValue?
     let options: [[String: OpenCodeJSONValue]]
-    let usesQuestionStyle: Bool
+    var customDraft: Binding<String>? = nil
     @State private var text = ""
-    @FocusState private var isFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -160,33 +184,24 @@ private struct BackendFormCustomSelectionsEditor: View {
                     }
                 }
             }
-            HStack {
-                TextField("Type your answer", text: $text)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .focused($isFocused)
-                    .submitLabel(.done)
-                    .onSubmit(addSelection)
-                Button("Add", action: addSelection)
-                    .disabled(text.isEmpty)
-            }
-            .padding(.horizontal, usesQuestionStyle ? 14 : 0)
-            .padding(.vertical, usesQuestionStyle ? 12 : 0)
-            .background {
-                if usesQuestionStyle {
-                    Color.clear.opencodeGlassSurface(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            VStack(alignment: .leading, spacing: 8) {
+                QuestionCustomAnswerEditor(text: customDraft ?? $text)
+                if customDraft == nil {
+                    Button("Add", action: addSelection)
+                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
     }
 
     private func addSelection() {
-        guard !text.isEmpty else { return }
+        let answer = customDraft?.wrappedValue ?? text
+        guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         var selections = value?.arrayValue ?? []
-        let next = OpenCodeJSONValue.string(text)
+        let next = OpenCodeJSONValue.string(answer)
         if !selections.contains(where: { $0.v2FormEquals(next) == true }) { selections.append(next) }
         value = .array(selections)
         text = ""
-        isFocused = false
+        customDraft?.wrappedValue = ""
     }
 }
