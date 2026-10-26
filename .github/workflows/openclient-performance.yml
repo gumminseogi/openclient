@@ -203,6 +203,7 @@ jobs:
             ${{ env.OPENCLIENT_RESULTS }}/*-attachments/**/*.txt
             ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.json
             ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.jsonl
+            ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.ips
             ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.log
             ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.txt
             ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.png
