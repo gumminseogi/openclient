@@ -94,12 +94,20 @@ struct BackendModelCatalog: Sendable {
 }
 
 @MainActor protocol BackendSessionsService: Sendable {
+    func childSessions(parentID: String, scope: BackendScope, cursor: String?) async throws -> BackendSessionPage
     func sessions(scope: BackendScope, cursor: String?, limit: Int, roots: Bool) async throws -> BackendSessionPage
     func session(id: String, scope: BackendScope) async throws -> OpenCodeSession
     func createSession(_ request: BackendSessionCreation) async throws -> OpenCodeSession
     func renameSession(id: String, title: String, scope: BackendScope) async throws -> OpenCodeSession
     func deleteSession(id: String, scope: BackendScope) async throws
     func searchSessions(query: String, scope: BackendScope, limit: Int) async throws -> [OpenCodeSession]
+}
+
+extension BackendSessionsService {
+    func childSessions(parentID: String, scope: BackendScope, cursor: String?) async throws -> BackendSessionPage {
+        let page = try await sessions(scope: scope, cursor: cursor, limit: 100, roots: false)
+        return BackendSessionPage(sessions: page.sessions.filter { $0.parentID == parentID }, nextCursor: page.nextCursor)
+    }
 }
 
 @MainActor protocol BackendSessionActivityService: Sendable {

@@ -1146,6 +1146,19 @@ final class OpenCodeAPIClientTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(OpenCodeToolMetadata.self, from: JSONEncoder().encode(metadata)), metadata)
     }
 
+    func testV2ChildSessionsFilterByParentAndPreserveOutcome() async throws {
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/api/session")
+            let query = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+            XCTAssertEqual(query.first { $0.name == "parentID" }?.value, "ses_parent")
+            let body = #"{"data":[{"id":"ses_child","parentID":"ses_parent","projectID":"p","title":"Review","outcome":"failed","location":{"directory":"/repo"},"time":{"created":1,"updated":2}}]}"#
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
+        }
+        let page = try await makeProbeClient().listV2Sessions(projectID: "p", directory: "/repo", parentID: "ses_parent")
+        XCTAssertEqual(page.sessions.first?.outcome, "failed")
+        XCTAssertEqual(page.sessions.first?.parentID, "ses_parent")
+    }
+
     func testV2SessionActionsUseRenameForkSelectionAndCompactContracts() async throws {
         var paths: [String] = []
         MockURLProtocol.requestHandler = { request in

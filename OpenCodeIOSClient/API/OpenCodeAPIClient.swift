@@ -135,6 +135,7 @@ private struct OpenCodeV2Session: Decodable, Sendable {
     let time: Time
     let agent: String?
     let model: OpenCodeV2ModelReference?
+    let outcome: String?
     let metadata: [String: OpenCodeJSONValue]?
     let permissions: [OpenCodePermissionRule]?
 
@@ -149,6 +150,7 @@ private struct OpenCodeV2Session: Decodable, Sendable {
         )
         session.time = OpenCodeMessageTime(created: time.created, updated: time.updated, archived: time.archived, idle: time.idle, viewed: time.viewed)
         session.agent = agent
+        session.outcome = outcome
         session.metadata = metadata
         session.permissions = permissions
         session.model = model.map { OpenCodeMessageModelReference(providerID: $0.providerID, modelID: $0.id, variant: $0.variant) }
@@ -1238,7 +1240,8 @@ struct OpenCodeAPIClient: Sendable {
         cursor: String? = nil,
         limit: Int = 50,
         workspaceID: String? = nil,
-        roots: Bool = true
+        roots: Bool = true,
+        parentID: String? = nil
     ) async throws -> OpenCodeV2SessionPage {
         guard limit > 0 else { throw OpenCodeV2TransportError.invalidPageLimit }
         var queryItems = [URLQueryItem(name: "limit", value: String(limit))]
@@ -1253,7 +1256,9 @@ struct OpenCodeAPIClient: Sendable {
             } else {
                 queryItems.insert(URLQueryItem(name: "project", value: projectID), at: 0)
             }
-            if roots {
+            if let parentID {
+                queryItems.insert(URLQueryItem(name: "parentID", value: parentID), at: 1)
+            } else if roots {
                 queryItems.insert(URLQueryItem(name: "parentID", value: "null"), at: 1)
             }
             if let workspaceID, !workspaceID.isEmpty {

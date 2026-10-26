@@ -2,14 +2,17 @@ import SwiftUI
 
 #if os(iOS) && !targetEnvironment(macCatalyst)
 struct ChatHeaderMenu: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var facade: ChatFacade
     let session: OpenCodeSession
     let containerWidth: CGFloat
     let containerHeight: CGFloat
     let glassNamespace: Namespace.ID
     var maximumWidth: CGFloat = 220
+    var onOpenAgents: () -> Void = {}
     var onPresentationChange: (Bool) -> Void = { _ in }
     @State private var scope: ChatFacade.HeaderScope?
+    @State private var pendingAgentsScope: ChatFacade.HeaderScope?
     @StateObject private var panel = ChatHeaderPanelState()
     private let panelCornerRadius: CGFloat = 40
 
@@ -39,11 +42,28 @@ struct ChatHeaderMenu: View {
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityIdentifier("chat.header")
         .popover(item: popoverScope, attachmentAnchor: .rect(.bounds), arrowEdge: .top) { scope in
-            ChatHeaderPanel(facade: facade, scope: scope, panel: panel)
+            ChatHeaderPanel(facade: facade, scope: scope, panel: panel, onOpenAgents: {
+                pendingAgentsScope = scope
+                dismissPopover()
+            })
                 .frame(width: max(1, containerWidth - 32), height: min(600, max(1, containerHeight - 16)))
                 .containerShape(RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous))
                 .presentationCornerRadius(panelCornerRadius)
+                .presentationBackground {
+                    Color.clear
+                        .opencodeGlassSurface(
+                            tint: colorScheme == .dark ? .black.opacity(0.65) : .white.opacity(0.35),
+                            in: RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
+                        )
+                }
                 .presentationCompactAdaptation(.popover)
+                .preferredColorScheme(colorScheme)
+                .onDisappear {
+                    guard let pending = pendingAgentsScope else { return }
+                    pendingAgentsScope = nil
+                    guard facade.isCurrentHeaderScope(pending) else { return }
+                    onOpenAgents()
+                }
         }
         .onChange(of: facade.promptContextID) { dismissPopover() }
         .onChange(of: facade.selectedSession?.id) { dismissPopover() }
@@ -88,10 +108,11 @@ private struct ChatHeaderPanel: View {
     let facade: ChatFacade
     let scope: ChatFacade.HeaderScope
     @ObservedObject var panel: ChatHeaderPanelState
+    let onOpenAgents: () -> Void
 
     var body: some View {
         TabView(selection: $panel.tab) {
-            ChatHeaderPopover(facade: facade, scope: scope, title: $panel.title)
+            ChatHeaderPopover(facade: facade, scope: scope, title: $panel.title, onOpenAgents: onOpenAgents)
                 .tabItem { Label("Chat", systemImage: "bubble.left") }
                 .tag(ChatHeaderPanelState.Tab.chat)
             NavigationStack {
@@ -151,6 +172,7 @@ private struct ChatHeaderPopover: View {
     let scope: ChatFacade.HeaderScope
     @Environment(\.dismiss) private var dismiss
     @Binding var title: String
+    let onOpenAgents: () -> Void
     @State private var saving = false
     @State private var changingLiveActivity = false
     @State private var changingYOLOMode = false
@@ -208,6 +230,17 @@ private struct ChatHeaderPopover: View {
                             .foregroundStyle(.primary)
                     }
                     .accessibilityIdentifier("chat.header.appearance")
+                    Button(action: onOpenAgents) {
+                        HStack {
+                            Label("Subagents", systemImage: "person.2")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .accessibilityIdentifier("chat.header.subagents")
                     if facade.supportsSessionTools(scope), scope.session.parentID == nil {
                         Button { showsMoveSession = true } label: {
                             Label("Move Session", systemImage: "folder.badge.arrow.forward")

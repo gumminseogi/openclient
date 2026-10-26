@@ -2355,6 +2355,7 @@ struct ChatView: View {
     let presentationRequest: Int
     private let onDismissChildSession: (() -> Void)?
     private let isDedicatedWindow: Bool
+    private let usesSheetNavigation: Bool
 
     @MainActor
     init(
@@ -2366,7 +2367,8 @@ struct ChatView: View {
         presentationRequest: Int = 0,
         onDismissChildSession: (() -> Void)? = nil,
         preferredDirectoryKey: String? = nil,
-        isDedicatedWindow: Bool = false
+        isDedicatedWindow: Bool = false,
+        usesSheetNavigation: Bool = false
     ) {
         _connectionStore = ObservedObject(wrappedValue: chatFacade.connectionStore)
         _projectStore = ObservedObject(wrappedValue: chatFacade.projectStore)
@@ -2396,6 +2398,7 @@ struct ChatView: View {
         self.presentationRequest = presentationRequest
         self.onDismissChildSession = onDismissChildSession
         self.isDedicatedWindow = isDedicatedWindow
+        self.usesSheetNavigation = usesSheetNavigation
     }
 
     @Namespace private var toolbarGlassNamespace
@@ -2411,6 +2414,7 @@ struct ChatView: View {
     @State private var taskSessionDetent: PresentationDetent = .medium
     @State private var showingTodoInspector = false
     @State private var showingContextMetrics = false
+    @State private var showingAgents = false
     @State private var additionalLeadingMessageCount = 0
     @State private var historyLoadTask: Task<Void, Never>?
     @State private var historyLoadFailed = false
@@ -2831,6 +2835,12 @@ struct ChatView: View {
 
     private var chatPresentationContent: some View {
         chatTranscriptContent
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !showsImmersiveConversation {
+                AgentActivityBar(facade: chatFacade, parent: liveSession, isPresented: $showingAgents)
+                    .frame(maxWidth: chatContentMaximumWidth)
+            }
+        }
         .background {
             ChatSessionReadObserver(facade: chatFacade, session: liveSession, isEnabled: !isScreenshotScene)
         }
@@ -2871,6 +2881,7 @@ struct ChatView: View {
         .task(id: [sessionID, connectionStore.isConnected ? "connected" : "disconnected"]) {
             guard connectionStore.isConnected, !isScreenshotScene else { return }
             await chatFacade.hydrateSessionForPresentation(liveSession)
+            try? await chatFacade.hydrateAgentActivity(parent: liveSession)
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { chatFacade.cancelSessionSwitcher(for: sessionID) }
@@ -2967,6 +2978,9 @@ struct ChatView: View {
                 SessionContextMetricsSheet(session: liveSession, metrics: contextMetrics)
             }
             .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showingAgents) {
+            AgentActivitySheet(facade: chatFacade, parent: liveSession, imageContent: imageContent, videoStreams: videoStreams)
         }
         .sheet(item: $selectedAttachmentPreview) { attachment in
             NavigationStack {
@@ -5459,7 +5473,7 @@ struct ChatView: View {
         headerSnapshot: ChatFacade.ChatSessionHeaderSnapshot,
         toolbarSnapshot: ChatFacade.ToolbarSnapshot
     ) -> some ToolbarContent {
-        if headerSnapshot.isChildSession {
+        if headerSnapshot.isChildSession && !usesSheetNavigation {
             ToolbarItem(placement: .opencodeLeading) {
                 if let parentSession = headerSnapshot.parentSession {
                     Button("Back") {
@@ -5491,6 +5505,7 @@ struct ChatView: View {
                     containerWidth: chatViewportWidth, containerHeight: chatViewportHeight,
                     glassNamespace: toolbarGlassNamespace,
                     maximumWidth: headerWidth - 44 - headerBudget.spacing,
+                    onOpenAgents: { showingAgents = true },
                     onPresentationChange: { isPresented in
                         if isPresented {
                             pinnedHeaderUsesAssistantLayout = usesAssistantComposerLayout

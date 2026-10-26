@@ -812,6 +812,12 @@ final class DirectoryStore: ObservableObject {
         guard let sessionID = event.sessionID, let data = event.data.objectValue else { return false }
         if event.isExecutionStarted || event.isExecutionTerminal || event.type == "session.retry.scheduled" {
             applySessionStatus(event.isExecutionTerminal ? "idle" : "busy", forSessionID: sessionID)
+            if var session = sessions.first(where: { $0.id == sessionID }) {
+                if event.type.hasPrefix("session.execution.") {
+                    session.outcome = event.isExecutionTerminal ? event.type.components(separatedBy: ".").last : nil
+                }
+                insertV2Session(session)
+            }
             return true
         }
         switch event.type {
@@ -851,6 +857,7 @@ final class DirectoryStore: ObservableObject {
                 completed: previous?.time?.completed, archived: previous?.time?.archived, streamed: previous?.time?.streamed,
                 idle: previous?.time?.idle, viewed: previous?.time?.viewed)
             session.agent = previous?.agent
+            session.outcome = previous?.outcome
             session.model = previous?.model
             session.metadata = data["metadata"]?.objectValue ?? previous?.metadata
             session.permissions = previous?.permissions

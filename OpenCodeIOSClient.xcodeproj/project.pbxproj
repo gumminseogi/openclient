@@ -143,6 +143,7 @@
 		2F75E03D122089D50A3902F2 /* AppViewModel+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFC0BC6B94598163839BEB51 /* AppViewModel+Connection.swift */; };
 		2FACA9244AB1AE40ED155E17 /* GlobalFormsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 291BD2886BC66043E8797E85 /* GlobalFormsView.swift */; };
 		300D3F9E5CB278849683EB16 /* CreateProjectSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A646955CA36C75DE45C03244 /* CreateProjectSheet.swift */; };
+		3059C2C9FFA5DAB23A4F2107 /* AgentActivitySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF4766ABADB64FFDDE8270A /* AgentActivitySnapshot.swift */; };
 		30A58796332C954C17E0CB97 /* OpenClientWhatsNewChatContinuity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A8CA473A6EF8BA388D5CB7 /* OpenClientWhatsNewChatContinuity.swift */; };
 		321638BBE7A18531EC8C0D19 /* OpenClientBridgeFacade.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EC76BC9889FDF969E21C0D9 /* OpenClientBridgeFacade.swift */; };
 		33180389E86943B5F39590F7 /* ProjectFacade.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ABEA4AEB0C391962E9F1732 /* ProjectFacade.swift */; };
@@ -152,6 +153,7 @@
 		33D639D324CB7874C62439FF /* OpenCodeServerPasswordStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4AA5B93EFBA292AE8B56323 /* OpenCodeServerPasswordStore.swift */; };
 		34794B64729B193A886B9CCB /* OpenClientBridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75F67DCF7EB28089F1B4921 /* OpenClientBridgeClient.swift */; };
 		347DFB37BE6A4031EDD2D1E8 /* OpenClientImageContentClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17F84EFBC908F1A66893F29E /* OpenClientImageContentClient.swift */; };
+		34B0F24183287BEFF369C234 /* AgentActivitySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF4766ABADB64FFDDE8270A /* AgentActivitySnapshot.swift */; };
 		34C71E4D793E17AA310702BD /* ImmersiveConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8043CC26BECEE0EE6C66822E /* ImmersiveConversationView.swift */; };
 		34FCC0068A3C45FBC2DD9F02 /* LocalizationCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9BAD0F6B4786E5C70B7470E /* LocalizationCatalogTests.swift */; };
 		35DCF267C4C2DAB5E60F51BD /* HighlightedCodeBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF94B5E41A401DD9128A7BD7 /* HighlightedCodeBlock.swift */; };
@@ -585,6 +587,7 @@
 		CCD5D54CE02A368BB4392F6B /* ModelConfigurationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C847B3DDA9DF55E2B09D71A /* ModelConfigurationStore.swift */; };
 		CCECDD9AD6E18B8AC53F0AA2 /* DetailTextBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C2EE024F2F7A8144C58C48 /* DetailTextBlock.swift */; };
 		CD21C8A2BEF609CEBC95ADFE /* OpenCodeChatActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C971B49980524A841E5689 /* OpenCodeChatActivityIntents.swift */; };
+		CD46A2DFC9291EC6C6A760DF /* AgentActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 066BDD03A5A1FF92B6D7D709 /* AgentActivityView.swift */; };
 		CDB667EAE52EB2E9343CA20E /* RecentChatPreloadQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8094A4D309B9A725C4D4A66D /* RecentChatPreloadQueue.swift */; };
 		CE04BCD4856BB7F7EA1A79CA /* OpenClientComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = E181FB36BDC13D26D98AAC7B /* OpenClientComposition.swift */; };
 		CE1242D870C7D5AF2D22CBFA /* Liquidy.icon in Resources */ = {isa = PBXBuildFile; fileRef = D3A80743ECA47633667C38C6 /* Liquidy.icon */; };
@@ -638,6 +641,7 @@
 		DF20211300A360358D8CD008 /* OpenCodePinnedSessionsWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6D3A617DDC5EA76D32D6B46 /* OpenCodePinnedSessionsWidget.swift */; };
 		E007ED3F1875C2606C3EFD42 /* OpenClientVisualHTMLView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8FF622353E4DB353B8F127 /* OpenClientVisualHTMLView.swift */; };
 		E0618F3F267957A90EC83E01 /* AppViewModel+Screenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A00C1F7850265F54ECFFEDD /* AppViewModel+Screenshots.swift */; };
+		E0786EC973B0F99D3CB2C06C /* AgentActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 066BDD03A5A1FF92B6D7D709 /* AgentActivityView.swift */; };
 		E0C4F1285B595673768D8FD7 /* ExcalidrawWeb in Resources */ = {isa = PBXBuildFile; fileRef = F6FE115B6A4610B62E89FB91 /* ExcalidrawWeb */; };
 		E0CCA057B21C091789CD42B6 /* ResponseTurnCaptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234DDD66D3E541DE272CD34A /* ResponseTurnCaptionTests.swift */; };
 		E0D733BA3E2F09BE456A2459 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 4F7E5022ED5EC6307B304ACF /* Localizable.xcstrings */; };
@@ -778,6 +782,7 @@
 		04820AC7A37C8876C322AE1F /* ThinkingRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThinkingRow.swift; sourceTree = "<group>"; };
 		04ED479890837C4D4DA38E1A /* TerminalFacade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFacade.swift; sourceTree = "<group>"; };
 		05CC2F75F73B3A2F9FF5DD8E /* OpenCodeWidgetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeWidgetStore.swift; sourceTree = "<group>"; };
+		066BDD03A5A1FF92B6D7D709 /* AgentActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityView.swift; sourceTree = "<group>"; };
 		078F5EE4FD7BEBB9BEBAC187 /* ActivityFacade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityFacade.swift; sourceTree = "<group>"; };
 		08243272D9EC292C4D40C25F /* ActivityAnnouncementUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityAnnouncementUITests.swift; sourceTree = "<group>"; };
 		0A12655A661F6CDB3DA5E09A /* CommerceFacade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommerceFacade.swift; sourceTree = "<group>"; };
@@ -931,6 +936,7 @@
 		6A3CDF1A5CC5EBD38065F132 /* GitDiffView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffView.swift; sourceTree = "<group>"; };
 		6B262E0710839D409FD4196F /* SessionDeletionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDeletionUITests.swift; sourceTree = "<group>"; };
 		6B7B1192FE671A3BFD74BC60 /* ActivityWorkflowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityWorkflowTests.swift; sourceTree = "<group>"; };
+		6DF4766ABADB64FFDDE8270A /* AgentActivitySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivitySnapshot.swift; sourceTree = "<group>"; };
 		6E930BD4E4920A8405E44542 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		6F18C308F94839674E03B69E /* OpenCodeMacClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OpenCodeMacClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		6FBBD74E36CF619A9877A927 /* ChatFacadeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFacadeTests.swift; sourceTree = "<group>"; };
@@ -1236,6 +1242,7 @@
 			isa = PBXGroup;
 			children = (
 				078F5EE4FD7BEBB9BEBAC187 /* ActivityFacade.swift */,
+				6DF4766ABADB64FFDDE8270A /* AgentActivitySnapshot.swift */,
 				AB8DEB0B751A39E08D6408B4 /* AppShellFacade.swift */,
 				03CE04CDDF9ABA662BB60F3A /* ChatFacade.swift */,
 				605B5BEB6E4601130AA9A7C5 /* ConfigurationsFacade.swift */,
@@ -1781,6 +1788,7 @@
 			children = (
 				01963F5690646B83264E6322 /* ActivityDetailView.swift */,
 				D173E5CA44E0FAA00024A7DC /* ActivityRow.swift */,
+				066BDD03A5A1FF92B6D7D709 /* AgentActivityView.swift */,
 				638D31E01C9E7027BBEF7770 /* AgentToolbarMenu.swift */,
 				EFDB7AC3D25475803608C6C6 /* ChatAppearanceSettingsView.swift */,
 				EC61FC8D9D3F923A6C41F1AC /* ChatDebugProbeSheet.swift */,
@@ -2415,6 +2423,8 @@
 				66CAD4918AAA2788C14B2B79 /* ActivityWorkflowScreenshotBackend.swift in Sources */,
 				7C352D75E0B9B2E22FFCD9BC /* ActivityWorkflowStore.swift in Sources */,
 				FA77550B9B760A9B1C2C41F9 /* ActivityWorkflowView.swift in Sources */,
+				3059C2C9FFA5DAB23A4F2107 /* AgentActivitySnapshot.swift in Sources */,
+				CD46A2DFC9291EC6C6A760DF /* AgentActivityView.swift in Sources */,
 				2038F8CE9E50BC87ED9AC57E /* AgentToolbarMenu.swift in Sources */,
 				3C86C26AF4917AFBCA3FA84E /* AppAppearance.swift in Sources */,
 				DC4DA1CEA9FB5FBC8BE671FE /* AppCustomizationStore.swift in Sources */,
@@ -2689,6 +2699,8 @@
 				A6B07796012A8B192F7FB819 /* ActivityWorkflowScreenshotBackend.swift in Sources */,
 				5375A4CAC6DF8A7BC18346F2 /* ActivityWorkflowStore.swift in Sources */,
 				548DA05508680212E6917AE6 /* ActivityWorkflowView.swift in Sources */,
+				34B0F24183287BEFF369C234 /* AgentActivitySnapshot.swift in Sources */,
+				E0786EC973B0F99D3CB2C06C /* AgentActivityView.swift in Sources */,
 				2B9C3C0F09640F040B6B163B /* AgentToolbarMenu.swift in Sources */,
 				78FE73C09DAEE7717DFAD0B6 /* AppAppearance.swift in Sources */,
 				38AA07580990DD026ACBF3E6 /* AppCustomizationStore.swift in Sources */,

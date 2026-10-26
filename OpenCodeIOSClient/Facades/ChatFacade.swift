@@ -1422,6 +1422,57 @@ final class ChatFacade: ObservableObject {
         return ChatFacade(viewModel: viewModel, windowContext: context)
     }
 
+    func agentActivity(parentID: String) -> [AgentActivitySnapshot] {
+        let owner = directoryStore(forSessionID: parentID)
+        return owner.sessions.filter { $0.parentID == parentID }.sorted {
+            ($0.time?.created ?? 0, $0.id) < ($1.time?.created ?? 0, $1.id)
+        }.map { child in
+            let state: AgentActivitySnapshot.Status
+            if !(owner.syncState.permissionsBySessionID[child.id] ?? []).isEmpty {
+                state = .permission
+            } else if !(owner.syncState.questionsBySessionID[child.id] ?? []).isEmpty
+                        || owner.sessionFormStore.forms.keys.contains(where: { $0.sessionID == child.id }) {
+                state = .question
+            } else if owner.sessionStatuses[child.id] == "busy" {
+                state = .running
+            } else {
+                switch child.outcome {
+                case "succeeded": state = .completed
+                case "failed": state = .failed
+                case "interrupted": state = .interrupted
+                default: state = .idle
+                }
+            }
+            return AgentActivitySnapshot(id: child.id, title: child.displayTitle(), agent: child.agent, status: state)
+        }
+    }
+
+    func hydrateAgentActivity(parent: OpenCodeSession) async throws {
+        guard !isReadOnly else { return }
+        let connection = try viewModel.requireBackendConnection()
+        let generation = viewModel.directoryStoreRegistry.generation
+        let owner = directoryStore(forSessionID: parent.id)
+        var cursor: String?
+        var seen = Set<String>()
+        repeat {
+            let sessionsBeforeRequest = owner.sessions
+            let page = try await connection.sessions.childSessions(parentID: parent.id,
+                scope: .init(projectID: parent.projectID, directory: parent.directory, workspaceID: parent.workspaceID), cursor: cursor)
+            try Task.checkCancellation()
+            guard viewModel.backendConnection?.id == connection.id,
+                  viewModel.directoryStoreRegistry.generation == generation, windowContext?.isCurrent != false else { return }
+            let children = page.sessions.filter { $0.parentID == parent.id && !viewModel.directoryStoreRegistry.isV2SessionDeleted($0.id) }
+            owner.applyV2DiscoveredSessions(children, ifUnchangedSince: sessionsBeforeRequest)
+            for child in children {
+                try Task.checkCancellation()
+                guard viewModel.backendConnection?.id == connection.id,
+                      viewModel.directoryStoreRegistry.generation == generation, windowContext?.isCurrent != false else { return }
+                await viewModel.hydrateV2Interactions(for: child)
+            }
+            cursor = page.nextCursor
+        } while cursor.map { seen.insert($0).inserted } == true
+    }
+
     func hasOlderMessages(forSessionID sessionID: String) -> Bool {
         if connectionStore.backendMode == .serverV2 {
             return hasOlderV2Messages(sessionID: sessionID)

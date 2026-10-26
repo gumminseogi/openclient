@@ -176,6 +176,16 @@ final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsServi
         return try await .init(sessions: client.listSessions(directory: scope.directory, roots: roots, limit: limit))
     }
 
+    func childSessions(parentID: String, scope: BackendScope, cursor: String?) async throws -> BackendSessionPage {
+        if profile == .v2 {
+            let page = try await client.listV2Sessions(projectID: scope.projectID ?? "global", directory: scope.directory,
+                cursor: cursor, limit: 100, workspaceID: scope.workspaceID, roots: false, parentID: parentID)
+            return .init(sessions: page.sessions, nextCursor: page.nextCursor)
+        }
+        let page = try await sessions(scope: scope, cursor: cursor, limit: 100, roots: false)
+        return .init(sessions: page.sessions.filter { $0.parentID == parentID }, nextCursor: page.nextCursor)
+    }
+
     func session(id: String, scope: BackendScope) async throws -> OpenCodeSession {
         if profile == .v2 { return try await client.getV2Session(sessionID: id) }
         return try await client.getSession(sessionID: id, directory: scope.directory, workspaceID: scope.workspaceID)

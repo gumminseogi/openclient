@@ -4,6 +4,40 @@ import XCTest
 
 @MainActor
 final class ChatFacadeTests: XCTestCase {
+    func testAgentActivityUsesChildLifecycleAndDoesNotTreatIdleAsSuccess() throws {
+        let model = AppViewModel()
+        let owner = model.directoryStore
+        let parent = OpenCodeSession(id: "ses_parent", title: "Parent", workspaceID: nil, directory: nil, projectID: nil, parentID: nil)
+        var child = OpenCodeSession(id: "ses_child", title: "Inspect code", workspaceID: nil, directory: nil, projectID: nil, parentID: parent.id)
+        child.outcome = "succeeded"
+        owner.insertV2Session(parent)
+        owner.insertV2Session(child)
+        owner.applySessionStatus("busy", forSessionID: child.id)
+        XCTAssertEqual(model.chatFacade.agentActivity(parentID: parent.id).map(\.status), [.running])
+
+        let event = try XCTUnwrap(OpenCodeEventManager.decodeV2Event(from:
+            #"{"type":"session.execution.failed","data":{"sessionID":"ses_child"}}"#))
+        XCTAssertTrue(owner.applyV2Event(event))
+        XCTAssertEqual(model.chatFacade.agentActivity(parentID: parent.id).map(\.status), [.failed])
+
+        child.outcome = nil
+        owner.insertV2Session(child)
+        XCTAssertEqual(model.chatFacade.agentActivity(parentID: parent.id).map(\.status), [.idle])
+        XCTAssertTrue(model.chatFacade.agentActivity(parentID: "unrelated").isEmpty)
+    }
+
+    func testAgentPermissionTakesPrecedenceOverRunning() throws {
+        let model = AppViewModel()
+        let owner = model.directoryStore
+        let child = OpenCodeSession(id: "ses_child", title: "Review", workspaceID: nil, directory: nil, projectID: nil, parentID: "ses_parent")
+        owner.insertV2Session(child)
+        owner.applySessionStatus("busy", forSessionID: child.id)
+        let event = try XCTUnwrap(OpenCodeEventManager.decodeV2Event(from:
+            #"{"type":"permission.asked","data":{"sessionID":"ses_child","id":"permission_1","action":"shell","resources":["swift test"]}}"#))
+        XCTAssertTrue(owner.applyV2Event(event))
+        XCTAssertEqual(model.chatFacade.agentActivity(parentID: "ses_parent").map(\.status), [.permission])
+    }
+
     func testToolbarWidthBudgetLeavesSpaceForBackContextAndNativeMargins() {
         for width: CGFloat in [320, 375, 390, 440, 650, 900] {
             let budget = ChatToolbarWidthBudget(containerWidth: width)
