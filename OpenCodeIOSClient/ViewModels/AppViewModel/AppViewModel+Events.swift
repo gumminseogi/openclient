@@ -1184,15 +1184,11 @@ extension AppViewModel {
             objectWillChange.send()
         }
         if updatesSelectedMessages {
-            let projectedMessages: [OpenCodeMessageEnvelope]
             if let selectedSessionID = state.selectedSession?.id,
                state.syncState.messagesBySessionID[selectedSessionID] != nil {
-                projectedMessages = state.syncState.messageEnvelopes(forSessionID: selectedSessionID)
-            } else {
-                projectedMessages = state.messages
-            }
-            if projectedMessages != messages {
-                chatStore.replaceActiveMessagesWithCanonical(projectedMessages)
+                chatStore.replaceActiveMessagesFromSyncState(state.syncState, forSessionID: selectedSessionID)
+            } else if state.messages != messages {
+                chatStore.replaceActiveMessagesWithCanonical(state.messages)
             }
             if let sessionID = state.selectedSession?.id {
                 finishTranscriptCommit(in: targetStore, sessionID: sessionID)

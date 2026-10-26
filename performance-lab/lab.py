@@ -126,6 +126,11 @@ class LabState:
             return {'version': VERSION, 'synthetic': True,
                     'sessions': {sid: len(messages) for sid, messages in self.messages.items()},
                     'active': sorted(sid for sid, run in self.runs.items() if not run['done'].is_set()),
+                    'runs': {sid: {'message_id': run['message_id'],
+                                   'started_epoch_s': run['started_epoch_s'],
+                                   'ended_epoch_s': run['ended_epoch_s'],
+                                   'done': run['done'].is_set()}
+                             for sid, run in self.runs.items()},
                     'event_sequence': self.sequence, 'event_capacity': self.events.maxlen,
                     'recent_requests': copy.deepcopy(self.requests[-100:]),
                     'sse_connections': sum(row['path'] in ('/event', '/global/event')
@@ -146,7 +151,8 @@ class LabState:
             if sid in self.runs and not self.runs[sid]['done'].is_set():
                 raise RuntimeError('session already streaming')
             cancel = threading.Event()
-            run_state = {'cancel': cancel, 'done': threading.Event()}
+            run_state = {'cancel': cancel, 'done': threading.Event(),
+                         'started_epoch_s': time.time(), 'ended_epoch_s': None}
             self.runs[sid] = run_state
             index = len(self.messages[sid])
             user = self.seed_message(sid, index, index + 1)
@@ -165,6 +171,7 @@ class LabState:
             assistant['info']['parentID'] = user['info']['id']
             assistant['info']['time']['created'] = now + 1
             mid = assistant['info']['id']
+            run_state['message_id'] = mid
             part = {'id': f'prt_{mid}_{part_type}', 'messageID': mid, 'sessionID': sid,
                     'type': part_type, 'text': '', 'time': {'start': now + 1}}
             assistant['parts'] = [part]
@@ -192,6 +199,7 @@ class LabState:
                 self.emit('message.updated', {'info': assistant['info']})
                 self.emit('session.status', {'sessionID': sid, 'status': {'type': 'idle'}})
                 self.emit('session.idle', {'sessionID': sid})
+                run_state['ended_epoch_s'] = time.time()
                 run_state['done'].set()
                 self.condition.notify_all()
         threading.Thread(target=run, daemon=True).start()

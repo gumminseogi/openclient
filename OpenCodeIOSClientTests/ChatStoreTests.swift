@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 import CoreGraphics
 import SwiftUI
 #if canImport(UIKit)
@@ -1920,5 +1921,154 @@ extension ChatStoreTests {
         statuses[session.id] = "busy"
         XCTAssertFalse(apply(.sessionIdle(sessionID: session.id)))
         XCTAssertEqual(statuses[session.id], "idle")
+    }
+}
+
+@MainActor
+extension ChatStoreTests {
+    func testReducedProjectionPreservesCanonicalToolTranscriptAndPreviousSnapshot() throws {
+        let sessionID = "ses_reduced_projection"
+        let states = try reducedProjectionStates(sessionID: sessionID, messageCount: 2_000)
+        let before = states.first.messageEnvelopes(forSessionID: sessionID)
+        let expected = states.second.messageEnvelopes(forSessionID: sessionID)
+        let store = ChatStore(messages: before)
+        let legacy = ChatStore(messages: before)
+        var publications = 0
+        let observation = store.$messages.dropFirst().sink { _ in publications += 1 }
+
+        store.replaceActiveMessagesFromSyncState(states.first, forSessionID: sessionID)
+        XCTAssertEqual(publications, 0, "An unchanged reducer snapshot must not republish the transcript.")
+        store.replaceActiveMessagesFromSyncState(states.second, forSessionID: sessionID)
+        legacy.replaceActiveMessagesWithCanonical(expected)
+        XCTAssertEqual(store.messages, legacy.messages)
+        XCTAssertEqual(store.messages, expected)
+        XCTAssertEqual(publications, 1)
+        XCTAssertEqual(store.messages.count, 2_000)
+        XCTAssertEqual(store.messages.map(\.id), before.map(\.id))
+        XCTAssertEqual(store.messages.dropLast(), before.dropLast())
+        XCTAssertEqual(store.messages.last?.parts.map(\.id), before.last?.parts.map(\.id))
+        XCTAssertEqual(store.messages.last?.parts.first(where: { $0.type == "tool" })?.state?.output?.utf8.count, 4_096)
+        XCTAssertEqual(store.messages.last?.parts.last?.text, (before.last?.parts.last?.text ?? "") + " streamed delta")
+        XCTAssertEqual(states.first.messageEnvelopes(forSessionID: sessionID), before,
+                       "Publishing a changed tail must not mutate an earlier canonical snapshot.")
+
+        store.replaceActiveMessagesFromSyncState(states.second, forSessionID: sessionID)
+        XCTAssertEqual(publications, 1)
+        store.replaceActiveMessagesFromSyncState(states.first, forSessionID: sessionID)
+        XCTAssertEqual(publications, 2)
+        XCTAssertEqual(store.messages, before)
+        withExtendedLifetime(observation) {}
+    }
+
+    func testMeasureReducedProjectionAvoidsRenormalizingLongToolTranscript() throws {
+        let sessionID = "ses_reduced_projection"
+        let states = try reducedProjectionStates(sessionID: sessionID, messageCount: 2_000)
+        let before = states.first.messageEnvelopes(forSessionID: sessionID)
+        let legacy = ChatStore(messages: before)
+        let reduced = ChatStore(messages: before)
+        let updatesPerTrial = 12
+        var samples: [[String: Any]] = []
+        var legacyTimes: [Double] = []
+        var reducedTimes: [Double] = []
+
+        func runLegacy() -> Double {
+            let started = ProcessInfo.processInfo.systemUptime
+            for update in 0..<updatesPerTrial {
+                let state = update.isMultiple(of: 2) ? states.second : states.first
+                let projected = state.messageEnvelopes(forSessionID: sessionID)
+                // This is the former production call path, including its outer equality check.
+                if legacy.messages != projected {
+                    legacy.replaceActiveMessagesWithCanonical(projected)
+                }
+            }
+            return (ProcessInfo.processInfo.systemUptime - started) * 1_000 / Double(updatesPerTrial)
+        }
+        func runReduced() -> Double {
+            let started = ProcessInfo.processInfo.systemUptime
+            for update in 0..<updatesPerTrial {
+                let state = update.isMultiple(of: 2) ? states.second : states.first
+                reduced.replaceActiveMessagesFromSyncState(state, forSessionID: sessionID)
+            }
+            return (ProcessInfo.processInfo.systemUptime - started) * 1_000 / Double(updatesPerTrial)
+        }
+
+        // Warm both real store paths before alternating which one runs first.
+        _ = runLegacy()
+        _ = runReduced()
+        for trial in 0..<7 {
+            let legacyMS: Double
+            let reducedMS: Double
+            if trial.isMultiple(of: 2) {
+                legacyMS = runLegacy()
+                reducedMS = runReduced()
+            } else {
+                reducedMS = runReduced()
+                legacyMS = runLegacy()
+            }
+            legacyTimes.append(legacyMS)
+            reducedTimes.append(reducedMS)
+            samples.append(["trial": trial, "first": trial.isMultiple(of: 2) ? "legacy" : "reduced",
+                            "legacy_ms_per_update": legacyMS, "reduced_ms_per_update": reducedMS])
+            XCTAssertEqual(legacy.messages, before)
+            XCTAssertEqual(reduced.messages, before)
+        }
+        let legacyMedian = legacyTimes.sorted()[legacyTimes.count / 2]
+        let reducedMedian = reducedTimes.sorted()[reducedTimes.count / 2]
+        let evidence: [String: Any] = [
+            "measurement": "v1 selected transcript publication",
+            "messages": before.count,
+            "tool_parts": before.flatMap(\.parts).filter { $0.type == "tool" }.count,
+            "canonical_envelope_json_bytes": try JSONEncoder().encode(before).count,
+            "updates_per_trial": updatesPerTrial,
+            "trials": samples,
+            "legacy_median_ms_per_update": legacyMedian,
+            "reduced_median_ms_per_update": reducedMedian,
+            "median_speedup": reducedMedian > 0 ? legacyMedian / reducedMedian : 0,
+            "scope": "Native Debug helper microbenchmark on one simulator. Both paths project the same 2000-message tool-heavy canonical state and alternate changed-tail snapshots. Excludes UI rendering, grouping, reducer application, networking, and XCTest input latency. This is not an app FPS or real-device speedup."
+        ]
+        let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence,
+            options: [.prettyPrinted, .sortedKeys]), uniformTypeIdentifier: "public.json")
+        attachment.name = "reduced-projection-microbenchmark"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        print("LAB reduced projection legacy median \(legacyMedian) ms/update; reduced \(reducedMedian) ms/update")
+    }
+
+    private func reducedProjectionStates(sessionID: String, messageCount: Int) throws
+        -> (first: OpenCodeDirectorySyncState, second: OpenCodeDirectorySyncState) {
+        let toolJSON: [String: Any] = [
+            "status": "completed",
+            "title": "Read repository source",
+            "input": ["command": "cat Sources/ChatStore.swift", "filePath": "Sources/ChatStore.swift",
+                      "description": "Inspect the chat store"],
+            "output": String(repeating: "o", count: 4_096)
+        ]
+        let completedTool = try JSONDecoder().decode(OpenCodeToolState.self,
+            from: JSONSerialization.data(withJSONObject: toolJSON))
+        var messages: [OpenCodeMessageEnvelope] = []
+        messages.reserveCapacity(messageCount)
+        for index in 0..<messageCount {
+            let id = String(format: "msg_projection_%06d", index)
+            let role = index.isMultiple(of: 10) ? "user" : "assistant"
+            var envelope = message(id: id, role: role, text: String(repeating: "t", count: 1_024),
+                                   sessionID: sessionID)
+            if role == "assistant" {
+                let reasoning = OpenCodePart(id: "reasoning_\(id)", messageID: id, sessionID: sessionID,
+                    type: "reasoning", mime: nil, filename: nil, url: nil, reason: nil, tool: nil,
+                    callID: nil, state: nil, text: String(repeating: "r", count: 1_024))
+                let tool = OpenCodePart(id: "tool_\(id)", messageID: id, sessionID: sessionID,
+                    type: "tool", mime: nil, filename: nil, url: nil, reason: nil, tool: "read",
+                    callID: "call_\(id)", state: completedTool, text: nil)
+                envelope.parts = [reasoning, tool] + envelope.parts
+            }
+            messages.append(envelope)
+        }
+        var first = OpenCodeDirectorySyncState()
+        first.replaceMessages(messages, forSessionID: sessionID)
+        var second = first
+        let tail = try XCTUnwrap(messages.last)
+        XCTAssertTrue(second.applyPartDelta(messageID: tail.id,
+            partID: try XCTUnwrap(tail.parts.last?.id), field: "text", delta: " streamed delta"))
+        return (first, second)
     }
 }

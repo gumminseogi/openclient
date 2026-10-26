@@ -1137,6 +1137,15 @@ final class ChatStore: ObservableObject {
         messages.append(fallbackMessage())
     }
 
+    /// Reducers already maintain canonical message identity, part identity, and ordering.
+    /// Publish that projection directly; HTTP/cache callers still normalize below.
+    func replaceActiveMessagesFromSyncState(_ state: OpenCodeDirectorySyncState, forSessionID sessionID: String) {
+        let canonicalMessages = state.messageEnvelopes(forSessionID: sessionID)
+        if messages != canonicalMessages {
+            messages = canonicalMessages
+        }
+    }
+
     func replaceActiveMessagesWithCanonical(_ loadedMessages: [OpenCodeMessageEnvelope]) {
         let canonicalMessages = Self.deduplicatedMessages(loadedMessages)
         if messages != canonicalMessages {

@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 import lab
 
@@ -28,6 +29,9 @@ class StreamEdgeTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=2)
+        with self.state.condition:
+            self.assertTrue(self.state.condition.wait_for(lambda: not self.state.inflight, timeout=2),
+                            "Owned HTTP handlers must finish before removing their log directory.")
         self.temporary.cleanup()
 
     def request(self, path, method='GET', body=None, headers=None):
@@ -95,6 +99,38 @@ class StreamEdgeTests(unittest.TestCase):
         response = self.request('/_lab/stream', 'POST', {'sessionID': 'ses_20', 'chunks': 1, 'interval_ms': 1})
         self.assertEqual(response.status, 202)
         response.read()
+
+    def test_stream_timing_snapshot_tracks_active_completion_and_next_run(self):
+        self.assertEqual(self.state.snapshot()['runs'], {})
+        with patch('lab.time.time', return_value=1234.5) as clock:
+            accepted = self.state.start_stream('ses_20', chunks=1, interval_ms=60000)
+            active = self.state.snapshot()['runs']['ses_20']
+            self.assertEqual(active, {'message_id': accepted['messageID'],
+                                     'started_epoch_s': 1234.5, 'ended_epoch_s': None,
+                                     'done': False})
+            # Cancellation wakes the owned stream immediately; the wait checks
+            # completion, not whether any performance deadline is met.
+            clock.return_value = 1235.5
+            self.state.runs['ses_20']['cancel'].set()
+            with self.state.condition:
+                self.assertTrue(self.state.condition.wait_for(
+                    lambda: self.state.runs['ses_20']['done'].is_set(), timeout=2))
+            finished = self.state.snapshot()['runs']['ses_20']
+            self.assertEqual(finished, {**active, 'ended_epoch_s': 1235.5, 'done': True})
+            self.assertGreaterEqual(finished['ended_epoch_s'], finished['started_epoch_s'])
+            clock.return_value = 1236.5
+            next_run = self.state.start_stream('ses_20', chunks=1, interval_ms=0)
+            with self.state.condition:
+                self.assertTrue(self.state.condition.wait_for(
+                    lambda: self.state.runs['ses_20']['done'].is_set(), timeout=2))
+            latest = self.state.snapshot()['runs']['ses_20']
+            self.assertNotEqual(latest['message_id'], finished['message_id'])
+            self.assertEqual(latest['message_id'], next_run['messageID'])
+            self.assertEqual(latest['started_epoch_s'], 1236.5)
+            self.assertEqual(latest['ended_epoch_s'], 1236.5)
+            self.assertTrue(latest['done'])
+            # The public status payload contains JSON values, never Event objects.
+            json.dumps(self.state.snapshot())
 
     def test_request_log_has_exact_body_bytes_and_no_body_or_authorization(self):
         response = self.request('/session/ses_20/message?limit=2')

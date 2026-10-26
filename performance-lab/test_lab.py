@@ -32,6 +32,9 @@ class LabContractTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=2)
+        with self.state.condition:
+            self.assertTrue(self.state.condition.wait_for(lambda: not self.state.inflight, timeout=2),
+                            "Owned HTTP handlers must finish before removing their log directory.")
         self.temporary.cleanup()
 
     def connect(self):

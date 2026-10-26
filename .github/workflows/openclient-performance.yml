@@ -103,12 +103,16 @@ jobs:
           set -euo pipefail
           device_id="${OPENCLIENT_DESTINATION##*id=}"
           xcrun simctl bootstatus "$device_id" -b 2>&1 | tee "$OPENCLIENT_RESULTS/simulator-boot.log"
+      - name: Compare native responsiveness on the same simulator
+        if: contains(github.event.head_commit.message, '[responsiveness]')
+        shell: bash
+        run: bash performance-lab/run-responsiveness.sh "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/responsiveness"
       - name: Run actual OpenClient Swift tests
-        if: (github.event_name == 'workflow_dispatch' && inputs.test_scope == 'all') || (github.event_name != 'workflow_dispatch' && !contains(github.event.head_commit.message, '[ui-only]'))
+        if: ((github.event_name == 'workflow_dispatch' && inputs.test_scope == 'all') || (github.event_name != 'workflow_dispatch' && !contains(github.event.head_commit.message, '[ui-only]'))) && !contains(github.event.head_commit.message, '[responsiveness]')
         shell: bash
         run: bash performance-lab/run-native-tests.sh "$GITHUB_WORKSPACE" "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/native"
       - name: Run grouping UI and real ChatView smoke against the synthetic server
-        if: success()
+        if: success() && !contains(github.event.head_commit.message, '[responsiveness]')
         shell: bash
         env:
           TEST_RUNNER_OPENCLIENT_LAB_UI_URL: http://127.0.0.1:14097
@@ -197,5 +201,12 @@ jobs:
             ${{ env.OPENCLIENT_RESULTS }}/*-attachments/**/*.jpg
             ${{ env.OPENCLIENT_RESULTS }}/*-attachments/**/*.jpeg
             ${{ env.OPENCLIENT_RESULTS }}/*-attachments/**/*.txt
+            ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.json
+            ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.jsonl
+            ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.log
+            ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.txt
+            ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.png
+            ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.jpg
+            ${{ env.OPENCLIENT_RESULTS }}/responsiveness/**/*.jpeg
           retention-days: 3
           if-no-files-found: warn
