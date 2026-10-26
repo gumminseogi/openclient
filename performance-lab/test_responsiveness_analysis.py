@@ -28,6 +28,7 @@ class ResponsivenessAnalysisTests(unittest.TestCase):
                     'clock': {'uptime_before_s': 40, 'uptime_after_s': 40, 'epoch_s': 1040}}
         (folder / 'attachments' / 'evidence.json').write_text(json.dumps(evidence))
         rows = [{'kind': 'metadata', 'schema': 1, 'trial': 'pair1', 'variant': variant,
+                 'publication_path': 'legacy_normalized' if variant == 'baseline' else 'reduced_direct',
                  'uptime_before_s': 0, 'uptime_after_s': 0, 'epoch_s': 1000 + clock_shift}]
         for index in range(2200):
             start = index / 50
@@ -84,6 +85,25 @@ class ResponsivenessAnalysisTests(unittest.TestCase):
         self.assertIsNone(result['p95_ms'])
         self.assertEqual(result['overlap_full_interval_max_ms'], 2000)
         self.assertEqual(result['overlap_excess_after_25ms_ms_per_second'], 1000)
+
+
+    def test_incremental_attachment_selects_complete_checkpoint_and_recovers_text_if_later_phase_fails(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = self.make_case(root)
+            original = folder / 'attachments' / 'evidence.json'
+            full = json.loads(original.read_text())
+            partial = dict(full)
+            partial['phases'] = [p for p in full['phases'] if p['name'].startswith('text_')]
+            partial['streams'] = [p for p in full['streams'] if p['part_type'] == 'text']
+            (folder / 'attachments' / 'text.json').write_text(json.dumps(partial))
+            self.assertFalse(analysis.analyze_case(folder)['partial'])
+            original.unlink()
+            with self.assertRaises(analysis.EvidenceError):
+                analysis.analyze_case(folder)
+            recovered = analysis.analyze_case(folder, allow_partial=True)
+            self.assertTrue(recovered['partial'])
+            self.assertEqual(recovered['completed_stream_types'], ['text'])
+            self.assertEqual(len(recovered['phases']), 6)
 
 
 if __name__ == '__main__':

@@ -6,6 +6,8 @@ import QuartzCore
 
 @MainActor
 final class OpenClientLabPerformanceProbe: NSObject {
+    // CI-only runtime switch: both benchmark labels use the same app binary.
+    static let baselinePublication = ProcessInfo.processInfo.environment["OPENCLIENT_LAB_PROBE_VARIANT"] == "baseline"
     private static var instance: OpenClientLabPerformanceProbe?
     private let writer: OpenClientLabProbeWriter
     private var displayLink: CADisplayLink?
@@ -30,6 +32,7 @@ final class OpenClientLabPerformanceProbe: NSObject {
             "kind": "metadata", "schema": 1,
             "variant": environment["OPENCLIENT_LAB_PROBE_VARIANT"] ?? "unspecified",
             "trial": environment["OPENCLIENT_LAB_PROBE_TRIAL"] ?? "unspecified",
+            "publication_path": Self.baselinePublication ? "legacy_normalized" : "reduced_direct",
             "uptime_before_s": uptimeBefore, "epoch_s": epoch,
             "media_time_s": media, "uptime_after_s": uptimeAfter,
             "requested_callback_hz": 60, "heartbeat_interval_ms": 50,

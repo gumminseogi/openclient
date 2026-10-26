@@ -16,6 +16,7 @@ extension ToolGroupingUITests {
         let grouped = env["OPENCLIENT_LAB_UI_GROUPED"] == "1"
         let warmupOnly = env["OPENCLIENT_LAB_UI_WARMUP_ONLY"] == "1"
         let sessionID = "ses_2000"
+        print("LAB native setup trial=\(trial) variant=\(variant) grouped=\(grouped) warmup=\(warmupOnly)")
         let statusAtStart = try await labRequest(baseURL, password: password, path: "/_lab/status")
         XCTAssertEqual(statusAtStart["synthetic"] as? Bool, true)
         let requestBaseline = labLastRequestID(statusAtStart)
@@ -43,6 +44,7 @@ extension ToolGroupingUITests {
         result.tap()
         let transcript = app.collectionViews["chat.scroll"]
         let input = app.textViews["chat.input"]
+        let stop = app.buttons.matching(NSPredicate(format: "identifier IN %@", ["chat.stream.stop", "chat.stop"])).firstMatch
         try await labWait("Native transcript", timeout: 60) { transcript.exists && input.exists && transcript.cells.count > 0 }
 
         var coverage = 0
@@ -63,11 +65,13 @@ extension ToolGroupingUITests {
                 continue
             }
             guard swipe < 600 else { throw labFailure("Warmup paging failed to load all 2000 messages.") }
+            if swipe % 20 == 0 { print("LAB warmup paging swipe=\(swipe) coverage=\(coverage)") }
             transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
                 .press(forDuration: 0.05, thenDragTo: transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)),
                        withVelocity: .slow, thenHoldForDuration: 0.2)
             try await Task.sleep(for: .milliseconds(250))
         }
+        print("LAB history loaded coverage=\(coverage)")
         try await labReturnToBottom(app: app, transcript: transcript)
         let refreshBaseline = labLastRequestID(try await labRequest(baseURL, password: password, path: "/_lab/status"))
         transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
@@ -87,6 +91,7 @@ extension ToolGroupingUITests {
             try await Task.sleep(for: .milliseconds(250))
         }
         guard !canonicalProof.isEmpty else { throw labFailure("No canonical refresh proving a 2000-message active store.") }
+        print("LAB canonical refresh proved 2000 loaded messages")
         try await Task.sleep(for: .seconds(5))
         if warmupOnly {
             try await Task.sleep(for: .seconds(5))
@@ -95,25 +100,32 @@ extension ToolGroupingUITests {
         }
 
         // One unmeasured stream warms the same native event/rendering paths.
+        print("LAB unmeasured stream starting")
         _ = try await labRequest(baseURL, password: password, path: "/_lab/stream", body: [
             "sessionID": sessionID, "chunks": 40, "interval_ms": 50, "chunk_bytes": 32, "part_type": "text"
         ])
         _ = try await responsivenessWaitForCompletion(baseURL, password: password, sessionID: sessionID)
-        try await Task.sleep(for: .seconds(3))
+        try await responsivenessWaitForNativeIdle(stop: stop, baseURL: baseURL, password: password,
+                                                 sessionID: sessionID, stage: "unmeasured warmup")
         var phases: [[String: Any]] = []
         var streams: [[String: Any]] = []
-        let stop = app.buttons.matching(NSPredicate(format: "identifier IN %@", ["chat.stream.stop", "chat.stop"])).firstMatch
         for partType in ["text", "reasoning"] {
             try await labReturnToBottom(app: app, transcript: transcript)
+            print("LAB measured \(partType) stream starting")
             let accepted = try await labRequest(baseURL, password: password, path: "/_lab/stream", body: [
-                "sessionID": sessionID, "chunks": 800, "interval_ms": 50, "chunk_bytes": 64, "part_type": partType
+                "sessionID": sessionID, "chunks": 600, "interval_ms": 100, "chunk_bytes": 16, "part_type": partType
             ])
-            try await labWait("Live native stream", timeout: 15) { stop.exists }
+            try await labWait("Live native \(partType) stream", timeout: 60) { stop.exists }
+            let nativeReady = try await labRequest(baseURL, password: password, path: "/_lab/status")
+            XCTAssertTrue((nativeReady["active"] as? [String] ?? []).contains(sessionID),
+                          "Native \(partType) stream must become ready before fixture completion.")
+            print("LAB \(partType) native ready; steady phase starting")
             var start = ProcessInfo.processInfo.systemUptime
             try await Task.sleep(for: .seconds(4))
             phases.append(responsivenessPhase("\(partType)_steady", start: start))
 
             start = ProcessInfo.processInfo.systemUptime
+            print("LAB \(partType) typing phase starting")
             input.tap()
             app.typeKey("a", modifierFlags: .command)
             let draft = "performance draft \(partType)"
@@ -127,7 +139,8 @@ extension ToolGroupingUITests {
             try await labWait("Keyboard dismissed") { !app.keyboards.firstMatch.exists }
 
             start = ProcessInfo.processInfo.systemUptime
-            for _ in 0..<2 {
+            print("LAB \(partType) scrolling phase starting")
+            for _ in 0..<1 {
                 transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
                     .press(forDuration: 0.05, thenDragTo: transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)),
                            withVelocity: .slow, thenHoldForDuration: 0.1)
@@ -142,12 +155,28 @@ extension ToolGroupingUITests {
             try await labReturnToBottom(app: app, transcript: transcript)
             let completed = try await responsivenessWaitForCompletion(baseURL, password: password, sessionID: sessionID)
             let run = (completed["runs"] as? [String: [String: Any]])?[sessionID] ?? [:]
-            streams.append(["part_type": partType, "accepted": accepted, "completed_run": run])
+            streams.append(["part_type": partType, "accepted": accepted, "completed_run": run,
+                            "configuration": ["chunks": 600, "interval_ms": 100, "chunk_bytes": 16]])
+            print("LAB \(partType) fixture complete; completion phase starting")
             start = ProcessInfo.processInfo.systemUptime
             try await Task.sleep(for: .seconds(8))
             phases.append(responsivenessPhase("\(partType)_after_completion", start: start))
             XCTAssertEqual(input.value as? String, draft)
+            try responsivenessAttachEvidence(variant: variant, trial: trial, grouped: grouped, coverage: coverage,
+                                             canonicalProof: canonicalProof, phases: phases, streams: streams,
+                                             through: partType)
+            print("LAB \(partType) completed evidence attached")
+            try await responsivenessWaitForNativeIdle(stop: stop, baseURL: baseURL, password: password,
+                                                     sessionID: sessionID, stage: "measured \(partType)")
         }
+        try await Task.sleep(for: .seconds(3)) // Let the background probe writer flush.
+        app.terminate()
+    }
+
+    private func responsivenessAttachEvidence(
+        variant: String, trial: String, grouped: Bool, coverage: Int,
+        canonicalProof: [[String: Any]], phases: [[String: Any]], streams: [[String: Any]], through partType: String
+    ) throws {
         let uptimeBefore = ProcessInfo.processInfo.systemUptime
         let epoch = Date().timeIntervalSince1970
         let uptimeAfter = ProcessInfo.processInfo.systemUptime
@@ -160,11 +189,33 @@ extension ToolGroupingUITests {
         ]
         let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys]),
                                        uniformTypeIdentifier: "public.json")
-        attachment.name = "responsiveness-\(trial)-\(variant)-grouped-\(grouped)"
+        attachment.name = "responsiveness-\(trial)-\(variant)-grouped-\(grouped)-through-\(partType)"
         attachment.lifetime = .keepAlways
         add(attachment)
-        try await Task.sleep(for: .seconds(3)) // Let the background probe writer flush.
-        app.terminate()
+    }
+
+    private func responsivenessWaitForNativeIdle(
+        stop: XCUIElement, baseURL: URL, password: String, sessionID: String, stage: String
+    ) async throws {
+        print("LAB waiting for native idle after \(stage)")
+        try await labWait("Native idle after \(stage)", timeout: 60) { !stop.exists }
+        let deadline = ProcessInfo.processInfo.systemUptime + 60
+        var quietPolls = 0
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            let status = try await labRequest(baseURL, password: password, path: "/_lab/status")
+            let pending = (status["inflight"] as? [[String: Any]] ?? []).contains {
+                ($0["method"] as? String) == "GET"
+                    && ($0["path"] as? String ?? "").hasPrefix("/session/\(sessionID)/message")
+            }
+            quietPolls = pending ? 0 : quietPolls + 1
+            if quietPolls >= 2 {
+                try await Task.sleep(for: .seconds(2))
+                print("LAB native idle and transcript quiet after \(stage)")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+        throw labFailure("Transcript requests did not settle after \(stage).")
     }
 
     private func responsivenessPhase(_ name: String, start: TimeInterval) -> [String: Any] {

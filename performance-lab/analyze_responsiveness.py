@@ -171,7 +171,7 @@ def summarize_phase(rows, name, start, end, source):
             'heartbeat': sample_metrics(rows, start, end, 'heartbeat')}
 
 
-def analyze_case(folder):
+def analyze_case(folder, allow_partial=False):
     match = re.fullmatch(r'(.+?)-(.+?)-g([01])', folder.name)
     if not match:
         raise EvidenceError(f'{folder}: expected trial-variant-g0 or trial-variant-g1 directory')
@@ -184,9 +184,15 @@ def analyze_case(folder):
             continue  # Other XCTest attachments need not be JSON evidence.
         if isinstance(data, dict) and data.get('schema') == 1 and 'phases' in data and 'clock' in data:
             evidence.append((path, data))
-    if len(evidence) != 1:
-        raise EvidenceError(f'{folder}: expected one responsiveness attachment, found {len(evidence)}')
-    evidence_path, data = evidence[0]
+    if not evidence:
+        raise EvidenceError(f'{folder}: no responsiveness attachment')
+    # The UI attaches text immediately, then the accumulated text+reasoning
+    # result. Keep the furthest completed checkpoint, never merge clocks.
+    largest = max(len(item[1].get('streams', [])) for item in evidence)
+    selected = [item for item in evidence if len(item[1].get('streams', [])) == largest]
+    if len(selected) != 1:
+        raise EvidenceError(f'{folder}: ambiguous final responsiveness checkpoints')
+    evidence_path, data = selected[0]
     if str(data.get('variant')) != variant or str(data.get('trial')) != trial or data.get('grouping') is not grouping:
         raise EvidenceError(f'{folder}: attachment labels disagree with directory')
     loaded = data.get('minimum_loaded_messages', data.get('minimum_loaded'))
@@ -203,7 +209,11 @@ def analyze_case(folder):
             raise EvidenceError(f'{folder}: duplicate or invalid phase name')
         names.add(name)
         phases.append((name, *bounds(phase), 'native_ui_phase'))
-    required = {f'{part}_{suffix}' for part in ('text', 'reasoning')
+    completed_parts = {item.get('part_type') for item in data.get('streams', []) if isinstance(item, dict)}
+    expected_parts = completed_parts if allow_partial else {'text', 'reasoning'}
+    if not expected_parts or not expected_parts.issubset({'text', 'reasoning'}):
+        raise EvidenceError(f'{folder}: no recognized completed stream checkpoint')
+    required = {f'{part}_{suffix}' for part in expected_parts
                 for suffix in ('steady', 'typing', 'scrolling', 'after_completion')}
     if not required.issubset(names):
         raise EvidenceError(f'{folder}: missing native phases: {sorted(required - names)}')
@@ -225,7 +235,7 @@ def analyze_case(folder):
         stream_bounds[part] = (start, end)
         phases.extend([(f'{part}_whole_stream', start, end, 'fixture_stream_bounds'),
                        (f'{part}_terminal_8s', end, end + 8, 'fixture_completion_bounds')])
-    if set(stream_bounds) != {'text', 'reasoning'}:
+    if set(stream_bounds) != expected_parts:
         raise EvidenceError(f'{folder}: missing actual text/reasoning stream bounds')
     for name, start, end, _ in phases:
         part = name.split('_')[0]
@@ -240,6 +250,9 @@ def analyze_case(folder):
             meta, rows = read_probe(path)
             if str(meta.get('variant')) != variant or str(meta.get('trial')) != trial:
                 continue
+            expected_path = 'legacy_normalized' if variant == 'baseline' else 'reduced_direct'
+            if meta.get('publication_path') != expected_path:
+                raise EvidenceError(f'{path}: publication path does not match runtime variant')
             delta = clock_offset(meta) - offset
             if abs(delta) > .1:
                 raise EvidenceError(f'{path}: app/UI clock offsets disagree by {delta:.6f}s')
@@ -252,6 +265,7 @@ def analyze_case(folder):
         raise EvidenceError(f'{folder}: expected one matching complete probe, found {len(probe_candidates)}; {detail}')
     path, meta, delta, summaries = probe_candidates[0]
     return {'trial': trial, 'variant': variant, 'grouping': grouping, 'minimum_loaded_messages': loaded,
+            'partial': set(stream_bounds) != {'text', 'reasoning'}, 'completed_stream_types': sorted(stream_bounds),
             'attachment_path': str(evidence_path), 'probe_path': str(path),
             'app_ui_clock_offset_difference_seconds': delta, 'probe_metadata': meta, 'phases': summaries}
 
@@ -316,7 +330,7 @@ def paired_summary(cases, expected_trials):
 
 
 def analyze(root, expected_trials=3):
-    cases, errors = [], []
+    cases, partial_cases, errors = [], [], []
     folders = sorted(path for path in Path(root).iterdir()
                      if path.is_dir() and re.fullmatch(r'.+?-.+?-g[01]', path.name)
                      and not path.name.startswith('warmup-'))
@@ -327,12 +341,18 @@ def analyze(root, expected_trials=3):
             cases.append(analyze_case(folder))
         except (EvidenceError, OSError, KeyError, TypeError) as error:
             errors.append(f'{folder.name}: {error}')
-    summary, pairing_errors = paired_summary(cases, expected_trials)
+            try:
+                partial = analyze_case(folder, allow_partial=True)
+                if partial['partial']:
+                    partial_cases.append(partial)
+            except (EvidenceError, OSError, KeyError, TypeError):
+                pass
+    summary, pairing_errors = paired_summary(cases + partial_cases, expected_trials)
     errors.extend(pairing_errors)
     return {'schema': 1, 'complete': not errors, 'expected_paired_trials_per_grouping': expected_trials,
             'scope': 'Simulator app callback gaps and sampled main-queue delay only. Not FPS, exact keyboard latency, physical-device performance, heat, or battery. No improvement percentages estimated.',
             'boundary_rule': 'Contained metrics exclude crossing intervals; overlap metrics include their original full durations and also list clipped overlap, so large boundary stalls remain visible. Primary paired summaries use overlap metrics. Callback excess clips the portion after each gap first 25ms to the phase. Callback overlap coverage must be 100%. Overlap event counts across adjacent phases are not additive. All rates use the entire phase duration.',
-            'cases': cases, 'paired_summary': summary, 'errors': errors}
+            'cases': cases, 'partial_cases': partial_cases, 'paired_summary': summary, 'errors': errors}
 
 
 def main():

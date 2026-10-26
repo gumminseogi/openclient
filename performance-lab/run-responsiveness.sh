@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Same-host native A/B experiment. Standard simulator signing remains enabled.
+# Same-host, same-binary native path comparison. Normal simulator signing stays enabled.
 set -euo pipefail
 destination=$1
 results=$2
@@ -9,6 +9,7 @@ bundle=com.ntoporcov.openclient
 build_root="$RUNNER_TEMP/openclient-responsiveness-builds"
 mkdir -p "$results" "$build_root"
 fixture_pid=''
+case_failures=0
 cleanup() {
   if [[ -n "$fixture_pid" ]]; then
     kill "$fixture_pid" 2>/dev/null || true
@@ -21,14 +22,19 @@ python3 - "$results/provenance.json" "$baseline" <<'PY'
 import json, platform, subprocess, sys
 from pathlib import Path
 Path(sys.argv[1]).write_text(json.dumps({
-    'baseline_sha': sys.argv[2], 'candidate_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+    'baseline_reference_sha': sys.argv[2], 'candidate_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+    'comparison_mode': 'One instrumented candidate binary. A CI-only runtime flag selects the original canonical-publication path for baseline labels and the reduced-publication path for candidate labels; these are not separately built source revisions.',
+    'baseline_publication': 'state.syncState.messageEnvelopes; compare projectedMessages != messages; chatStore.replaceActiveMessagesWithCanonical(projectedMessages)',
+    'candidate_publication': 'chatStore.replaceActiveMessagesFromSyncState(state.syncState, forSessionID: selectedSessionID)',
+    'overlay_scope': 'Telemetry and the publication-path switch are injected into this CI checkout only. No production-source runtime flag is committed.',
+    'failure_policy': 'Attempt all 12 measured cases despite individual XCTest failures, export partial evidence, and fail the job if any case or final analysis fails. Fixture/cache setup and warmup failures remain fatal.',
     'host': platform.platform(), 'order': ['baseline','candidate','candidate','baseline','baseline','candidate'],
     'pairing': 'Same runner, same explicit simulator UDID. Each pair has both grouping settings. Restore identical app-private cache and restart the owned synthetic fixture before each case.',
     'scope': 'Native Debug callback gaps and sampled main-queue delays, not rendered FPS or real iPhone/input/heat measurements.'
 }, indent=2)+'\n')
 PY
 
-# Both builds receive exactly the same instrumentation and native UI harness.
+# Both labels execute the same app binary, instrumentation, and native UI harness.
 cat performance-lab/performance_probe.swift >> OpenCodeIOSClient/Diagnostics/OpenClientPerformanceDiagnostics.swift
 python3 - <<'PY'
 from pathlib import Path
@@ -37,6 +43,20 @@ s=p.read_text()
 old='    func startIfEnabled() {\n        guard Self.isEnabled else { return }'
 assert s.count(old)==1
 p.write_text(s.replace(old, '    func startIfEnabled() {\n        Task { @MainActor in OpenClientLabPerformanceProbe.startIfEnabled() }\n        guard Self.isEnabled else { return }'))
+
+p=Path('OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel+Events.swift')
+s=p.read_text()
+old='                chatStore.replaceActiveMessagesFromSyncState(state.syncState, forSessionID: selectedSessionID)'
+assert s.count(old)==1, 'Expected one reduced canonical-publication call site'
+replacement='''                if OpenClientLabPerformanceProbe.baselinePublication {
+                    let projectedMessages = state.syncState.messageEnvelopes(forSessionID: selectedSessionID)
+                    if projectedMessages != messages {
+                        chatStore.replaceActiveMessagesWithCanonical(projectedMessages)
+                    }
+                } else {
+                    chatStore.replaceActiveMessagesFromSyncState(state.syncState, forSessionID: selectedSessionID)
+                }'''
+p.write_text(s.replace(old, replacement))
 PY
 cat performance-lab/long_transcript_ui.swift performance-lab/responsiveness_ui.swift >> OpenCodeIOSClientUITests/ToolGroupingUITests.swift
 
@@ -51,16 +71,10 @@ build_variant() {
 test_run_file() {
   find "$build_root/$1/Build/Products" -maxdepth 1 -name '*.xctestrun' -print -quit
 }
-# checkout is shallow; explicitly fetch and verify the exact comparison sources.
-git fetch --no-tags --depth=1 origin "$baseline"
-for path in OpenCodeIOSClient/Stores/ChatStore.swift \
-  OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel+Events.swift \
-  OpenCodeIOSClientTests/ChatStoreTests.swift; do
-  git cat-file -e "$baseline:$path"
-done
 build_variant candidate
 candidate_run=$(test_run_file candidate)
 [[ -n "$candidate_run" ]] || { echo 'Candidate test product missing' >&2; exit 1; }
+baseline_run=$candidate_run
 xcodebuild test-without-building -xctestrun "$candidate_run" -destination "$destination" \
   -parallel-testing-enabled NO -resultBundlePath "$results/microbenchmark.xcresult" \
   '-only-testing:OpenCodeIOSClientTests/ChatStoreTests/testLegacyIdleEchoDoesNotRepeatCanonicalReconciliation' \
@@ -70,16 +84,6 @@ xcodebuild test-without-building -xctestrun "$candidate_run" -destination "$dest
 
 xcrun xcresulttool get test-results summary --path "$results/microbenchmark.xcresult" > "$results/microbenchmark-summary.json"
 xcrun xcresulttool export attachments --path "$results/microbenchmark.xcresult" --output-path "$results/microbenchmark-attachments"
-
-# Restore exact prior production sources, preserving identical test-only overlays.
-for path in OpenCodeIOSClient/Stores/ChatStore.swift \
-  OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel+Events.swift \
-  OpenCodeIOSClientTests/ChatStoreTests.swift; do
-  git show "$baseline:$path" > "$path"
-done
-build_variant baseline
-baseline_run=$(test_run_file baseline)
-[[ -n "$baseline_run" ]] || { echo 'Baseline test product missing' >&2; exit 1; }
 
 start_fixture() {
   cleanup
@@ -148,10 +152,17 @@ run_case() {
   code=${PIPESTATUS[0]}
   set -e
   export_case "$output"
+  printf '{"xcodebuild_exit_code": %d}\n' "$code" > "$output/xcodebuild-status.json"
   echo "LAB finished $trial $variant grouping=$grouped status=$code"
   cleanup
   fixture_pid=''
-  return "$code"
+  if (( code != 0 )); then
+    # A failed warmup cannot establish the common cache snapshot. Measured-case
+    # failures retain their evidence and do not prevent the other labels running.
+    if [[ "$warmup" == 1 ]]; then return "$code"; fi
+    case_failures=$((case_failures + 1))
+  fi
+  return 0
 }
 
 # One real, unmeasured pagination pass. No test endpoint returns extra history.
@@ -170,6 +181,13 @@ for index in 0 1 2 3 4 5; do
     run_case "${variants[$index]}" "pair$pair" "$grouped" 0
   done
 done
-xcrun xcresulttool get test-results summary --path "$results/microbenchmark.xcresult" > "$results/microbenchmark-summary.json"
-xcrun xcresulttool export attachments --path "$results/microbenchmark.xcresult" --output-path "$results/microbenchmark-attachments"
+printf '{"failed_ui_cases": %d, "expected_measured_cases": 12}\n' "$case_failures" > "$results/case-status.json"
+set +e
 python3 performance-lab/analyze_responsiveness.py "$results" --output "$results/responsiveness-summary.json"
+analysis_code=$?
+set -e
+if (( case_failures != 0 )); then
+  echo "LAB failed measured UI cases: $case_failures (all remaining cases were attempted)" >&2
+  exit 1
+fi
+exit "$analysis_code"
