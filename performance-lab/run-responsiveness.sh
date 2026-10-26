@@ -45,11 +45,19 @@ build_variant() {
   xcodebuild build-for-testing -project OpenCodeIOSClient.xcodeproj -scheme OpenCodeIOSClient \
     -configuration Debug -destination "$destination" -parallel-testing-enabled NO \
     -derivedDataPath "$build_root/$variant" DEVELOPMENT_TEAM= \
-    2>&1 | tee "$results/build-$variant.log"
+    2>&1 | tee "$results/build-$variant.log" | awk '/error:|warning:|\*\* TEST|\*\* BUILD/ { print; fflush() }'
+  echo "LAB built $variant"
 }
 test_run_file() {
   find "$build_root/$1/Build/Products" -maxdepth 1 -name '*.xctestrun' -print -quit
 }
+# checkout is shallow; explicitly fetch and verify the exact comparison sources.
+git fetch --no-tags --depth=1 origin "$baseline"
+for path in OpenCodeIOSClient/Stores/ChatStore.swift \
+  OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel+Events.swift \
+  OpenCodeIOSClientTests/ChatStoreTests.swift; do
+  git cat-file -e "$baseline:$path"
+done
 build_variant candidate
 candidate_run=$(test_run_file candidate)
 [[ -n "$candidate_run" ]] || { echo 'Candidate test product missing' >&2; exit 1; }
@@ -58,7 +66,7 @@ xcodebuild test-without-building -xctestrun "$candidate_run" -destination "$dest
   '-only-testing:OpenCodeIOSClientTests/ChatStoreTests/testLegacyIdleEchoDoesNotRepeatCanonicalReconciliation' \
   '-only-testing:OpenCodeIOSClientTests/ChatStoreTests/testReducedProjectionPreservesCanonicalToolTranscriptAndPreviousSnapshot' \
   '-only-testing:OpenCodeIOSClientTests/ChatStoreTests/testMeasureReducedProjectionAvoidsRenormalizingLongToolTranscript' \
-  2>&1 | tee "$results/microbenchmark.log"
+  2>&1 | tee "$results/microbenchmark.log" | awk '/error:|Test Case|Test Suite|LAB |\*\* TEST/ { print; fflush() }'
 
 xcrun xcresulttool get test-results summary --path "$results/microbenchmark.xcresult" > "$results/microbenchmark-summary.json"
 xcrun xcresulttool export attachments --path "$results/microbenchmark.xcresult" --output-path "$results/microbenchmark-attachments"
@@ -123,6 +131,7 @@ run_case() {
     ditto "$build_root/cache-snapshot" "$container/Library/Application Support"
   fi
   if [[ -n "$container" ]]; then rm -rf "$container/Documents/OpenClientPerformanceLab"; fi
+  echo "LAB starting $trial $variant grouping=$grouped warmup=$warmup"
   start_fixture "$output"
   if [[ "$variant" == baseline ]]; then run_file=$baseline_run; else run_file=$candidate_run; fi
   export TEST_RUNNER_OPENCLIENT_LAB_UI_URL=http://127.0.0.1:14097
@@ -135,10 +144,11 @@ run_case() {
   xcodebuild test-without-building -xctestrun "$run_file" -destination "$destination" \
     -parallel-testing-enabled NO -resultBundlePath "$output/ui.xcresult" \
     '-only-testing:OpenCodeIOSClientUITests/ToolGroupingUITests/testNativeResponsivenessLab' \
-    2>&1 | tee "$output/xcodebuild.log"
+    2>&1 | tee "$output/xcodebuild.log" | awk '/error:|Test Case|Test Suite|LAB |\*\* TEST/ { print; fflush() }'
   code=${PIPESTATUS[0]}
   set -e
   export_case "$output"
+  echo "LAB finished $trial $variant grouping=$grouped status=$code"
   cleanup
   fixture_pid=''
   return "$code"
