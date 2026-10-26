@@ -110,7 +110,22 @@ extension ToolGroupingUITests {
         var phases: [[String: Any]] = []
         var streams: [[String: Any]] = []
         for partType in ["text", "reasoning"] {
+            print("LAB idle composer clearing before \(partType)")
+            try await labWait("Native idle before clearing \(partType) draft", timeout: 60) { !stop.exists }
+            input.tap()
+            app.typeKey("a", modifierFlags: .command)
+            input.typeText(XCUIKeyboardKey.delete.rawValue)
+            XCTAssertFalse((input.value as? String ?? "").contains("performance draft"),
+                           "Clear the previous draft while idle before measuring new typing.")
+            let clearOrigin = app.coordinate(withNormalizedOffset: .zero)
+            let clearDismissStart = clearOrigin.withOffset(CGVector(dx: transcript.frame.midX, dy: input.frame.minY - 100))
+            let clearDismissEnd = clearOrigin.withOffset(CGVector(dx: transcript.frame.midX, dy: app.frame.maxY - 30))
+            clearDismissStart.press(forDuration: 0.05, thenDragTo: clearDismissEnd,
+                                    withVelocity: .slow, thenHoldForDuration: 0.1)
+            try await labWait("Keyboard dismissed after idle draft clearing") { !app.keyboards.firstMatch.exists }
             try await labReturnToBottom(app: app, transcript: transcript)
+            try await responsivenessWaitForNativeIdle(stop: stop, baseURL: baseURL, password: password,
+                                                     sessionID: sessionID, stage: "idle \(partType) draft clearing")
             print("LAB measured \(partType) stream starting")
             let accepted = try await labRequest(baseURL, password: password, path: "/_lab/stream", body: [
                 "sessionID": sessionID, "chunks": 600, "interval_ms": 100, "chunk_bytes": 16, "part_type": partType
@@ -127,7 +142,6 @@ extension ToolGroupingUITests {
             start = ProcessInfo.processInfo.systemUptime
             print("LAB \(partType) typing phase starting")
             input.tap()
-            app.typeKey("a", modifierFlags: .command)
             let draft = "performance draft \(partType)"
             input.typeText(draft)
             XCTAssertEqual(input.value as? String, draft, "Streaming must preserve typed input.")
