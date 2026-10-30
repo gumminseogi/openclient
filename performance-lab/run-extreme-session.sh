@@ -29,9 +29,12 @@ terminate_owned_app() {
   # failures must stop cache replacement rather than copying a live SQLite store.
   if python3 - "$output/app-terminate.log" <<'PY'
 from pathlib import Path
-import sys
+import re,sys
 text=Path(sys.argv[1]).read_text()
-if not any(message in text.lower() for message in ('not running','no such process')):
+already_stopped = any(message in text.lower() for message in ('not running','no such process'))
+already_stopped |= bool(re.search(r'\bdomain=NSPOSIXErrorDomain,\s*code=3\b',text)) \
+    and 'found nothing to terminate' in text.lower()
+if not already_stopped:
     raise SystemExit('Could not stop the owned app safely: '+text)
 PY
   then return 0; fi
