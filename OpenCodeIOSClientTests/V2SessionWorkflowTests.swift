@@ -17,6 +17,27 @@ final class V2SessionWorkflowTests: XCTestCase {
         UserDefaults.standard.set(originalDraftData, forKey: OpenClientStorageKey.messageDraftsByChat)
     }
 
+    func testInteractionHydrationRetriesAfterReplyAndDiscoversOtherPendingRequest() async throws {
+        let model = makeModel()
+        defer { model.stopEventStream() }
+        let session = Self.session(id: "ses_interactions", directory: "/repo")
+        model.directoryStore.insertV2Session(session)
+        var permissionReads = 0
+        V2SessionWorkflowURLProtocol.handler = { request in
+            if request.url!.path.hasSuffix("/form") { return (200, #"{"data":[]}"#) }
+            XCTAssertTrue(request.url!.path.hasSuffix("/permission"))
+            permissionReads += 1
+            if permissionReads == 1 {
+                model.directoryStore.removeV2Permission(id: "a", sessionID: session.id)
+            }
+            return (200, #"{"data":[{"id":"b","sessionID":"ses_interactions","action":"shell","resources":["*"]}]}"#)
+        }
+        let complete = await model.hydrateV2Interactions(for: session)
+        XCTAssertTrue(complete)
+        XCTAssertEqual(permissionReads, 2)
+        XCTAssertEqual(model.directoryStore.syncState.permissionsBySessionID[session.id]?.map(\.id), ["b"])
+    }
+
     func testMarkReadAcknowledgesObservedCompletionAndKeepsNewerCompletionUnread() async throws {
         let model = makeModel()
         defer { model.stopEventStream() }

@@ -177,7 +177,7 @@ actor SwiftDataOpenCodeLocalCacheRepository: OpenCodeLocalCacheRepository {
             .flatMap { try? directoryPayload(from: $0.payload) }
         let payload = try encode(
             OpenCodeCachedDirectoryPayload(
-                sessions: OpenCodeLocalCacheIdentity.isV2(serverID) ? Array(sessions.prefix(100)) : sessions,
+                sessions: sessions,
                 statuses: existing?.statuses,
                 permissions: existing?.permissions,
                 questions: existing?.questions

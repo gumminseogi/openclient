@@ -770,6 +770,8 @@ struct OpenCodeMessage: Codable, Hashable, Sendable {
     let cost: Double?
     let tokens: OpenCodeMessageTokens?
     let system: String?
+    /// V2 compaction is a standalone record, rather than a V1 boundary/summary pair.
+    let compactionStatus: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -788,6 +790,7 @@ struct OpenCodeMessage: Codable, Hashable, Sendable {
         case cost
         case tokens
         case system
+        case compactionStatus
     }
 
     init(
@@ -806,7 +809,8 @@ struct OpenCodeMessage: Codable, Hashable, Sendable {
         error: OpenCodeSessionErrorPayload? = nil,
         cost: Double? = nil,
         tokens: OpenCodeMessageTokens? = nil,
-        system: String? = nil
+        system: String? = nil,
+        compactionStatus: String? = nil
     ) {
         self.id = id
         self.role = role
@@ -824,6 +828,7 @@ struct OpenCodeMessage: Codable, Hashable, Sendable {
         self.cost = cost
         self.tokens = tokens
         self.system = system
+        self.compactionStatus = compactionStatus
     }
 
     static func isOrderedBefore(_ lhs: OpenCodeMessage, _ rhs: OpenCodeMessage) -> Bool {
@@ -862,6 +867,7 @@ struct OpenCodeMessage: Codable, Hashable, Sendable {
         cost = try container.decodeIfPresent(Double.self, forKey: .cost)
         tokens = try container.decodeIfPresent(OpenCodeMessageTokens.self, forKey: .tokens)
         system = try container.decodeIfPresent(String.self, forKey: .system)
+        compactionStatus = try container.decodeIfPresent(String.self, forKey: .compactionStatus)
     }
 }
 

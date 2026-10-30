@@ -291,7 +291,7 @@ extension AppViewModel {
             guard !Task.isCancelled, isCurrentBackendConnection(connection), sessionNavigationGeneration == generation,
                   !wasPresented || isShowingCreateProjectSheet else { return }
             projectStore.rememberProjectResolution(result, connectionID: connection.id)
-            projectStore.setProjectVisibility(result.project, isVisible: true, scopeKey: config.recentServerID)
+            projectStore.restoreProject(result.project, scopeKey: config.recentServerID)
             if let index = projects.firstIndex(where: { $0.id == result.project.id }) {
                 projects[index] = result.project
             } else {

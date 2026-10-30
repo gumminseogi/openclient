@@ -7,6 +7,19 @@ extension SwiftDataOpenCodeLocalCacheRepository {
 }
 
 final class OpenCodeLocalCacheRepositoryTests: XCTestCase {
+    func testV2ChildHistoryRetainsParentAndAllDiscoveredPages() async throws {
+        let repository = try OpenCodeLocalCacheRepositoryFactory.makeInMemory()
+        let namespace = OpenCodeLocalCacheIdentity.namespace(serverID: "history-test", profile: .v2)
+        var sessions = (0..<205).map {
+            OpenCodeSession(id: "child-\($0)", title: nil, workspaceID: nil, directory: "/repo", projectID: "p", parentID: "parent")
+        }
+        sessions[0].outcome = "failed"
+        sessions.append(OpenCodeSession(id: "parent", title: nil, workspaceID: nil, directory: "/repo", projectID: "p", parentID: nil))
+        try await repository.saveDirectorySessions(sessions, serverID: namespace, directory: "/repo", refreshedAt: .now, writtenAt: .now)
+        let loaded = try await repository.loadDirectorySessions(serverID: namespace, directory: "/repo")
+        XCTAssertEqual(loaded?.sessions, sessions)
+    }
+
     @MainActor
     func testDeferredRepositoryConstructsAndExecutesOffMainThreadAndPreservesWrites() async throws {
         let executorChecked = expectation(description: "cache executor checked")
@@ -177,7 +190,7 @@ final class OpenCodeLocalCacheRepositoryTests: XCTestCase {
         XCTAssertNil(snapshot?.todosRefreshedAt)
     }
 
-    func testV2BoundsProjectAndSessionSnapshotsAndPreservesCanonicalMessageOrder() async throws {
+    func testV2BoundsProjectsRetainsSessionHistoryAndPreservesCanonicalMessageOrder() async throws {
         let repository = try OpenCodeLocalCacheRepositoryFactory.makeInMemory()
         let namespace = OpenCodeLocalCacheIdentity.namespace(serverID: "https://cache.example|user", profile: .v2)
         let projects = (0..<105).map { project(id: "p\($0)", name: "Project") }
@@ -187,7 +200,7 @@ final class OpenCodeLocalCacheRepositoryTests: XCTestCase {
         let loadedProjects = try await repository.loadProjects(serverID: namespace)
         let loadedSessions = try await repository.loadDirectorySessions(serverID: namespace, directory: "/project")
         XCTAssertEqual(loadedProjects?.projects, Array(projects.prefix(100)))
-        XCTAssertEqual(loadedSessions?.sessions, Array(sessions.prefix(100)))
+        XCTAssertEqual(loadedSessions?.sessions, sessions)
         XCTAssertFalse(loadedSessions?.isFresh() ?? true)
         let messages = [message(id: "z", sessionID: "s", text: "First"), message(id: "a", sessionID: "s", text: "Second")]
         try await repository.saveChatMessages(messages, serverID: namespace, sessionID: "s")

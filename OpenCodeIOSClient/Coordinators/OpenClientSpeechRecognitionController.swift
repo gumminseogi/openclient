@@ -64,7 +64,12 @@ final class OpenClientSpeechRecognitionController: ObservableObject {
     @Published private(set) var inputLevel: CGFloat = 0
     @Published private(set) var inputPitch: CGFloat = 0
 
-    private let speechRecognizer = SFSpeechRecognizer()
+    // Every composer owns a controller, but only dictation needs the speech service.
+    private lazy var speechRecognizer: SFSpeechRecognizer? = {
+        let recognizer = SFSpeechRecognizer()
+        recognizer?.queue = .main
+        return recognizer
+    }()
     private var audioEngine: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
@@ -99,10 +104,6 @@ final class OpenClientSpeechRecognitionController: ObservableObject {
 
     static func isCurrentRecognitionCallback(_ recognitionID: UUID, activeRecognitionID: UUID?) -> Bool {
         recognitionID == activeRecognitionID
-    }
-
-    init() {
-        speechRecognizer?.queue = .main
     }
 
     func start(

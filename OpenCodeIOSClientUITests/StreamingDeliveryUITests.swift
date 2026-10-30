@@ -63,6 +63,13 @@ final class StreamingDeliveryUITests: XCTestCase {
             case "command":
                 let command = app.buttons["chat.command.btw"]
                 XCTAssertTrue(command.waitForExistence(timeout: 3))
+                command.press(forDuration: 0.8)
+                let done = app.buttons["Done"]
+                XCTAssertTrue(done.waitForExistence(timeout: 3))
+                XCTAssertFalse(app.textFields["chat.sideQuestion.input"].exists,
+                               "Holding a suggestion must show details without selecting it")
+                done.tap()
+                XCTAssertTrue(command.waitForExistence(timeout: 3))
                 command.tap()
             case "typed":
                 app.buttons["chat.send"].tap()

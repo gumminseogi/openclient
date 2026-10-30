@@ -736,13 +736,13 @@ private struct MessageDebugPayload: Identifiable {
     }
 }
 
-private struct CompactionSummaryPayload: Identifiable {
+struct CompactionSummaryPayload: Identifiable {
     let id: String
     let title: LocalizedStringResource
     let summary: String
 }
 
-private struct CompactionDisplayItem: Identifiable {
+struct CompactionDisplayItem: Identifiable {
     let boundaryMessage: OpenCodeMessageEnvelope
     let summaryMessage: OpenCodeMessageEnvelope?
 
@@ -992,7 +992,8 @@ private extension OpenCodeMessageEnvelope {
             modelID,
             variant,
             errorName,
-            errorMessage
+            errorMessage,
+            info.compactionStatus ?? ""
         ]
         .joined(separator: "\u{1f}")
     }
@@ -1090,6 +1091,7 @@ private struct ChatDisplayItemCacheKey: Equatable {
         let errorMessage: String?
         let isStreaming: Bool
         let isCompactionSummary: Bool
+        let compactionStatus: String?
         let parts: [PartKey]
     }
 
@@ -1653,6 +1655,7 @@ private struct MessageComposerSnapshot: Equatable {
     let conversationState: ConversationModeController.State
     let conversationInputLevel: CGFloat
     let blocksNewInput: Bool
+    let allowsCompactionWhileBusy: Bool
     let prefersAssistantLayout: Bool
     let toolbarSnapshot: ChatFacade.ToolbarSnapshot
 }
@@ -1681,10 +1684,20 @@ private struct MessageRowRenderSnapshot {
     let transition: AnyTransition
 }
 
-private struct CompactionRowRenderSnapshot {
+struct CompactionRowRenderSnapshot {
     let hasSummary: Bool
     let isStreaming: Bool
     let isDisabled: Bool
+    let isFailed: Bool
+
+    init(compaction: CompactionDisplayItem, isSessionBusy: Bool) {
+        let status = compaction.boundaryMessage.info.compactionStatus
+        isFailed = status == "failed" || compaction.summaryMessage?.info.error != nil
+        isStreaming = status.map { $0 == "running" }
+            ?? (!isFailed && isSessionBusy && compaction.summaryMessage?.info.time?.completed == nil)
+        hasSummary = compaction.summaryText != nil
+        isDisabled = !hasSummary || isStreaming || isFailed
+    }
 }
 
 private struct LargeMessageChunkRowRenderSnapshot {
@@ -2256,6 +2269,7 @@ private struct EquatableMessageComposerHost: View, Equatable {
             onOpenBrowser: onOpenBrowser,
             glassNamespace: glassNamespace,
             blocksNewInput: snapshot.blocksNewInput,
+            allowsCompactionWhileBusy: snapshot.allowsCompactionWhileBusy,
             agentTitle: agentTitle,
             selectableAgents: selectableAgents,
             modelTitle: modelTitle,
@@ -2356,6 +2370,9 @@ struct ChatView: View {
     private let onDismissChildSession: (() -> Void)?
     private let isDedicatedWindow: Bool
     private let usesSheetNavigation: Bool
+    @Environment(\.dismiss) private var dismiss
+    private let onOpenSheetSession: ((String) -> Void)?
+    @StateObject private var agentNavigation = AgentNavigationStore()
 
     @MainActor
     init(
@@ -2368,7 +2385,8 @@ struct ChatView: View {
         onDismissChildSession: (() -> Void)? = nil,
         preferredDirectoryKey: String? = nil,
         isDedicatedWindow: Bool = false,
-        usesSheetNavigation: Bool = false
+        usesSheetNavigation: Bool = false,
+        onOpenSheetSession: ((String) -> Void)? = nil
     ) {
         _connectionStore = ObservedObject(wrappedValue: chatFacade.connectionStore)
         _projectStore = ObservedObject(wrappedValue: chatFacade.projectStore)
@@ -2399,6 +2417,7 @@ struct ChatView: View {
         self.onDismissChildSession = onDismissChildSession
         self.isDedicatedWindow = isDedicatedWindow
         self.usesSheetNavigation = usesSheetNavigation
+        self.onOpenSheetSession = onOpenSheetSession
     }
 
     @Namespace private var toolbarGlassNamespace
@@ -2979,8 +2998,9 @@ struct ChatView: View {
             }
             .presentationDetents([.medium, .large])
         }
-        .sheet(isPresented: $showingAgents) {
-            AgentActivitySheet(facade: chatFacade, parent: liveSession, imageContent: imageContent, videoStreams: videoStreams)
+        .sheet(isPresented: $showingAgents, onDismiss: { agentNavigation.close() }) {
+            AgentActivitySheet(facade: chatFacade, parent: liveSession, imageContent: imageContent,
+                videoStreams: videoStreams, navigation: agentNavigation)
         }
         .sheet(item: $selectedAttachmentPreview) { attachment in
             NavigationStack {
@@ -3613,6 +3633,7 @@ struct ChatView: View {
             conversationState: conversationController.state,
             conversationInputLevel: conversationController.inputLevel,
             blocksNewInput: chatFacade.hasGlobalForms(sessionID: sessionID) || funAndGamesStore.hasPendingSetup(for: sessionID),
+            allowsCompactionWhileBusy: chatFacade.isV2Connection,
             prefersAssistantLayout: appCustomizationStore.composerStyle == .assistant,
             toolbarSnapshot: toolbarSnapshot
         )
@@ -3904,6 +3925,7 @@ struct ChatView: View {
                     .accessibilityLabel("Close subagent thread")
             } else {
                 Button("Back") {
+                    if usesSheetNavigation { dismiss(); return }
                     guard let parentSession = headerSnapshot.parentSession else { return }
                     Task { await chatFacade.selectSession(parentSession) }
                 }
@@ -4567,6 +4589,7 @@ struct ChatView: View {
             errorMessage: message.info.error?.displayMessage,
             isStreaming: isStreamingMessage(message),
             isCompactionSummary: message.info.isCompactionSummary,
+            compactionStatus: message.info.compactionStatus,
             parts: message.parts.map { displayItemCachePartKey(for: $0, in: message) }
         )
     }
@@ -5040,24 +5063,27 @@ struct ChatView: View {
     private func compactionRow(for compaction: CompactionDisplayItem) -> some View {
         let snapshot = compactionRowRenderSnapshot(for: compaction)
 
-        return Button {
-            selectedCompactionSummary = compaction.payload
-        } label: {
-            CompactionBoundaryRow(hasSummary: snapshot.hasSummary, isStreaming: snapshot.isStreaming)
+        return VStack(alignment: .leading, spacing: 8) {
+            Button {
+                selectedCompactionSummary = compaction.payload
+            } label: {
+                CompactionBoundaryRow(hasSummary: snapshot.hasSummary, isStreaming: snapshot.isStreaming,
+                                      isFailed: snapshot.isFailed)
+            }
+            .buttonStyle(.plain)
+            .disabled(snapshot.isDisabled)
+            if snapshot.isFailed, let error = compaction.summaryMessage?.info.error?.displayMessage {
+                Text(verbatim: error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(snapshot.isDisabled)
         .padding(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
     }
 
     private func compactionRowRenderSnapshot(for compaction: CompactionDisplayItem) -> CompactionRowRenderSnapshot {
-        let isStreaming = isSessionBusy && compaction.summaryMessage?.info.time?.completed == nil
-        let hasSummary = compaction.summaryText != nil
-        return CompactionRowRenderSnapshot(
-            hasSummary: hasSummary,
-            isStreaming: isStreaming,
-            isDisabled: !hasSummary || isStreaming
-        )
+        CompactionRowRenderSnapshot(compaction: compaction, isSessionBusy: isSessionBusy)
     }
 
     private func makeDisplayItems(from messages: [OpenCodeMessageEnvelope]) -> [ChatDisplayItem] {
@@ -5108,6 +5134,11 @@ struct ChatView: View {
                 }
             }
 
+            if message.info.compactionStatus != nil {
+                appendUnique(.compaction(CompactionDisplayItem(boundaryMessage: message, summaryMessage: message)))
+                continue
+            }
+
             if message.info.isCompactionSummary {
                 continue
             }
@@ -5139,6 +5170,7 @@ struct ChatView: View {
     private func hasDisplayableTranscriptContent(_ message: OpenCodeMessageEnvelope) -> Bool {
         if findPlaceGame(for: sessionID) != nil, message.containsText(FindPlaceGame.setupMarker) { return false }
         if findBugGame(for: sessionID) != nil, message.containsText(FindBugGame.setupMarker) { return false }
+        if message.info.compactionStatus != nil { return true }
         if message.info.isCompactionSummary { return false }
         if message.parts.contains(where: \.isCompaction) { return true }
         return shouldDisplayMessageRow(message)
@@ -5637,6 +5669,7 @@ struct ChatView: View {
 
     @MainActor
     private func presentTaskSession(sessionID: String) async {
+        if let onOpenSheetSession { onOpenSheetSession(sessionID); return }
         if chatFacade.isV2Connection {
             await chatFacade.openSession(sessionID: sessionID)
             return
@@ -6101,6 +6134,7 @@ private struct ContextBreakdownBar: View {
 private struct CompactionBoundaryRow: View {
     let hasSummary: Bool
     let isStreaming: Bool
+    var isFailed = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -6113,19 +6147,22 @@ private struct CompactionBoundaryRow: View {
                     ProgressView()
                         .controlSize(.mini)
                 } else {
-                    Image(systemName: "rectangle.compress.vertical")
+                    Image(systemName: isFailed ? "exclamationmark.triangle" : "rectangle.compress.vertical")
                         .font(.system(size: 12, weight: .semibold))
                 }
                 if isStreaming {
                     Text("Compacting session")
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
+                } else if isFailed {
+                    Text("Compaction failed")
+                        .font(.caption.weight(.semibold))
                 } else {
                     Text("Session compacted")
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
                 }
-                if hasSummary && !isStreaming {
+                if hasSummary && !isStreaming && !isFailed {
                     Text("View context")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -6152,6 +6189,7 @@ private struct CompactionBoundaryRow: View {
     }
 
     private var accessibilityTitle: LocalizedStringResource {
+        if isFailed { return "Compaction failed" }
         if isStreaming { return "Compacting session" }
         if hasSummary { return "Session compacted. View context." }
         return "Session compacted"

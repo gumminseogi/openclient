@@ -105,6 +105,10 @@ enum OpenCodeToolActivityPolicy {
         part.timelineContextType == nil && !nonToolPartNames.contains(toolName(for: part).lowercased())
     }
 
+    static func isOpenClientTool(_ part: OpenCodePart) -> Bool {
+        isToolCall(part) && toolName(for: part).hasPrefix("openclient_")
+    }
+
     static func isRunning(_ part: OpenCodePart) -> Bool {
         if let status = part.state?.status?.lowercased() {
             return status == "running" || status == "pending" || status == "in_progress"

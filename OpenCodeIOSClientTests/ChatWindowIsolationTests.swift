@@ -3,6 +3,72 @@ import XCTest
 
 @MainActor
 final class ChatWindowIsolationTests: XCTestCase {
+    func testAgentPaginationReconcilesOnlyAfterCompleteSnapshot() async throws {
+        let (model, backend) = fixture()
+        defer { model.disconnect() }
+        let parent = facade(model, id: "parent")
+        defer { parent.windowContext?.close() }
+        let session = parent.selectedSession!
+        let owner = parent.directoryStore(forSessionID: session.id)
+        func child(_ id: String) -> OpenCodeSession {
+            .init(id: id, title: id, workspaceID: nil, directory: "/repo", projectID: "project", parentID: session.id)
+        }
+        owner.insertV2Session(child("stale"))
+        var cursors: [String?] = []
+        backend.children = { cursor in
+            cursors.append(cursor)
+            if cursor == nil { return .init(sessions: [child("first")], nextCursor: "next") }
+            XCTAssertNotNil(owner.sessions.first { $0.id == "stale" })
+            owner.insertV2Session(child("live"))
+            return .init(sessions: [child("first"), child("last")])
+        }
+        try await parent.hydrateAgentActivity(parent: session)
+        XCTAssertEqual(cursors, [nil, "next"])
+        XCTAssertEqual(Set(owner.sessions.map(\.id)), ["parent", "first", "last", "live"])
+        XCTAssertEqual(owner.sessions.count, 4)
+    }
+
+    func testFailedAndRepeatedCursorSnapshotsDoNotPruneHistory() async throws {
+        for repeatsCursor in [false, true] {
+            let (model, backend) = fixture()
+            defer { model.disconnect() }
+            let parent = facade(model, id: "parent")
+            defer { parent.windowContext?.close() }
+            let session = parent.selectedSession!
+            let owner = parent.directoryStore(forSessionID: session.id)
+            let stale = OpenCodeSession(id: "stale", title: nil, workspaceID: nil, directory: "/repo", projectID: "project", parentID: session.id)
+            owner.insertV2Session(stale)
+            backend.children = { cursor in
+                if cursor != nil && !repeatsCursor { throw URLError(.networkConnectionLost) }
+                return .init(sessions: [], nextCursor: "repeated")
+            }
+            do {
+                try await parent.hydrateAgentActivity(parent: session)
+                XCTFail("Incomplete snapshots must fail")
+            } catch {}
+            XCTAssertTrue(owner.sessions.contains { $0.id == stale.id })
+        }
+    }
+
+    func testAgentRoutesRetainCoveredContextsAndCloseOnlyPoppedRoutes() {
+        let (model, _) = fixture()
+        defer { model.disconnect() }
+        let a = facade(model, id: "a")
+        let b = facade(model, id: "b")
+        let navigation = AgentNavigationStore()
+        navigation.open("a")
+        navigation.retain(a, for: "a")
+        navigation.open("b")
+        navigation.retain(b, for: "b")
+        XCTAssertTrue(a.windowContext!.isCurrent)
+        XCTAssertTrue(b.windowContext!.isCurrent)
+        navigation.path.removeLast()
+        XCTAssertTrue(a.windowContext!.isCurrent)
+        XCTAssertTrue(b.windowContext!.isClosed)
+        navigation.close()
+        XCTAssertTrue(a.windowContext!.isClosed)
+    }
+
     private func fixture() -> (AppViewModel, WindowBackend) {
         let backend = WindowBackend()
         let model = AppViewModel()
@@ -74,7 +140,7 @@ final class ChatWindowIsolationTests: XCTestCase {
         }
         let pending = Task { await b.hydrateSessionForPresentation(b.selectedSession!) }
         await fulfillment(of: [started], timeout: 2)
-        a.saveMessageDraft("keep A", forSessionID: "a")
+        a.saveMessageDraft("keep A", forSessionID: "a", updateActiveDraft: false)
         let attachment = OpenCodeComposerAttachment(id: "attachment", kind: .file, filename: "a.txt",
             mime: "text/plain", dataURL: "data:text/plain;base64,QQ==")
         a.addDraftAttachments([attachment])
@@ -336,6 +402,11 @@ private final class WindowBackend: BackendChatService, BackendSessionsService, B
     var renames: [String] = []
     var beforeRename: (() async -> Void)?
     var renameFails = false
+    var children: ((String?) async throws -> BackendSessionPage)?
+    func childSessions(parentID: String, scope: BackendScope, cursor: String?) async throws -> BackendSessionPage {
+        if let children { return try await children(cursor) }
+        return .init(sessions: [])
+    }
     func connection() -> BackendConnection {
         BackendConnection(descriptor: .init(id: "window-tests", name: "Windows", version: "test"),
             projects: self, sessions: self, chat: self, models: self, events: self, sessionForms: self)

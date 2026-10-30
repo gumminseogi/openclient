@@ -400,7 +400,14 @@ final class AppShellFacade: ObservableObject {
 
     func selectActivity() {
         guard activity.isAvailable else { return }
+        beginSidebarNavigation()
         contentSelection = .activity
+    }
+
+    /// A sidebar choice supersedes unfinished session navigation. Its hydration
+    /// may complete later, but must not request presentation over the new screen.
+    func beginSidebarNavigation() {
+        viewModel.sessionNavigationGeneration &+= 1
     }
 
     func selectProjectContent() {

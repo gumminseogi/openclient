@@ -54,7 +54,8 @@ enum MessageBubblePartVisibilityPolicy {
         showsToolCalls: Bool,
         showsReasoningBlocks: Bool
     ) -> Bool {
-        if !showsToolCalls, OpenCodeToolActivityPolicy.isToolCall(part) { return false }
+        if !showsToolCalls, OpenCodeToolActivityPolicy.isToolCall(part),
+           !OpenCodeToolActivityPolicy.isOpenClientTool(part) { return false }
         if !showsReasoningBlocks, isReasoningPart(part) { return false }
         return true
     }
@@ -951,6 +952,7 @@ struct MessageBubble: View {
             return true
         case let .part(indexed):
             let part = indexed.part
+            if OpenCodeToolActivityPolicy.isOpenClientTool(part) { return true }
             if part.timelineContextType != nil { return true }
             if attachment(for: part) != nil { return true }
             if OpenClientVisualImageActivity(part: part) != nil { return true }

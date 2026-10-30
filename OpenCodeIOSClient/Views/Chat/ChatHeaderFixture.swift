@@ -96,6 +96,9 @@ struct ChatHeaderFixture: View {
         let window = ProcessInfo.processInfo.environment["OPENCLIENT_HEADER_WINDOW"] == "1"
         let context = window ? ChatWindowContext(model: model, connection: connection, session: session, owner: model.directoryStore) : nil
         let facade = context.map { ChatFacade(viewModel: model, windowContext: $0) } ?? model.chatFacade
+        if ProcessInfo.processInfo.environment["OPENCLIENT_HEADER_TERMINAL_FIXTURE"] == "1" {
+            facade.headerTerminalFacade.seedHeaderTerminalFixture()
+        }
         if window {
             let root = OpenCodeSession(id: "header-a", title: "Root A", workspaceID: nil, directory: "/root", projectID: "root", parentID: nil)
             model.directoryStoreRegistry.activate("/root")

@@ -1,8 +1,10 @@
-Tools within reach.
+A little less clutter.
 
-• Pin skills beside your favorite commands for quick access in the composer.
-• Turn automatic permission approval on or off per chat from the chat header on supported servers.
-• Enjoy a cleaner project sidebar and hide projects directly with Remove from List.
-• Fixed the plus button in the Assistant composer and widened the tools popover so attachment labels have more room in both composer styles.
+• Clean up conversations across your server by age or project, in a dedicated sheet.
+• Review chats individually: swipe right to keep, left to queue for deletion, and undo a choice before confirming.
+• Open read-only transcripts before deciding what to delete. Running chats and conversations with active child agents are excluded from cleanup.
+• Follow live subagent activity and open agent conversations from the new agent sheet.
+• Enjoy responsive native chat navigation on iPhone and iPad.
+• Tables keep their columns aligned after replies finish, with sideways scrolling for wide tables.
 
 OpenClient supports OpenCode v1 and v2.

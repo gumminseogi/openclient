@@ -270,6 +270,7 @@ extension AppViewModel {
             guard let connection = backendConnection, let commands = connection.commands else { return }
             projectActionCoordinator.receive(signal, backendID: connection.descriptor.id, contractID: commands.actionContractID)
         case let .sessionForm(directory, event):
+            guard !projectStore.isDirectoryIgnored(directory, scopeKey: config.recentServerID) else { return }
             guard isConnected, backendConnection?.sessionForms != nil, event.sessionID != "global" else { return }
             let owner = directoryStoreRegistry.ownerStore(forSessionID: event.sessionID) ?? directoryStoreRegistry.store(for: directory)
             owner.applySessionFormEvent(event)
@@ -278,6 +279,7 @@ extension AppViewModel {
         case let .globalForm(location, event):
             globalFormsFacade.receive(location: location, event: event)
         case let .mutation(directory, typed):
+            guard !projectStore.isDirectoryIgnored(directory, scopeKey: config.recentServerID) else { return }
             guard isConnected else { return }
             do {
                 let managed = try BackendMutationBridge.managed(directory: directory, event: typed)
@@ -313,6 +315,15 @@ extension AppViewModel {
 
     func handleV2Event(_ event: OpenCodeV2ManagedEvent) {
         guard connectionStore.apiProfile == .v2 else { return }
+        if let directory = event.routingLocation?.directory,
+           projectStore.isDirectoryIgnored(directory, scopeKey: config.recentServerID) { return }
+        if let projectID = event.data.objectValue?["projectID"]?.literalStringValue,
+           projectStore.isProjectIgnored(projectID, scopeKey: config.recentServerID) { return }
+        if let sessionID = event.sessionID,
+           let owner = directoryStoreRegistry.ownerStore(forSessionID: sessionID),
+           let session = owner.sessions.first(where: { $0.id == sessionID }),
+           projectStore.isProjectIgnored(session.projectID, scopeKey: config.recentServerID)
+            || projectStore.isDirectoryIgnored(session.directory, scopeKey: config.recentServerID) { return }
         lastStreamEventAt = .now
         debugLastEventSummary = event.type
         if shouldLogEventDetails(for: event.type) {
@@ -360,6 +371,9 @@ extension AppViewModel {
                 }
             } else {
                 _ = owner.applyV2Event(event)
+            }
+            if event.isExecutionStarted || event.isExecutionTerminal, let key = directoryStoreRegistry.key(for: owner) {
+                persistDirectoryToLocalCache(owner, directory: DirectoryStoreRegistry.directory(forKey: key), marksValidated: false)
             }
             if wasSelected, event.type == "session.execution.failed" {
                 errorMessage = event.data.objectValue?["error"]?.objectValue?["message"]?.literalStringValue
@@ -539,14 +553,12 @@ extension AppViewModel {
                 directoryStoreRegistry.requestV2Reconciliation(sessionID: id)
             }
         }
-        let stores = directoryStoreRegistry.allStores.map { ($0, $0.statusRevision) }
+        let stores = directoryStoreRegistry.v2StatusSnapshot
         let lifecycleSnapshot = directoryStoreRegistry.v2LifecycleSnapshot
         do {
             let statuses = try await client.listV2SessionStatuses()
             guard !Task.isCancelled, directoryStoreRegistry.generation == generation else { return }
-            for (store, revision) in stores {
-                store.applyV2ActiveStatuses(statuses, requestedAtRevision: revision)
-            }
+            directoryStoreRegistry.applyV2ActiveSnapshot(statuses, snapshot: stores)
             for (id, status) in statuses where status != "idle"
                 && !directoryStoreRegistry.isV2SessionDeleted(id)
                 && directoryStoreRegistry.v2LifecycleRevision(sessionID: id) == (lifecycleSnapshot[id] ?? 0) {
@@ -701,6 +713,7 @@ extension AppViewModel {
     func handleManagedEvent(_ managed: OpenCodeManagedEvent) {
         guard eventSyncCoordinator.shouldProcessEvent(isConnected: isConnected) else { return }
         guard backendConnection?.openCodeCompatibility?.profile != .v2 else { return }
+        guard !projectStore.isDirectoryIgnored(managed.directory == "global" ? nil : managed.directory, scopeKey: config.recentServerID) else { return }
 
         if shouldLogEventDetails(for: managed.envelope.type) {
             appendDebugLog(eventScopeSummary(for: managed))

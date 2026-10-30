@@ -620,7 +620,8 @@ private struct OpenCodeV2TimelineRecord: Decodable, Sendable {
                     model: nil,
                     mode: "compaction",
                     summary: true,
-                    error: projectedError(value.object("error"))
+                    error: projectedError(value.object("error")),
+                    compactionStatus: value.string("status")
                 ),
                 parts: [textPart(id: "\(id):v2:text:0", messageID: id, sessionID: sessionID, type: "text", text: summary)]
             )
@@ -1651,6 +1652,11 @@ struct OpenCodeAPIClient: Sendable {
             queryItems.append(URLQueryItem(name: "limit", value: String(limit)))
         }
         return try await send(path: "/session", method: "GET", queryItems: queryItems)
+    }
+
+    func listChildSessions(parentID: String, directory: String?, workspaceID: String?) async throws -> [OpenCodeSession] {
+        try await send(path: "/session/\(parentID)/children", method: "GET",
+            queryItems: scopedQueryItems(directory: directory, workspaceID: workspaceID), directoryHeader: directory)
     }
 
     func listSessionStatuses(directory: String? = nil) async throws -> [String: String] {

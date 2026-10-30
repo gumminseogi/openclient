@@ -208,19 +208,16 @@ final class AppViewModel: ObservableObject {
     let projectActionStore = ProjectActionStore()
     lazy var projectActionCoordinator = ProjectActionCoordinator(store: projectActionStore)
     var projects: [OpenCodeProject] {
-        get { projectStore.projects }
+        get { projectStore.acceptedProjects(scopeKey: config.recentServerID) }
         set {
             objectWillChange.send()
             projectStore.projects = newValue
-        }
-        _modify {
-            objectWillChange.send()
-            yield &projectStore.projects
         }
     }
     var currentProject: OpenCodeProject? {
         get { projectStore.currentProject }
         set {
+            if let newValue, projectStore.isProjectIgnored(newValue.id, scopeKey: config.recentServerID) { return }
             objectWillChange.send()
             projectStore.currentProject = newValue
             providerUsageFacade.backendContextChanged()

@@ -1,8 +1,10 @@
-Ferramentas ao seu alcance.
+Um pouco mais de organização.
 
-• Fixe habilidades ao lado dos seus comandos favoritos para acessá-las rapidamente no compositor.
-• Ative ou desative a aprovação automática de permissões por chat pelo cabeçalho nos servidores compatíveis.
-• Aproveite uma barra lateral de projetos mais limpa e oculte projetos diretamente com Remover da lista.
-• Corrigido o botão de mais no compositor Assistente e ampliado o popover de ferramentas para dar mais espaço aos rótulos dos anexos nos dois estilos de composição.
+• Limpe conversas do servidor por tempo de inatividade ou projeto, em um painel dedicado.
+• Revise as conversas individualmente: deslize para a direita para manter, para a esquerda para marcar para exclusão e desfaça uma escolha antes de confirmar.
+• Abra transcrições somente leitura antes de decidir o que excluir. Conversas em execução e conversas com subagentes ativos são excluídas da limpeza.
+• Acompanhe a atividade dos subagentes em tempo real e abra suas conversas pelo novo painel de agentes.
+• Navegação nativa e ágil entre conversas no iPhone e iPad.
+• As tabelas mantêm as colunas alinhadas após o fim das respostas, com rolagem horizontal para tabelas largas.
 
 O OpenClient oferece suporte ao OpenCode v1 e v2.

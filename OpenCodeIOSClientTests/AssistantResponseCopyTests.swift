@@ -425,7 +425,7 @@ extension AssistantResponseCopyTests {
     func testCompletedResponseUsesOneTextViewForAllBlocksAndServerParts() throws {
         let parts = [
             "# Heading\n\nFirst paragraph.\n\n- Item\n\n> Quoted passage",
-            "```swift\nlet value = 42\n```\n\n| Key | Val |\n| --- | --- |\n| Foo | Bar |\n\nLast paragraph."
+            "```swift\nlet value = 42\n```\n\nLast paragraph."
         ]
         let host = UIHostingController(rootView: CompletedResponseText(markdownParts: parts))
         layout(host)
@@ -433,7 +433,7 @@ extension AssistantResponseCopyTests {
         XCTAssertEqual(views.count, 1)
         let native = try XCTUnwrap(views.first)
         let expected = "Heading\n\nFirst paragraph.\n\n\t\u{2022}\tItem\n\nQuoted passage"
-            + "\u{2029}let value = 42\n\nKey   Val\nFoo   Bar\n\nLast paragraph."
+            + "\u{2029}let value = 42\n\nLast paragraph."
         XCTAssertEqual(native.text, expected)
         XCTAssertTrue(native.isSelectable)
         XCTAssertFalse(native.isEditable)
@@ -451,7 +451,7 @@ extension AssistantResponseCopyTests {
     func testCompletedResponseSelectsVisiblePassageAcrossBlocksAndParts() throws {
         let host = UIHostingController(rootView: CompletedResponseText(markdownParts: [
             "Excluded prefix.\n\n## Selected heading\n\n- **Selected item**",
-            "> Selected quote\n\n```swift\nlet value = 42\n```\n\n| Key | Val |\n| --- | --- |\n| Foo | Bar |"
+            "> Selected quote\n\n```swift\nlet value = 42\n```"
                 + "\n\n`literal` and [guide](https://example.com).\n\nExcluded suffix."
         ]))
         layout(host)
@@ -459,7 +459,7 @@ extension AssistantResponseCopyTests {
         XCTAssertEqual(views.count, 1)
         let native = try XCTUnwrap(views.first)
         let passage = "Selected heading\n\n\t\u{2022}\tSelected item"
-            + "\u{2029}Selected quote\n\nlet value = 42\n\nKey   Val\nFoo   Bar\n\nliteral and guide."
+            + "\u{2029}Selected quote\n\nlet value = 42\n\nliteral and guide."
         let range = try XCTUnwrap(native.text.range(of: passage))
         let selection = NSRange(range, in: native.text)
         native.selectedRange = selection
@@ -467,6 +467,40 @@ extension AssistantResponseCopyTests {
         XCTAssertEqual(native.selectedRange, selection)
         let selectedRange = try XCTUnwrap(native.selectedTextRange)
         XCTAssertEqual(native.text(in: selectedRange), passage)
+    }
+
+    func testCompletedWeatherWearTableKeepsColumnsInScrollableViewport() throws {
+        let table = """
+        | Metric | Carousel | Single scene | Reduction |
+        |---|---:|---:|---:|
+        | CPU time during ~10s rendering | 10.16s | 8.48s | **16.5%** |
+        | Peak app memory | 678 MB | 535 MB | **21.1%** |
+        | CPU time during tab return | 5.77s | 5.05s | **12.5%** |
+        """
+        for width: CGFloat in [320, 688] {
+            let host = UIHostingController(rootView: CompletedResponseText(markdownParts: [
+                "Before the table.\n\n" + table + "\n\nAfter the table."
+            ]))
+            layout(host, width: width)
+            let views = allTextViews(in: host.view)
+            let header = try XCTUnwrap(views.first { $0.text == "Carousel" })
+            let value = try XCTUnwrap(views.first { $0.text == "10.16s" })
+            let last = try XCTUnwrap(views.first { $0.text == "12.5%" })
+            XCTAssertEqual(header.convert(header.bounds, to: host.view).minX,
+                           value.convert(value.bounds, to: host.view).minX, accuracy: 1)
+            var ancestor = header.superview
+            while let view = ancestor, !(view is UIScrollView) { ancestor = view.superview }
+            let scroll = try XCTUnwrap(ancestor as? UIScrollView)
+            if width == 320 {
+                XCTAssertGreaterThan(scroll.contentSize.width, scroll.bounds.width)
+            }
+            XCTAssertTrue(last.isDescendant(of: scroll))
+            XCTAssertTrue(views.contains { $0.text.contains("Before the table.") })
+            XCTAssertTrue(views.contains { $0.text.contains("After the table.") })
+            XCTAssertTrue(views.allSatisfy { $0.isSelectable && !$0.isEditable })
+            let font = try XCTUnwrap(last.attributedText.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+            XCTAssertTrue(font.fontDescriptor.symbolicTraits.contains(.traitBold))
+        }
     }
 
     func testCompletedDocumentPreservesFontsAndLinksInNativeText() throws {

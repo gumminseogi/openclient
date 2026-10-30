@@ -91,6 +91,23 @@ final class DirectoryStoreRegistry: ObservableObject {
 
     var allStores: [DirectoryStore] { Array(storesByKey.values) }
 
+    var v2StatusSnapshot: [(DirectoryStore, UInt)] {
+        _ = store(for: nil)
+        return allStores.map { ($0, $0.statusRevision) }
+    }
+
+    func applyV2ActiveSnapshot(_ statuses: [String: String], snapshot: [(DirectoryStore, UInt)]) {
+        for (store, revision) in snapshot where key(for: store) != nil {
+            store.applyV2ActiveStatuses(statuses, requestedAtRevision: revision)
+        }
+        // /active can name sessions that have not appeared in any list yet.
+        let global = store(for: nil)
+        guard let revision = snapshot.first(where: { $0.0 === global })?.1 else { return }
+        for (id, status) in statuses where !isV2SessionDeleted(id) && ownerStore(forSessionID: id) == nil {
+            global.applyV2ActiveStatus(status, sessionID: id, requestedAtRevision: revision)
+        }
+    }
+
     func ownerStoresBySessionID() -> [String: DirectoryStore] {
         var owners: [String: DirectoryStore] = [:]
         for store in storesByKey.values where store !== activeStore {
@@ -138,10 +155,17 @@ final class DirectoryStoreRegistry: ObservableObject {
     }
 
     func targetStore(forV2Session session: OpenCodeSession) -> DirectoryStore {
-        if let owner = knownV2Owner(sessionID: session.id, directory: session.directory, workspaceID: session.workspaceID) { return owner }
-        if let parentID = session.parentID,
-           let owner = knownV2Owner(sessionID: parentID, directory: session.directory, workspaceID: session.workspaceID) { return owner }
-        return store(for: session.directory)
+        let owner = knownV2Owner(sessionID: session.id, directory: session.directory, workspaceID: session.workspaceID)
+            ?? session.parentID.flatMap { knownV2Owner(sessionID: $0, directory: session.directory, workspaceID: session.workspaceID) }
+            ?? store(for: session.directory)
+        // Events can arrive before the session's location is known. Move that orphaned
+        // state when discovery establishes ownership, just as for a location change.
+        for source in stores(containingSessionID: session.id) where source !== owner
+            && !source.sessions.contains(where: { $0.id == session.id }) {
+            owner.adoptV2SessionState(sessionID: session.id, from: source)
+            source.removeV2Session(sessionID: session.id)
+        }
+        return owner
     }
 
     private func knownV2Owner(sessionID: String, directory: String?, workspaceID: String?) -> DirectoryStore? {
@@ -691,6 +715,11 @@ final class DirectoryStore: ObservableObject {
         }
     }
 
+    func applyV2ActiveStatus(_ status: String, sessionID: String, requestedAtRevision revision: UInt) {
+        guard (statusRevisionsBySessionID[sessionID] ?? 0) <= revision else { return }
+        applySessionStatus(status, forSessionID: sessionID)
+    }
+
     func applyCanonicalMessages(_ messages: [OpenCodeMessageEnvelope], forSessionID sessionID: String) {
         var nextState = syncStore.state
         nextState.replaceMessages(messages, forSessionID: sessionID)
@@ -805,6 +834,20 @@ final class DirectoryStore: ObservableObject {
         sessions = page + sessions.filter { !ids.contains($0.id) }
         sessionTotal = max(sessionTotal, sessions.filter(\.isRootSession).count)
         if let id = selectedSession?.id, let updated = page.first(where: { $0.id == id }) { selectedSession = updated }
+    }
+
+    /// Call only after exhaustive parent-scoped pagination. A live mutation wins
+    /// over both replacement and removal by an older HTTP snapshot.
+    func reconcileChildSessions(parentID: String, children: [OpenCodeSession], snapshot: [OpenCodeSession], protectedIDs: Set<String> = []) {
+        let children = Self.deduplicatedSessions(children.filter { $0.parentID == parentID && !$0.isArchived })
+        let ids = Set(children.map(\.id))
+        for previous in snapshot where previous.parentID == parentID && !ids.contains(previous.id)
+            && !protectedIDs.contains(previous.id) {
+            if sessions.first(where: { $0.id == previous.id }) == previous {
+                removeV2Session(sessionID: previous.id)
+            }
+        }
+        applyV2DiscoveredSessions(children.filter { !protectedIDs.contains($0.id) }, ifUnchangedSince: snapshot)
     }
 
     @discardableResult
@@ -958,10 +1001,13 @@ final class DirectoryStore: ObservableObject {
         }
     }
 
+    @discardableResult
     func applyV2SessionInteractions(
         sessionID: String, permissions: [OpenCodePermission], forms: [OpenCodeV2Form],
         permissionRevisionAtRequestStart: UInt, questionRevisionAtRequestStart: UInt
-    ) {
+    ) -> Bool {
+        let permissionsCurrent = permissionRevisionsBySessionID[sessionID, default: 0] <= permissionRevisionAtRequestStart
+        let questionsCurrent = questionRevisionsBySessionID[sessionID, default: 0] <= questionRevisionAtRequestStart
         if permissionRevisionsBySessionID[sessionID, default: 0] <= permissionRevisionAtRequestStart {
             let scoped = permissions.filter { $0.sessionID == sessionID }
             permissionRevision &+= 1
@@ -983,6 +1029,7 @@ final class DirectoryStore: ObservableObject {
                 if hasLegacyQuestions { syncStore.state.questionsBySessionID[sessionID] = nil }
             }
         }
+        return permissionsCurrent && questionsCurrent
     }
 
     func removeV2Permission(id: String, sessionID: String) {

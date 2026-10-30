@@ -24,7 +24,9 @@ enum TranscriptActivityGrouping {
     }
 
     static func isActivity(_ part: OpenCodePart) -> Bool {
-        part.timelineContextType != nil || part.type == "reasoning" || (part.type == "text" && part.reason?.lowercased().contains("reasoning") == true)
+        // App features stay inline and separate surrounding collapsible activity.
+        if OpenCodeToolActivityPolicy.isOpenClientTool(part) { return false }
+        return part.timelineContextType != nil || part.type == "reasoning" || (part.type == "text" && part.reason?.lowercased().contains("reasoning") == true)
             || (part.type != "compaction" && OpenCodeToolActivityPolicy.isToolCall(part))
     }
 

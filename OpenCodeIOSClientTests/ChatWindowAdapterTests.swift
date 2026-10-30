@@ -222,6 +222,36 @@ final class ChatWindowAdapterTests: XCTestCase {
         XCTAssertNil(model.connectionStore.errorMessage)
     }
 
+    func testV2CompactionSteersWhileBusyAcrossWindowAndRootFacades() async throws {
+        for usesWindow in [false, true] {
+            let model = model(.v2, version: "2.0.17")
+            defer { model.disconnect() }
+            let target = session("ses_a", directory: "/A")
+            let chat = usesWindow ? window(model, session: target) : model.chatFacade
+            defer { chat.windowContext?.close() }
+            let owner = try XCTUnwrap(model.directoryStoreRegistry.ownerStore(forSessionID: target.id))
+            owner.applySessionStatus("busy", forSessionID: target.id)
+            var admissions = 0
+            WindowAdapterURLProtocol.handler = { request in
+                let path = try XCTUnwrap(request.url?.path)
+                if path.hasSuffix("/compact") {
+                    let body = try JSONSerialization.jsonObject(with: Self.body(request)) as? [String: Any]
+                    let id = try XCTUnwrap(body?["id"] as? String)
+                    XCTAssertEqual(body?["delivery"] as? String, "steer")
+                    admissions += 1
+                    return (200, #"{"data":{"id":"\#(id)","sessionID":"ses_a","time":{"created":1},"type":"compaction","payload":{},"delivery":"steer"}}"#)
+                }
+                if path.hasSuffix("/message") { return (200, #"{"data":[],"cursor":{}}"#) }
+                if path.hasSuffix("/permission") || path.hasSuffix("/form") { return (200, #"{"data":[]}"#) }
+                XCTFail("Unexpected compaction request: \(path)")
+                return (500, "{}")
+            }
+            let accepted = await chat.compactSession(sessionID: target.id, userVisible: false, meterPrompt: false)
+            XCTAssertTrue(accepted)
+            XCTAssertEqual(admissions, 1)
+        }
+    }
+
     func testConfigurationBarrierOrdersEveryFacadeSubmissionPathAcrossWindowsAndRoot() async throws {
         for version in ["0.0.0-next-17155", "2.0.17"] {
             for usesRootFacade in [false, true] {

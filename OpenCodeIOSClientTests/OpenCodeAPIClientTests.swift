@@ -415,6 +415,54 @@ final class OpenCodeAPIClientTests: XCTestCase {
         XCTAssertEqual(requests, 1, "Ordinary short chats must not trigger lookahead")
     }
 
+    func testV2CompactionLifecycleSurvivesProjectionAndCacheWithoutCompletionTimestamp() async throws {
+        for status in ["running", "completed", "failed"] {
+            MockURLProtocol.requestHandler = { request in
+                var record: [String: Any] = [
+                    "id": "compact_1", "type": "compaction", "status": status,
+                    "reason": "manual", "time": ["created": 1000]
+                ]
+                if status == "failed" {
+                    record["error"] = ["type": "provider", "message": "Provider unavailable"]
+                } else {
+                    record["summary"] = "Context summary"
+                }
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                        try JSONSerialization.data(withJSONObject: ["data": [record]]))
+            }
+            let page = try await makeProbeClient().listV2Messages(sessionID: "ses_1")
+            let message = try XCTUnwrap(page.messages.first)
+            XCTAssertEqual(page.messages.count, 1, "V2 has no separate boundary message")
+            XCTAssertEqual(message.info.compactionStatus, status)
+            XCTAssertNil(message.info.time?.completed)
+            let cached = try JSONDecoder().decode(OpenCodeMessageEnvelope.self, from: JSONEncoder().encode(message))
+            XCTAssertEqual(cached.info.compactionStatus, status)
+            let item = CompactionDisplayItem(boundaryMessage: cached, summaryMessage: cached)
+            for busy in [false, true] {
+                let snapshot = CompactionRowRenderSnapshot(compaction: item, isSessionBusy: busy)
+                XCTAssertEqual(snapshot.isStreaming, status == "running")
+                XCTAssertEqual(snapshot.isFailed, status == "failed")
+                XCTAssertEqual(snapshot.isDisabled, status != "completed")
+            }
+            if status == "failed" {
+                XCTAssertEqual(cached.info.error?.displayMessage, "Provider unavailable")
+                XCTAssertNil(item.payload)
+            } else {
+                XCTAssertEqual(item.payload?.summary, "Context summary")
+            }
+        }
+    }
+
+    func testLegacyCompactionStillPairsBoundaryWithSummary() {
+        let item = CompactionDisplayItem(boundaryMessage: OpenCodePreviewData.compactionBoundaryMessage,
+                                         summaryMessage: OpenCodePreviewData.compactionSummaryMessage)
+        let snapshot = CompactionRowRenderSnapshot(compaction: item, isSessionBusy: true)
+        XCTAssertTrue(snapshot.hasSummary)
+        XCTAssertFalse(snapshot.isStreaming)
+        XCTAssertFalse(snapshot.isDisabled)
+        XCTAssertFalse(snapshot.isFailed)
+    }
+
     func testV2ContextRecordsRetainTypesForCardsInHistoryAndSingleMessageHydration() async throws {
         let client = makeProbeClient()
         for kind in OpenCodeTimelineContextType.allCases {
@@ -1157,6 +1205,18 @@ final class OpenCodeAPIClientTests: XCTestCase {
         let page = try await makeProbeClient().listV2Sessions(projectID: "p", directory: "/repo", parentID: "ses_parent")
         XCTAssertEqual(page.sessions.first?.outcome, "failed")
         XCTAssertEqual(page.sessions.first?.parentID, "ses_parent")
+    }
+
+    func testLegacyChildHistoryUsesParentEndpointWithoutDirectoryListLimit() async throws {
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/session/parent/children")
+            let query = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+            XCTAssertEqual(query.first { $0.name == "directory" }?.value, "/repo")
+            XCTAssertNil(query.first { $0.name == "limit" })
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data("[]".utf8))
+        }
+        let children = try await makeProbeClient().listChildSessions(parentID: "parent", directory: "/repo", workspaceID: nil)
+        XCTAssertTrue(children.isEmpty)
     }
 
     func testV2SessionActionsUseRenameForkSelectionAndCompactContracts() async throws {

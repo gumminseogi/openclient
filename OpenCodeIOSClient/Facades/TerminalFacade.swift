@@ -668,9 +668,17 @@ final class TerminalFacade: ObservableObject {
     }
 
 #if DEBUG
+    func seedHeaderTerminalFixture() {
+        guard ProcessInfo.processInfo.environment["OPENCLIENT_HEADER_TERMINAL_FIXTURE"] == "1",
+              let context = synchronizeScope() else { return }
+        store.upsert(OpenClientScreenshotData.terminal, directory: context.directory, workspaceID: context.workspaceID)
+        hydratedScopes.insert(context.key)
+    }
+
     private var isTerminalScreenshotFixture: Bool {
         let scene = ProcessInfo.processInfo.environment["OPENCLIENT_SCREENSHOT_SCENE"]
         return scene == "terminal" || scene == "terminal-showcase"
+            || ProcessInfo.processInfo.environment["OPENCLIENT_HEADER_TERMINAL_FIXTURE"] == "1"
     }
 
     private static let screenshotFixtureTranscript: String = {

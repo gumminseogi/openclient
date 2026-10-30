@@ -11,8 +11,10 @@ final class ActivityWorkflowScreenshotBackend: BackendProjectsService, BackendSe
     private var records: [String: OpenCodeSession]
     private let messages: [String: [OpenCodeMessageEnvelope]]
     private var receive: (@MainActor (BackendEvent) -> Void)?
+    private let transcriptDelay: Duration
 
-    init(projects: [OpenCodeProject], stores: [DirectoryStore]) {
+    init(projects: [OpenCodeProject], stores: [DirectoryStore], transcriptDelay: Duration = .zero) {
+        self.transcriptDelay = transcriptDelay
         self.projects = projects
         var records: [String: OpenCodeSession] = [:]
         var messages: [String: [OpenCodeMessageEnvelope]] = [:]
@@ -52,7 +54,8 @@ final class ActivityWorkflowScreenshotBackend: BackendProjectsService, BackendSe
         return updated
     }
     func transcript(sessionID: String, scope: BackendScope, cursor: String?, limit: Int) async throws -> BackendTranscriptPage {
-        .init(messages: messages[sessionID] ?? [])
+        if transcriptDelay > .zero { try await Task.sleep(for: transcriptDelay) }
+        return .init(messages: messages[sessionID] ?? [])
     }
     func sessionStatuses(scope: BackendScope) async throws -> [String: String] { records.mapValues { _ in "idle" } }
     func modelCatalog(scope: BackendScope) async throws -> BackendModelCatalog { .init() }

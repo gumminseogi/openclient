@@ -1,8 +1,10 @@
-Strumenti a portata di mano.
+Un po’ più di ordine.
 
-• Fissa le skill accanto ai tuoi comandi preferiti per accedervi rapidamente dal compositore.
-• Attiva o disattiva l’approvazione automatica delle autorizzazioni per ogni chat dall’intestazione, sui server supportati.
-• Una barra laterale dei progetti più pulita e la possibilità di nascondere i progetti direttamente con Rimuovi dall’elenco.
-• Corretto il pulsante più nel compositore Assistente e ampliato il popover degli strumenti per dare più spazio alle etichette degli allegati in entrambi gli stili di composizione.
+• Fai pulizia nelle conversazioni del server per anzianità o progetto, in un pannello dedicato.
+• Rivedi le chat singolarmente: scorri a destra per conservarle, a sinistra per metterle in coda per l’eliminazione e annulla una scelta prima di confermare.
+• Apri le trascrizioni in sola lettura prima di decidere cosa eliminare. Le chat in esecuzione e le conversazioni con sottoagenti attivi sono escluse dalla pulizia.
+• Segui l’attività dei sottoagenti in tempo reale e apri le loro conversazioni dal nuovo pannello degli agenti.
+• Navigazione nativa e reattiva tra le chat su iPhone e iPad.
+• Le tabelle mantengono le colonne allineate al termine delle risposte, con scorrimento orizzontale per quelle più larghe.
 
 OpenClient supporta OpenCode v1 e v2.

@@ -344,6 +344,21 @@ enum OpenClientReleaseNotesCatalog {
             hero: .smootherConversations,
             showsSetup: false
         ),
+        OpenClientReleaseNotes(
+            version: "1.0.28",
+            title: "A little less clutter",
+            summary: "Make space for your next conversation, follow your agents, and move between chats more smoothly.",
+            features: [
+                .init(title: "Clean up across projects", detail: "Find Clean Up below Announcements in Projects. Filter conversations by age and project, then review what to remove across your server.", systemImage: "sparkles"),
+                .init(title: "Review at your own pace", detail: "Swipe right to keep a conversation or left to queue it for deletion. Undo a choice or open its read-only transcript before deciding.", systemImage: "rectangle.stack.fill"),
+                .init(title: "Confirm before deleting", detail: "Review queued deletions before confirming. Running conversations and parents with active agents are excluded, and activity is checked again before deletion.", systemImage: "checkmark.shield.fill"),
+                .init(title: "Keep your agents in sight", detail: "Follow live subagent activity from your chat and open the agent sheet to jump into their conversations.", systemImage: "person.2.fill"),
+                .init(title: "Smoother moves between chats", detail: "Switch sessions and browse Activity with native navigation on iPhone and iPad. Clean Up opens in its own sheet, keeping your chat navigation separate.", systemImage: "rectangle.split.2x1"),
+                .init(title: "Tables, back in line", detail: "Tables keep their columns aligned after a reply finishes. Scroll wide tables sideways to read every value.", systemImage: "tablecells")
+            ],
+            hero: .smootherConversations,
+            showsSetup: false
+        ),
     ]
 }
 

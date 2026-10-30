@@ -45,14 +45,19 @@ struct MarkdownMessageText: View {
     var streamingAnimationID: String? = nil
     var onStreamingRevealCompleted: (() -> Void)? = nil
     var tableMaximumWidth: CGFloat? = nil
+    var standaloneTable: (headers: [String], rows: [[String]])? = nil
 
     var body: some View {
-        switch style {
-        case .standard:
-            content
-                .padding(.vertical, 0)
-        case .reasoning:
-            content
+        if let standaloneTable {
+            styledTable(headers: standaloneTable.headers, rows: standaloneTable.rows)
+        } else {
+            switch style {
+            case .standard:
+                content
+                    .padding(.vertical, 0)
+            case .reasoning:
+                content
+            }
         }
     }
 
@@ -250,16 +255,17 @@ struct MarkdownMessageText: View {
     @ViewBuilder
     private func styledTable(headers: [String], rows: [[String]]) -> some View {
         let minimumHeight = estimatedTableHeight(headers: headers, rows: rows)
+        let columnWidths = tableColumnWidths(headers: headers, rows: rows)
 
         let table = ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                tableRow(headers, isHeader: true)
+                tableRow(headers, isHeader: true, columnWidths: columnWidths)
 
                 ForEach(rows.indices, id: \.self) { rowIndex in
                     Divider()
                         .overlay(tableDividerStyle)
 
-                    tableRow(rows[rowIndex], isHeader: false)
+                    tableRow(rows[rowIndex], isHeader: false, columnWidths: columnWidths)
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -294,9 +300,12 @@ struct MarkdownMessageText: View {
     }
 
     private func estimatedTableContentWidth(headers: [String], rows: [[String]]) -> CGFloat {
-        guard !headers.isEmpty else { return 0 }
+        let widths = tableColumnWidths(headers: headers, rows: rows)
+        return widths.reduce(0, +) + CGFloat(max(0, headers.count - 1))
+    }
 
-        let columnWidths = headers.indices.map { columnIndex in
+    private func tableColumnWidths(headers: [String], rows: [[String]]) -> [CGFloat] {
+        headers.indices.map { columnIndex in
             let bodyWidth = rows.compactMap { row -> CGFloat? in
                 guard row.indices.contains(columnIndex) else { return nil }
                 return estimatedTableCellWidth(for: row[columnIndex], isHeader: false)
@@ -306,7 +315,6 @@ struct MarkdownMessageText: View {
                 bodyWidth
             )
         }
-        return columnWidths.reduce(0, +) + CGFloat(max(0, headers.count - 1))
     }
 
     private func estimatedTableCellWidth(for value: String, isHeader: Bool) -> CGFloat {
@@ -322,10 +330,11 @@ struct MarkdownMessageText: View {
         return min(tableCellMaxWidth + 20, max(tableCellMinWidth + 20, textWidth + 20))
     }
 
-    private func tableRow(_ cells: [String], isHeader: Bool) -> some View {
+    private func tableRow(_ cells: [String], isHeader: Bool, columnWidths: [CGFloat]) -> some View {
         HStack(alignment: .top, spacing: 0) {
             ForEach(cells.indices, id: \.self) { columnIndex in
                 tableCell(cells[columnIndex], isHeader: isHeader)
+                    .frame(width: columnWidths[columnIndex], alignment: .leading)
 
                 if columnIndex < cells.count - 1 {
                     Rectangle()
@@ -722,6 +731,12 @@ struct MarkdownMessageText: View {
                         rendered.addAttribute(.backgroundColor, value: rowIndex == 0 ? secondary.withAlphaComponent(0.11) : background,
                                               range: NSRange(location: rowStart, length: rendered.length - rowStart))
                     }
+                    // Keep the table's structure alongside its selectable text representation.
+                    // The completed view gives it its own horizontal viewport rather than
+                    // letting UITextView wrap space-padded columns into unrelated lines.
+                    rendered.addAttribute(CompletedResponseTable.attributeKey,
+                                          value: CompletedResponseTable(headers: headers, rows: rows),
+                                          range: NSRange(location: 0, length: rendered.length))
                 }
 
                 if let blockPadding, rendered.length > 0 {
@@ -743,6 +758,7 @@ struct MarkdownMessageText: View {
                     .font: font, .foregroundColor: color, .paragraphStyle: paragraph
                 ]
                 separatorAttributes.removeValue(forKey: .link)
+                separatorAttributes.removeValue(forKey: CompletedResponseTable.attributeKey)
                 document.append(NSAttributedString(string: separator, attributes: separatorAttributes))
             }
         }
@@ -1231,6 +1247,23 @@ struct MarkdownMessageText: View {
 }
 
 #if canImport(UIKit)
+private final class CompletedResponseTable: NSObject {
+    static let attributeKey = NSAttributedString.Key("OpenClientMarkdownTable")
+    let headers: [String]
+    let rows: [[String]]
+
+    init(headers: [String], rows: [[String]]) {
+        self.headers = headers
+        self.rows = rows
+    }
+}
+
+private struct CompletedResponseSection: Identifiable {
+    let id: Int
+    let text: NSAttributedString
+    let table: CompletedResponseTable?
+}
+
 struct CompletedResponseText: View {
     @Environment(\.chatLineHeight) private var chatLineHeight
     let markdownParts: [String]
@@ -1242,16 +1275,23 @@ struct CompletedResponseText: View {
     @State private var cache = CompletedResponseDocumentCache()
 
     var body: some View {
-        SelectableResponseText(
-            attributedText: cache.document(
+        let sections = cache.sections(
                 parts: markdownParts,
                 font: SelectableResponseText.preferredFont(for: dynamicTypeSize),
                 colorScheme: colorScheme,
                 layoutDirection: layoutDirection,
                 lineHeight: chatLineHeight
-            ),
-            onTextTap: onTextTap
         )
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(sections) { section in
+                if let table = section.table {
+                    MarkdownMessageText(text: "", isUser: false, style: .standard,
+                                        standaloneTable: (table.headers, table.rows))
+                } else {
+                    SelectableResponseText(attributedText: section.text, onTextTap: onTextTap)
+                }
+            }
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -1279,6 +1319,27 @@ private final class CompletedResponseDocumentCache {
     private var layoutDirection: LayoutDirection?
     private var rendered: NSAttributedString?
     private var lineHeight: ChatLineHeight?
+    private var sectionDocument: NSAttributedString?
+    private var renderedSections: [CompletedResponseSection] = []
+
+    func sections(parts: [String], font: UIFont, colorScheme: ColorScheme, layoutDirection: LayoutDirection, lineHeight: ChatLineHeight) -> [CompletedResponseSection] {
+        let document = document(parts: parts, font: font, colorScheme: colorScheme,
+                                layoutDirection: layoutDirection, lineHeight: lineHeight)
+        if sectionDocument === document { return renderedSections }
+        var sections: [CompletedResponseSection] = []
+        document.enumerateAttribute(CompletedResponseTable.attributeKey,
+                                    in: NSRange(location: 0, length: document.length)) { table, range, _ in
+            sections.append(CompletedResponseSection(id: range.location,
+                                                     text: document.attributedSubstring(from: range),
+                                                     table: table as? CompletedResponseTable))
+        }
+        if sections.isEmpty {
+            sections.append(CompletedResponseSection(id: 0, text: document, table: nil))
+        }
+        sectionDocument = document
+        renderedSections = sections
+        return sections
+    }
 
     func document(parts: [String], font: UIFont, colorScheme: ColorScheme, layoutDirection: LayoutDirection, lineHeight: ChatLineHeight) -> NSAttributedString {
         if let rendered, self.parts == parts, self.font == font,

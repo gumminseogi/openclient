@@ -182,7 +182,18 @@ extension AppViewModel {
     }
 
     private static func screenshotProjects() -> AppViewModel {
-        let viewModel = baseConnectedScreenshotViewModel(selectedSession: nil)
+        let cleanupFixture = ProcessInfo.processInfo.environment["OPENCLIENT_CLEANUP_FIXTURE"] == "1"
+        let viewModel = cleanupFixture ? screenshotActivity() : baseConnectedScreenshotViewModel(selectedSession: nil)
+        if cleanupFixture {
+            let navigationFixture = ProcessInfo.processInfo.environment["OPENCLIENT_NAVIGATION_TRACE"] == "1"
+            let backend = ActivityWorkflowScreenshotBackend(projects: viewModel.projects,
+                stores: viewModel.directoryStoreRegistry.allStores,
+                transcriptDelay: navigationFixture ? .milliseconds(350) : .zero)
+            viewModel.backendConnection = backend.connection()
+            if navigationFixture {
+                viewModel.connectionStore.applySuccessfulV2Connection(version: "navigation-fixture", healthy: true)
+            }
+        }
         viewModel.currentProject = nil
         viewModel.selectedDirectory = nil
         viewModel.selectedSession = nil

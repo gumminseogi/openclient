@@ -102,7 +102,8 @@ struct OpenCodeBackendFactory: BackendFactory {
             projectLifecycle: workspaceServices,
             worktrees: supportsCopies ? workspaceServices : nil,
             worktreeReset: profile == .legacy ? OpenCodeLegacyWorktreeResetService(client: client) : nil,
-            sessionSelection: profile == .v2 ? OpenCodeV2SessionSelectionService(client: resolvedClient, version: version) : nil
+            sessionSelection: profile == .v2 ? OpenCodeV2SessionSelectionService(client: resolvedClient, version: version) : nil,
+            sessionActivity: adapter
         )
     }
 
@@ -136,7 +137,7 @@ extension BackendConnection {
 }
 
 @MainActor
-final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsService, BackendChatService, BackendModelsService, BackendSessionViewingService, BackendSessionAnnotationsService {
+final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsService, BackendChatService, BackendModelsService, BackendSessionViewingService, BackendSessionAnnotationsService, BackendSessionActivityService {
     let client: OpenCodeAPIClient
     let profile: OpenCodeAPIProfile
 
@@ -173,7 +174,15 @@ final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsServi
             return .init(sessions: page.sessions, nextCursor: page.nextCursor)
         }
         guard cursor == nil else { throw BackendError.invalidScope }
-        return try await .init(sessions: client.listSessions(directory: scope.directory, roots: roots, limit: limit))
+        // Legacy has no cursor. An unbounded inventory omits the limit rather
+        // than encoding Int.max, which exceeds JavaScript's safe integer range.
+        return try await .init(sessions: client.listSessions(directory: scope.directory, roots: roots,
+            limit: limit == Int.max ? nil : limit))
+    }
+
+    func sessionStatuses(scope: BackendScope) async throws -> [String: String] {
+        if profile == .v2 { return try await client.listV2SessionStatuses() }
+        return try await client.listSessionStatuses(directory: scope.directory)
     }
 
     func childSessions(parentID: String, scope: BackendScope, cursor: String?) async throws -> BackendSessionPage {
@@ -182,8 +191,9 @@ final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsServi
                 cursor: cursor, limit: 100, workspaceID: scope.workspaceID, roots: false, parentID: parentID)
             return .init(sessions: page.sessions, nextCursor: page.nextCursor)
         }
-        let page = try await sessions(scope: scope, cursor: cursor, limit: 100, roots: false)
-        return .init(sessions: page.sessions.filter { $0.parentID == parentID }, nextCursor: page.nextCursor)
+        guard cursor == nil else { throw BackendError.invalidScope }
+        return try await .init(sessions: client.listChildSessions(parentID: parentID,
+            directory: scope.directory, workspaceID: scope.workspaceID))
     }
 
     func session(id: String, scope: BackendScope) async throws -> OpenCodeSession {

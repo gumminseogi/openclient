@@ -4,6 +4,67 @@ import XCTest
 
 @MainActor
 final class DirectoryStoreTests: XCTestCase {
+    func testChildSnapshotPrunesOfflineDeletionButPreservesConcurrentChanges() {
+        let store = DirectoryStore()
+        func child(_ id: String) -> OpenCodeSession {
+            OpenCodeSession(id: id, title: id, workspaceID: nil, directory: "/repo", projectID: "p", parentID: "parent")
+        }
+        store.insertV2Session(child("deleted"))
+        store.insertV2Session(child("updated"))
+        store.insertV2Session(child("protected"))
+        let snapshot = store.sessions
+        var updated = child("updated")
+        updated.outcome = "failed"
+        store.insertV2Session(updated)
+        store.insertV2Session(child("created"))
+        store.reconcileChildSessions(parentID: "parent", children: [], snapshot: snapshot, protectedIDs: ["protected"])
+        XCTAssertEqual(Set(store.sessions.map(\.id)), ["updated", "created", "protected"])
+        XCTAssertEqual(store.sessions.first { $0.id == "updated" }?.outcome, "failed")
+    }
+
+    func testStatusOnlyChildMovesFromGlobalToDiscoveredOwner() {
+        let registry = DirectoryStoreRegistry(activeDirectory: "/repo")
+        let global = registry.store(for: nil)
+        global.applySessionStatus("busy", forSessionID: "child")
+        let child = OpenCodeSession(id: "child", title: nil, workspaceID: nil, directory: "/repo", projectID: "p", parentID: "parent")
+        let owner = registry.targetStore(forV2Session: child)
+        owner.insertV2Session(child)
+        XCTAssertTrue(owner === registry.activeStore)
+        XCTAssertEqual(owner.sessionStatuses[child.id], "busy")
+        XCTAssertNil(global.sessionStatuses[child.id])
+    }
+
+    func testActiveSnapshotBeforeDiscoveryRetainsUnknownChildAndHonorsTerminalEvent() throws {
+        let registry = DirectoryStoreRegistry(activeDirectory: "/repo")
+        let snapshot = registry.v2StatusSnapshot
+        let event = try XCTUnwrap(OpenCodeEventManager.decodeV2Event(from:
+            #"{"type":"session.execution.succeeded","data":{"sessionID":"finished"}}"#))
+        XCTAssertTrue(registry.targetStore(forV2Event: event).applyV2Event(event))
+        registry.applyV2ActiveSnapshot(["child": "busy", "finished": "busy"], snapshot: snapshot)
+        XCTAssertEqual(registry.store(for: nil).sessionStatuses["child"], "busy")
+        XCTAssertEqual(registry.store(for: nil).sessionStatuses["finished"], "idle")
+        let child = OpenCodeSession(id: "child", title: nil, workspaceID: nil, directory: "/repo", projectID: "p", parentID: "parent")
+        let owner = registry.targetStore(forV2Session: child)
+        owner.insertV2Session(child)
+        XCTAssertEqual(owner.sessionStatuses["child"], "busy")
+    }
+
+    func testInteractionSnapshotReportsRaceAndFreshReadConverges() throws {
+        let store = DirectoryStore()
+        let revision = store.permissionRevision
+        store.removeV2Permission(id: "permission_a", sessionID: "child")
+        let event = try XCTUnwrap(OpenCodeEventManager.decodeV2Event(from:
+            #"{"type":"permission.asked","data":{"sessionID":"child","id":"permission_b","action":"shell","resources":["swift test"]}}"#))
+        let other = DirectoryStore()
+        XCTAssertTrue(other.applyV2Event(event))
+        let pending = other.syncState.permissionsBySessionID["child"]!
+        XCTAssertFalse(store.applyV2SessionInteractions(sessionID: "child", permissions: pending, forms: [],
+            permissionRevisionAtRequestStart: revision, questionRevisionAtRequestStart: store.questionRevision))
+        XCTAssertTrue(store.applyV2SessionInteractions(sessionID: "child", permissions: pending, forms: [],
+            permissionRevisionAtRequestStart: store.permissionRevision, questionRevisionAtRequestStart: store.questionRevision))
+        XCTAssertEqual(store.syncState.permissionsBySessionID["child"]?.map(\.id), ["permission_b"])
+    }
+
     func testV2GlobalListedSessionKeepsOwnerAndSelectionAcrossFetchAndLocatedEvents() throws {
         let registry = DirectoryStoreRegistry()
         let global = registry.activeStore

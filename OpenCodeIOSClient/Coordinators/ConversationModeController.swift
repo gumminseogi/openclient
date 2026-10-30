@@ -115,8 +115,24 @@ final class ConversationModeController: NSObject, ObservableObject {
         case response
     }
 
-    private lazy var recognizer = OpenClientSpeechRecognitionController()
-    private lazy var synthesizer = AVSpeechSynthesizer()
+    private var initializedRecognizer: OpenClientSpeechRecognitionController?
+    private var initializedSynthesizer: AVSpeechSynthesizer?
+
+    private var recognizer: OpenClientSpeechRecognitionController {
+        if let initializedRecognizer { return initializedRecognizer }
+        let recognizer = OpenClientSpeechRecognitionController()
+        initializedRecognizer = recognizer
+        return recognizer
+    }
+
+    private var synthesizer: AVSpeechSynthesizer {
+        if let initializedSynthesizer { return initializedSynthesizer }
+        let synthesizer = AVSpeechSynthesizer()
+        synthesizer.delegate = self
+        synthesizer.usesApplicationAudioSession = true
+        initializedSynthesizer = synthesizer
+        return synthesizer
+    }
     private var speechPurpose: SpeechPurpose?
     private var fillerPhraseIndex = 0
     private var waitingEarconTask: Task<Void, Never>?
@@ -138,8 +154,6 @@ final class ConversationModeController: NSObject, ObservableObject {
         inputMode = voiceStore.isHoldToTalkEnabled ? .holdToTalk : .automatic
         #if canImport(AVFoundation) && canImport(Speech) && canImport(UIKit)
         if usesNativeAudio {
-            synthesizer.delegate = self
-            synthesizer.usesApplicationAudioSession = true
             isApplicationActive = UIApplication.shared.applicationState == .active
         }
         NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)
@@ -396,8 +410,9 @@ final class ConversationModeController: NSObject, ObservableObject {
         #if canImport(AVFoundation) && canImport(Speech) && canImport(UIKit)
         speechPurpose = nil
         if usesNativeAudio {
-            recognizer.cancel(deactivatesAudioSession: ownsAudio)
-            synthesizer.stopSpeaking(at: .immediate)
+            // Dismissing a text-only chat must not create voice resources.
+            initializedRecognizer?.cancel(deactivatesAudioSession: ownsAudio)
+            initializedSynthesizer?.stopSpeaking(at: .immediate)
             stopWaitingEarcon()
             if ownsAudio { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
         }

@@ -17,6 +17,7 @@ struct ProjectListView: View {
     let isActivitySelected: Bool
     let onActivityChosen: () -> Void
     let onProjectChosen: () -> Void
+    let onCleanupChosen: () -> Void
     @State private var projectForColorPicker: OpenCodeProject?
     @State private var projectForImagePicker: OpenCodeProject?
     @State private var projectForRename: OpenCodeProject?
@@ -34,6 +35,7 @@ struct ProjectListView: View {
         usesSidebarLayout: Bool = false,
         isActivitySelected: Bool = false,
         onActivityChosen: @escaping () -> Void = {},
+        onCleanupChosen: @escaping () -> Void = {},
         onProjectChosen: @escaping () -> Void
     ) {
         self.facade = facade
@@ -45,6 +47,7 @@ struct ProjectListView: View {
         self.usesSidebarLayout = usesSidebarLayout
         self.isActivitySelected = isActivitySelected
         self.onActivityChosen = onActivityChosen
+        self.onCleanupChosen = onCleanupChosen
         self.onProjectChosen = onProjectChosen
     }
 
@@ -168,6 +171,12 @@ struct ProjectListView: View {
                             }
                         }
                         .contextMenu {
+                            Button(role: .destructive) {
+                                Task { await facade.removeProject(project) }
+                            } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                            .accessibilityIdentifier("projects.ignore.\(project.id)")
                             if !isEditingProjects {
                                 Button {
                                     facade.setVisibility(false, for: project)
@@ -213,6 +222,7 @@ struct ProjectListView: View {
                         .listRowInsets(projectListRowInsets)
                         .listRowBackground(sidebarRowBackground)
                         .accessibilityAddTraits(isEditingProjects ? [] : .isButton)
+                        .accessibilityIdentifier("projects.project.\(project.id)")
                     }
                     .onMove(perform: facade.moveProjects)
                 } header: {
@@ -282,6 +292,14 @@ struct ProjectListView: View {
                 }
                 .accessibilityIdentifier("projects.announcements")
                 .listRowInsets(projectListRowInsets)
+
+                if facade.allowsCleanup {
+                    Button(action: onCleanupChosen) {
+                        Label("Clean Up", systemImage: "sparkles")
+                    }
+                    .accessibilityIdentifier("projects.cleanup")
+                    .listRowInsets(projectListRowInsets)
+                }
             }
         }
         .navigationDestination(isPresented: $isShowingAnnouncements) {

@@ -1042,7 +1042,7 @@ final class ChatFacade: ObservableObject {
         if let windowContext {
             guard windowContext.isCurrent, windowContext.session.id == sessionID else { return }
             _ = composerStore.saveDraft(text, agentMentions: agentMentions ?? composerStore.draftAgentMentions,
-                forKey: sessionID, removesEmpty: removesEmpty, updateActiveDraft: updateActiveDraft)
+                forKey: sessionID, removesEmpty: removesEmpty, updateActiveDraft: true)
             windowContext.saveDraft()
             return
         }
@@ -1163,7 +1163,7 @@ final class ChatFacade: ObservableObject {
                   let client = try? connection.requireOpenCodeClient(for: .compaction) else { return false }
             let session = windowContext.session
             let owner = windowContext.owner
-            guard session.parentID == nil, owner.sessionStatuses[sessionID] != "busy" else { return false }
+            guard isV2Connection || (session.parentID == nil && owner.sessionStatuses[sessionID] != "busy") else { return false }
             let accepted = await submitInWindow(meterPrompt: userVisible && meterPrompt, reservedDay: nil) { day in
                 do {
                     if self.isV2Connection {
@@ -1413,6 +1413,10 @@ final class ChatFacade: ObservableObject {
         await viewModel.markSessionRead(session)
     }
 
+    var canOpenAgentConversations: Bool {
+        !isReadOnly && connectionStore.isConnected && viewModel.backendConnection?.isClosed == false
+    }
+
     func childPresentation(for session: OpenCodeSession) -> ChatFacade? {
         guard !isReadOnly, let connection = try? viewModel.requireBackendConnection(),
               let owner = viewModel.directoryStoreRegistry.ownerStore(forSessionID: session.id),
@@ -1424,7 +1428,7 @@ final class ChatFacade: ObservableObject {
 
     func agentActivity(parentID: String) -> [AgentActivitySnapshot] {
         let owner = directoryStore(forSessionID: parentID)
-        return owner.sessions.filter { $0.parentID == parentID }.sorted {
+        return owner.sessions.filter { $0.parentID == parentID && !$0.isArchived }.sorted {
             ($0.time?.created ?? 0, $0.id) < ($1.time?.created ?? 0, $1.id)
         }.map { child in
             let state: AgentActivitySnapshot.Status
@@ -1449,28 +1453,9 @@ final class ChatFacade: ObservableObject {
 
     func hydrateAgentActivity(parent: OpenCodeSession) async throws {
         guard !isReadOnly else { return }
-        let connection = try viewModel.requireBackendConnection()
-        let generation = viewModel.directoryStoreRegistry.generation
-        let owner = directoryStore(forSessionID: parent.id)
-        var cursor: String?
-        var seen = Set<String>()
-        repeat {
-            let sessionsBeforeRequest = owner.sessions
-            let page = try await connection.sessions.childSessions(parentID: parent.id,
-                scope: .init(projectID: parent.projectID, directory: parent.directory, workspaceID: parent.workspaceID), cursor: cursor)
-            try Task.checkCancellation()
-            guard viewModel.backendConnection?.id == connection.id,
-                  viewModel.directoryStoreRegistry.generation == generation, windowContext?.isCurrent != false else { return }
-            let children = page.sessions.filter { $0.parentID == parent.id && !viewModel.directoryStoreRegistry.isV2SessionDeleted($0.id) }
-            owner.applyV2DiscoveredSessions(children, ifUnchangedSince: sessionsBeforeRequest)
-            for child in children {
-                try Task.checkCancellation()
-                guard viewModel.backendConnection?.id == connection.id,
-                      viewModel.directoryStoreRegistry.generation == generation, windowContext?.isCurrent != false else { return }
-                await viewModel.hydrateV2Interactions(for: child)
-            }
-            cursor = page.nextCursor
-        } while cursor.map { seen.insert($0).inserted } == true
+        try await AgentActivityCoordinator.hydrate(parent: parent, model: viewModel) {
+            self.windowContext?.isCurrent != false
+        }
     }
 
     func hasOlderMessages(forSessionID sessionID: String) -> Bool {

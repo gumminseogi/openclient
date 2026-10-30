@@ -355,6 +355,88 @@ final class ChatHeaderUITests: XCTestCase {
         }
     }
 
+    func testHeaderTerminalViewportSurvivesKeyboardAndDelayedLayout() {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        for window in [false, true] {
+            let app = launch(window: window, terminal: true)
+            defer { app.terminate() }
+            let prefix = "Header-Terminal-\(window ? "Window" : "Root")"
+            XCTAssertTrue(app.buttons["chat.header"].waitForExistence(timeout: 15))
+            app.buttons["chat.header"].tap()
+            let tab = app.buttons.matching(NSPredicate(format: "label == %@", "Terminal")).firstMatch
+            XCTAssertTrue(tab.waitForExistence(timeout: 5))
+            tab.tap()
+            let row = app.buttons["terminal.row"].firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 5), "The local header terminal fixture must seed a terminal")
+            row.tap()
+            let viewport = app.descendants(matching: .any).matching(identifier: "terminal.viewport").firstMatch
+            func record(_ stage: String) {
+                capture(app, prefix + "-" + stage)
+                let keyboardFrame = app.keyboards.firstMatch.exists ? app.keyboards.firstMatch.frame : .null
+                let evidence = XCTAttachment(string: "viewportExists=\(viewport.exists) viewport=\(viewport.exists ? viewport.frame : .null) keyboard=\(keyboardFrame) softwareKeyboardOnscreen=\(keyboardFrame.intersection(app.frame).height > 100)\n\(app.debugDescription)")
+                evidence.name = prefix + "-" + stage + "-geometry-and-hierarchy"
+                evidence.lifetime = .keepAlways
+                add(evidence)
+            }
+
+            func assertTranscript() {
+                let rendered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "openclient"), object: viewport)
+                XCTAssertEqual(XCTWaiter.wait(for: [rendered], timeout: 5), .completed,
+                    "The renderer must retain meaningful terminal output, not just a nonempty frame")
+                XCTAssertTrue(viewport.label.contains("surface=attached"))
+                XCTAssertFalse(viewport.label.contains("applied=0 "))
+            }
+
+            let viewportAppeared = viewport.waitForExistence(timeout: 5)
+            record("Entered")
+            XCTAssertTrue(viewportAppeared, "Terminal controls opened but the viewport is missing; see Entered evidence")
+            // Headless simulators can retain a hardware-keyboard posture even
+            // when the Simulator preference disables it. Record actual overlap.
+            if !app.keyboards.firstMatch.waitForExistence(timeout: 3) {
+                viewport.tap()
+            }
+            if app.buttons["Keyboard"].firstMatch.exists {
+                app.buttons["Keyboard"].firstMatch.tap()
+                let showKeyboard = app.buttons["Show Keyboard"].firstMatch
+                if showKeyboard.waitForExistence(timeout: 3) {
+                    showKeyboard.tap()
+                } else {
+                    record("Keyboard-Options")
+                    viewport.tap()
+                }
+            }
+            record("Keyboard")
+            // Keep evidence after the delayed layout that users report as blanking.
+            Thread.sleep(forTimeInterval: 3)
+            record("Settled")
+            XCTAssertTrue(app.buttons["terminal.close"].exists, "Terminal controls should remain presented")
+            XCTAssertFalse(app.staticTexts["Terminal Closed"].exists)
+            XCTAssertTrue(viewport.exists)
+            XCTAssertGreaterThan(viewport.frame.width, 100)
+            XCTAssertGreaterThan(viewport.frame.height, 80, "The terminal viewport must not collapse while its controls remain visible")
+            XCTAssertGreaterThan(viewport.frame.intersection(app.frame).height, 80)
+            assertTranscript()
+
+            let dismiss = app.buttons["terminal.keyboard.dismiss"]
+            XCTAssertTrue(dismiss.isHittable)
+            dismiss.tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+            record("Keyboard-Dismissed")
+            XCTAssertGreaterThan(viewport.frame.height, 80)
+            assertTranscript()
+
+            app.navigationBars.buttons["Terminal"].firstMatch.tap()
+            XCTAssertTrue(row.waitForExistence(timeout: 5))
+            row.tap()
+            XCTAssertTrue(viewport.waitForExistence(timeout: 5))
+            Thread.sleep(forTimeInterval: 3)
+            record("Reopened")
+            XCTAssertGreaterThan(viewport.frame.height, 80)
+            assertTranscript()
+        }
+    }
+
     func testHeaderSelectionAndRenameRootAndWindow() {
         for window in [false, true] {
             let app = launch(window: window)
@@ -802,10 +884,11 @@ final class ChatHeaderUITests: XCTestCase {
     }
 
     private func launch(window: Bool, large: Bool = false, longModel: Bool = false, narrow: Bool = false,
-                        shortTitle: Bool = false, assistant: Bool = false) -> XCUIApplication {
+                        shortTitle: Bool = false, assistant: Bool = false, terminal: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["OPENCLIENT_SCREENSHOT_SCENE"] = "chat"
         app.launchEnvironment["OPENCLIENT_HEADER_FIXTURE"] = "1"
+        app.launchEnvironment["OPENCLIENT_HEADER_TERMINAL_FIXTURE"] = terminal ? "1" : "0"
         app.launchEnvironment["OPENCLIENT_HEADER_WINDOW"] = window ? "1" : "0"
         app.launchEnvironment["OPENCLIENT_HEADER_MANY_AGENTS"] = large ? "1" : "0"
         app.launchEnvironment["OPENCLIENT_HEADER_LONG_MODEL"] = longModel ? "1" : "0"
@@ -813,7 +896,7 @@ final class ChatHeaderUITests: XCTestCase {
         app.launchEnvironment["OPENCLIENT_HEADER_SHORT_TITLE"] = shortTitle ? "1" : "0"
         app.launchEnvironment["OPENCLIENT_HEADER_ASSISTANT"] = assistant ? "1" : "0"
         app.launchEnvironment["OPENCODE_UI_TEST_AUTO_CONNECT"] = "0"
-        app.launchEnvironment["OPENCODE_UI_TEST_MODE"] = "0"
+        app.launchEnvironment["OPENCODE_UI_TEST_MODE"] = terminal ? "1" : "0"
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         if large { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"] }
         app.launch()

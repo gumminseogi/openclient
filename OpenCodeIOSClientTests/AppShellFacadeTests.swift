@@ -116,6 +116,9 @@ private final class HomeSelectionV2URLProtocol: URLProtocol {
 
 @MainActor
 final class AppShellFacadeTests: XCTestCase {
+    private struct NavigationActivityService: BackendSessionActivityService {
+        func sessionStatuses(scope: BackendScope) async throws -> [String: String] { [:] }
+    }
     override func setUp() {
         super.setUp()
         UserDefaults.standard.removeObject(forKey: OpenClientStorageKey.messageDraftsByChat)
@@ -1007,6 +1010,56 @@ final class AppShellFacadeTests: XCTestCase {
         XCTAssertEqual(shell.detailRoute(isCompact: false), .gitFile)
     }
 
+    func testSidebarChoiceSupersedesSuspendedChatPresentation() async throws {
+        for activity in [false, true] {
+            let backend = HomeTestBackend()
+            backend.storedSessions = [.init(id: UUID().uuidString, title: "Navigation race", workspaceID: nil,
+                directory: "/navigation-race", projectID: "navigation-race", parentID: nil)]
+            let model = AppViewModel(backendFactory: backend)
+            let shell = model.appShellFacade
+            model.backendConnection = BackendConnection(
+                descriptor: .init(id: "navigation-test", name: "Navigation", version: "next"),
+                projects: backend, sessions: backend, chat: backend, models: backend, events: backend,
+                sessionActivity: NavigationActivityService())
+            model.connectionStore.applySuccessfulV2Connection(version: "next", healthy: true)
+            let session = try XCTUnwrap(backend.storedSessions.first)
+            model.selectedDirectory = session.directory
+            model.selectedSession = session
+            model.chatStore.beginV2TranscriptHydration(sessionID: session.id)
+            let requested = expectation(description: "Transcript suspended")
+            var resume: CheckedContinuation<Void, Never>?
+            backend.beforeTranscript = {
+                await withCheckedContinuation { continuation in
+                    resume = continuation
+                    requested.fulfill()
+                }
+            }
+            defer {
+                resume?.resume()
+                backend.beforeTranscript = nil
+                model.disconnect()
+            }
+            let generation = model.sessionNavigationGeneration
+            let key = model.directoryStoreRegistry.activeKey
+            let opening = Task {
+                await model.hydrateV2Transcript(for: session, navigationGeneration: generation, expectedDirectoryKey: key)
+            }
+            await fulfillment(of: [requested], timeout: 2)
+            let presentation = model.chatDetailPresentationRequest
+            if activity {
+                XCTAssertTrue(shell.activity.isAvailable)
+                shell.selectActivity()
+            }
+            else { shell.beginSidebarNavigation() }
+            resume?.resume()
+            resume = nil
+            let applied = await opening.value
+            XCTAssertFalse(applied)
+            XCTAssertEqual(model.chatDetailPresentationRequest, presentation)
+            XCTAssertEqual(model.selectedSession?.id, session.id)
+        }
+    }
+
     func testAutomaticConnectionLandingDestinationSelectsConfiguredContent() {
         let viewModel = AppViewModel()
         let shell = viewModel.appShellFacade
@@ -1450,6 +1503,25 @@ final class AppShellFacadeTests: XCTestCase {
 
 @MainActor
 final class ProjectStoreTests: XCTestCase {
+    func testRemovedProjectsSurviveDiscoveryAndRestartUntilExplicitlyRestored() {
+        let (defaults, suiteName) = makeUserDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = makeStore(ids: ["a", "b"], userDefaults: defaults)
+        let removed = store.projects[1]
+        store.ignoreProject(removed, directories: ["/tmp/b-worktree"], scopeKey: "server-a")
+
+        // A fresh server snapshot must not resurrect a removed project.
+        let reloaded = makeStore(ids: ["a", "b", "c"], userDefaults: defaults)
+        reloaded.setProjectVisibility(removed, isVisible: true, scopeKey: "server-a")
+        XCTAssertEqual(reloaded.orderedProjects(scopeKey: "server-a").map(\.id), ["a", "c"])
+        XCTAssertEqual(reloaded.acceptedProjects(scopeKey: "server-b").map(\.id), ["a", "b", "c"])
+        XCTAssertTrue(reloaded.isDirectoryIgnored("/tmp/b-worktree", scopeKey: "server-a"))
+        reloaded.restoreProject(removed, scopeKey: "server-a")
+        XCTAssertEqual(reloaded.visibleProjects(scopeKey: "server-a").map(\.id), ["a", "b", "c"])
+        XCTAssertFalse(reloaded.isDirectoryIgnored("/tmp/b-worktree", scopeKey: "server-a"))
+        XCTAssertFalse(makeStore(ids: ["b"], userDefaults: defaults).isProjectIgnored("b", scopeKey: "server-a"))
+    }
+
     func testProjectsDefaultToVisibleAndServerOrder() {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { userDefaults.removePersistentDomain(forName: suiteName) }

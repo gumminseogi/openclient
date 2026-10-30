@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct RootView<ChatDestination: View>: View {
     @ObservedObject var shell: AppShellFacade
@@ -9,6 +12,7 @@ struct RootView<ChatDestination: View>: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
+    @State private var cleanupCoordinator: SessionCleanupCoordinator?
     @State private var didRunUITestAutoConnect = false
     @State private var isWaitingForAutomaticConnection = false
     @State private var didFinishAutomaticConnection = false
@@ -86,6 +90,11 @@ struct RootView<ChatDestination: View>: View {
                     .zIndex(20)
             }
         }
+        #if DEBUG
+        .overlay(alignment: .bottomLeading) {
+            if NavigationUITestTrace.enabled { NavigationUITestTraceView() }
+        }
+        #endif
         .sheet(item: primarySheet) { sheet in
             switch sheet {
             case .connection:
@@ -108,6 +117,14 @@ struct RootView<ChatDestination: View>: View {
                     }
                 }
                 .equatable()
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { cleanupCoordinator != nil },
+            set: { if !$0 { cleanupCoordinator = nil } }
+        )) {
+            if let coordinator = cleanupCoordinator {
+                SessionCleanupSheet(coordinator: coordinator)
             }
         }
         .sheet(item: rootWhatsNewSheet) { release in
@@ -211,6 +228,9 @@ struct RootView<ChatDestination: View>: View {
                             columnVisibility = .doubleColumn
                             preferredCompactColumn = .content
                         }
+                    },
+                    onCleanupChosen: {
+                        cleanupCoordinator = shell.projects.makeCleanupCoordinator()
                     }
                 ) {
                     guard shell.hasCurrentProject else { return }
@@ -302,6 +322,12 @@ struct RootView<ChatDestination: View>: View {
                 preferredCompactColumn = .content
             }
         }
+        #if DEBUG
+        .onChange(of: preferredCompactColumn) { _, column in
+            let name = column == .sidebar ? "sidebar" : column == .content ? "content" : "detail"
+            NavigationUITestTrace.shared.record("column:\(name)")
+        }
+        #endif
         .onChange(of: shell.currentProjectID) { _, projectID in
             withAnimation(opencodeSelectionAnimation) {
                 if projectID == nil {
@@ -485,12 +511,90 @@ struct ChatRouteView<Destination: View>: View, Equatable {
 
     var body: some View {
         destination(route.sessionID, route.presentationRequest)
+            #if DEBUG
+            .accessibilityIdentifier("navigation.chat.\(route.sessionID)")
+            .onAppear { NavigationUITestTrace.shared.record("mount:\(route.sessionID)") }
+            .onDisappear { NavigationUITestTrace.shared.record("unmount:\(route.sessionID)") }
+            #if canImport(UIKit)
+            .background {
+                if NavigationUITestTrace.enabled {
+                    NavigationUITestLifecycleProbe(sessionID: route.sessionID)
+                }
+            }
+            #endif
+            #endif
             .id(route.sessionID)
             // Route replacement must not cross-fade the old chat behind the entry gate.
             .transition(.identity)
             .animation(nil, value: route.sessionID)
     }
 }
+
+#if DEBUG
+#if canImport(UIKit)
+/// SwiftUI onAppear can fire while a collapsed split view reparents an offscreen
+/// detail. Observe UIKit's completed visibility transitions instead.
+private struct NavigationUITestLifecycleProbe: UIViewControllerRepresentable {
+    let sessionID: String
+
+    func makeUIViewController(context: Context) -> Controller {
+        Controller(sessionID: sessionID)
+    }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {}
+
+    final class Controller: UIViewController {
+        let sessionID: String
+
+        init(sessionID: String) {
+            self.sessionID = sessionID
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func loadView() {
+            view = UIView()
+            view.isUserInteractionEnabled = false
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            NavigationUITestTrace.shared.record("appear:\(sessionID)")
+        }
+
+        override func viewDidDisappear(_ animated: Bool) {
+            super.viewDidDisappear(animated)
+            NavigationUITestTrace.shared.record("disappear:\(sessionID)")
+        }
+    }
+}
+#endif
+/// UI-test-only lifecycle history: final-screen assertions cannot detect a chat
+/// that briefly disappears and remounts while XCTest waits for animations.
+@MainActor
+private final class NavigationUITestTrace: ObservableObject {
+    static let enabled = ProcessInfo.processInfo.environment["OPENCLIENT_NAVIGATION_TRACE"] == "1"
+    static let shared = NavigationUITestTrace()
+    @Published private(set) var events: [String] = []
+
+    func record(_ event: String) {
+        guard Self.enabled else { return }
+        events.append(event)
+    }
+}
+
+private struct NavigationUITestTraceView: View {
+    @ObservedObject private var trace = NavigationUITestTrace.shared
+    var body: some View {
+        Text(verbatim: "Navigation trace")
+            .font(.system(size: 1))
+            .accessibilityIdentifier("navigation.trace")
+            .accessibilityValue(trace.events.joined(separator: "|"))
+            .allowsHitTesting(false)
+    }
+}
+#endif
 
 struct ConnectionSheetBackdrop: View {
     var motionDuration: Double = 12

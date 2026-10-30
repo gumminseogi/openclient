@@ -369,6 +369,7 @@ struct MessageComposer: View {
     var blocksNewInput = false
     var allowsTextTools = true
     var allowsSessionTools = true
+    var allowsCompactionWhileBusy = false
     var autoFocus = false
     var agentTitle: String = ""
     var selectableAgents: [OpenCodeAgent] = []
@@ -2005,7 +2006,7 @@ struct MessageComposer: View {
                             subtitle: "Summarize context",
                             systemImage: "rectangle.compress.vertical",
                             tint: .teal,
-                            isDisabled: isBusy,
+                            isDisabled: isBusy && !allowsCompactionWhileBusy,
                             accessibilityIdentifier: "chat.composer.compact",
                             action: {
                                 isAccessoryMenuOpen = false
@@ -3214,6 +3215,7 @@ private struct CommandPicker: View {
                         VStack(spacing: 6) {
                             ForEach(commands) { command in
                                 Button {
+                                    guard detailCommand == nil else { return }
                                     onSelect(command)
                                 } label: {
                                     HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -3329,7 +3331,7 @@ private struct CommandRowPressFeedback: ViewModifier {
             }
             .scaleEffect(isPressed && !reduceMotion ? 0.98 : 1)
             .animation(.easeOut(duration: 0.1), value: isPressed)
-            .highPriorityGesture(
+            .simultaneousGesture(
                 LongPressGesture()
                     .updating($isPressed) { value, state, _ in state = value }
                     .onEnded { _ in onLongPress() }

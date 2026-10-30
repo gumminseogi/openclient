@@ -104,10 +104,10 @@ final class ProjectFacade: ObservableObject {
             projects: visibleProjects,
             currentProjectID: viewModel.currentProject?.id,
             selectedDirectory: viewModel.selectedDirectory,
-            recentSessions: viewModel.recentProjectSessions,
+            recentSessions: viewModel.recentProjectSessions.filter { !isIgnored($0.session) },
             isLoadingRecentSessions: viewModel.isLoadingRecentProjectSessions,
             searchQuery: viewModel.projectSessionSearchQuery,
-            searchResults: viewModel.projectSessionSearchResults,
+            searchResults: viewModel.projectSessionSearchResults.filter { !isIgnored($0.session) },
             isSearching: viewModel.isSearchingProjectSessions,
             recentLoadKey: [
                 viewModel.config.recentServerID,
@@ -118,6 +118,20 @@ final class ProjectFacade: ObservableObject {
                 viewModel.homeSessionScopes.map { DirectoryStoreRegistry.key(for: $0.directory) }.sorted().joined(separator: "|"),
             ].joined(separator: "|")
         )
+    }
+
+    var allowsCleanup: Bool {
+        !isReadOnly && viewModel.isConnected && viewModel.backendConnection?.sessionActivity != nil
+    }
+
+    func makeCleanupCoordinator() -> SessionCleanupCoordinator? {
+        guard allowsCleanup, let connection = viewModel.backendConnection else { return nil }
+        return SessionCleanupCoordinator(connection: connection, isCurrent: { [weak viewModel] in
+            viewModel?.backendConnection === connection && viewModel?.isConnected == true
+        }, delete: { [weak viewModel] session in
+            guard let viewModel, viewModel.backendConnection === connection, viewModel.isConnected else { return false }
+            return await viewModel.deleteSession(session)
+        })
     }
 
     var createProjectSnapshot: CreateProjectSnapshot {
@@ -229,12 +243,27 @@ final class ProjectFacade: ObservableObject {
     }
 
     func isSelected(_ project: OpenCodeProject) -> Bool { viewModel.isProjectSelected(project) }
+    private func isIgnored(_ session: OpenCodeSession) -> Bool {
+        viewModel.projectStore.isProjectIgnored(session.projectID, scopeKey: viewModel.config.recentServerID)
+            || viewModel.projectStore.isDirectoryIgnored(session.directory, scopeKey: viewModel.config.recentServerID)
+    }
     func isVisible(_ project: OpenCodeProject) -> Bool {
         viewModel.projectStore.isProjectVisible(project, scopeKey: viewModel.config.recentServerID)
     }
 
     func setVisibility(_ isVisible: Bool, for project: OpenCodeProject) {
         viewModel.projectStore.setProjectVisibility(project, isVisible: isVisible, scopeKey: viewModel.config.recentServerID)
+    }
+
+    func removeProject(_ project: OpenCodeProject) async {
+        projectSelectionGeneration &+= 1
+        preparingProjectID = nil
+        let wasSelected = isSelected(project)
+        viewModel.projectStore.ignoreProject(project, directories: viewModel.workspaceDirectories(for: project), scopeKey: viewModel.config.recentServerID)
+        viewModel.resetRecentProjectSessionsForConnectionChange()
+        if wasSelected {
+            await viewModel.selectProject(viewModel.projects.first)
+        }
     }
 
     func moveProjects(fromOffsets source: IndexSet, toOffset destination: Int) {

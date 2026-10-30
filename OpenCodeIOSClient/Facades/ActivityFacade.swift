@@ -864,6 +864,8 @@ final class ActivityFacade: ObservableObject {
         }
         return candidates.values.filter {
             !hiddenIDs.contains($0.session.id) && !viewModel.directoryStoreRegistry.isV2SessionDeleted($0.session.id)
+                && !viewModel.projectStore.isProjectIgnored($0.session.projectID, scopeKey: viewModel.config.recentServerID)
+                && !viewModel.projectStore.isDirectoryIgnored($0.session.directory, scopeKey: viewModel.config.recentServerID)
         }
     }
 

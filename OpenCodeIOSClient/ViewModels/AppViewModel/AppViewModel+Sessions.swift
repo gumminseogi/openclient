@@ -335,7 +335,7 @@ extension AppViewModel {
                   directoryStoreRegistry.contains(targetStore, forKey: targetKey) else { return }
         }
         let sessionRevision = targetStore.v2SessionRevision
-        let statusRevision = targetStore.statusRevision
+        let statusSnapshot = directoryStoreRegistry.v2StatusSnapshot
         targetStore.isLoadingSessions = true
         defer { targetStore.isLoadingSessions = false }
 
@@ -347,7 +347,7 @@ extension AppViewModel {
               directoryStoreRegistry.generation == targetGeneration,
               directoryStoreRegistry.contains(targetStore, forKey: targetKey) else { return }
         guard targetStore.v2SessionRevision == sessionRevision else {
-            targetStore.applyV2ActiveStatuses(statuses, requestedAtRevision: statusRevision)
+            directoryStoreRegistry.applyV2ActiveSnapshot(statuses, snapshot: statusSnapshot)
             directoryStoreRegistry.requestV2Reconciliation(reconnect: true)
             scheduleV2TimelineReconciliation()
             return
@@ -359,7 +359,7 @@ extension AppViewModel {
             requestedCursor: cursor,
             limit: openCodeV2SessionPageLimit
         )
-        targetStore.applyV2ActiveStatuses(statuses, requestedAtRevision: statusRevision)
+        directoryStoreRegistry.applyV2ActiveSnapshot(statuses, snapshot: statusSnapshot)
         persistDirectoryToLocalCache(targetStore, directory: directory)
         scheduleWidgetSnapshotPublication()
         if let selectedSessionID = targetStore.selectedSession?.id {
@@ -473,38 +473,9 @@ extension AppViewModel {
         chatDetailPresentationRequest &+= 1
     }
 
-    func hydrateV2Interactions(for session: OpenCodeSession) async {
-        guard connectionStore.apiProfile == .v2 else { return }
-        guard let connection = try? requireBackendConnection(),
-              let client = try? connection.requireOpenCodeClient(for: .interactions) else { return }
-        let owner = directoryStoreRegistry.ownerStore(forSessionID: session.id) ?? directoryStore
-        guard let key = directoryStoreRegistry.key(for: owner) else { return }
-        let targetGeneration = directoryStoreRegistry.generation
-        let lifecycleRevision = directoryStoreRegistry.v2LifecycleRevision(sessionID: session.id)
-        let permissionRevision = owner.permissionRevision
-        let questionRevision = owner.questionRevision
-        let navigationGeneration = sessionNavigationGeneration
-        do {
-            async let permissions = client.listV2SessionPermissions(sessionID: session.id)
-            async let forms = client.listV2SessionForms(sessionID: session.id)
-            let (loadedPermissions, loadedForms) = try await (permissions, forms)
-            guard isCurrentBackendConnection(connection), connectionStore.apiProfile == .v2, config == client.config,
-                  directoryStoreRegistry.generation == targetGeneration,
-                  directoryStoreRegistry.contains(owner, forKey: key),
-                  directoryStoreRegistry.v2LifecycleRevision(sessionID: session.id) == lifecycleRevision else { return }
-            owner.applyV2SessionInteractions(sessionID: session.id, permissions: loadedPermissions, forms: loadedForms,
-                permissionRevisionAtRequestStart: permissionRevision, questionRevisionAtRequestStart: questionRevision)
-            liveActivityFacade.reducerDidCommit(sessionIDs: [session.id])
-            if directoryStore === owner, isSessionNavigationCurrent(sessionID: session.id, generation: navigationGeneration, directoryKey: key) {
-                sessionInteractionStore.applySelectedSession(
-                    sessionID: session.id,
-                    sessions: owner.sessions,
-                    syncState: owner.syncState
-                )
-            }
-        } catch {
-            appendDebugLog("v2 interaction hydration failed: \(error.localizedDescription)")
-        }
+    @discardableResult
+    func hydrateV2Interactions(for session: OpenCodeSession) async -> Bool {
+        await SessionInteractionHydrationCoordinator.hydrate(session: session, model: self)
     }
 
     func loadOlderV2Messages(sessionID: String, windowContext: ChatWindowContext? = nil) async -> Bool {
@@ -1162,13 +1133,11 @@ extension AppViewModel {
         guard let client = compatibilityClient(for: .interactions) else { return }
         if connectionStore.apiProfile == .v2 {
             let generation = directoryStoreRegistry.generation
-            let stores = directoryStoreRegistry.allStores.map { ($0, $0.statusRevision) }
+            let stores = directoryStoreRegistry.v2StatusSnapshot
             let statuses = try await client.listV2SessionStatuses()
             guard isCurrentBackendConnection(connection), connectionStore.apiProfile == .v2, config == client.config,
                   directoryStoreRegistry.generation == generation else { return }
-            for (store, revision) in stores where directoryStoreRegistry.key(for: store) != nil {
-                store.applyV2ActiveStatuses(statuses, requestedAtRevision: revision)
-            }
+            directoryStoreRegistry.applyV2ActiveSnapshot(statuses, snapshot: stores)
             return
         }
         let directory = effectiveSelectedDirectory
@@ -2328,8 +2297,7 @@ extension AppViewModel {
         let generation = directoryStoreRegistry.generation
         let navigationGeneration = sessionNavigationGeneration
         let owner = directoryStoreRegistry.ownerStore(forSessionID: session.id) ?? directoryStore
-        guard !Task.isCancelled, owner.sessionStatuses[session.id] != "busy",
-              !chatStore.isV2PromptInFlight(sessionID: session.id) else { return false }
+        guard !Task.isCancelled, !chatStore.isV2PromptInFlight(sessionID: session.id) else { return false }
         let charged = userVisible && meterPrompt && !hasProUnlock
         guard !userVisible || !meterPrompt || reserveUserPromptIfAllowed() else { return false }
         let chargedDay = usageMeter.promptDay

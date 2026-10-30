@@ -158,7 +158,7 @@ private struct ChatHeaderTerminal: View {
                 }
             }
             .navigationDestination(for: String.self) { id in
-                TerminalDetailView(facade: facade, terminalID: id)
+                TerminalDetailView(facade: facade, terminalID: id, isPresentedInPopover: true)
             }
         }
         .onChange(of: facade.snapshot.activeTerminalID) { _, id in

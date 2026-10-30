@@ -4,6 +4,8 @@ import Foundation
 @MainActor
 final class ProjectStore: ObservableObject {
     static let listPreferencesStorageKey = "opencode.projectListPreferences.v1"
+    static let ignoredProjectsStorageKey = "opencode.ignoredProjects.v1"
+    @Published private var ignoredProjectsByScope: [String: [String: [String]]]
 
     @Published var projects: [OpenCodeProject]
     @Published var currentProject: OpenCodeProject?
@@ -126,9 +128,46 @@ final class ProjectStore: ObservableObject {
         self.createProjectSelectedDirectory = createProjectSelectedDirectory
         self.userDefaults = userDefaults
         self.listPreferencesByScope = Self.loadListPreferences(userDefaults: userDefaults)
+        self.ignoredProjectsByScope = userDefaults.data(forKey: Self.ignoredProjectsStorageKey)
+            .flatMap { try? JSONDecoder().decode([String: [String: [String]]].self, from: $0) } ?? [:]
+    }
+
+    func isProjectIgnored(_ projectID: String?, scopeKey: String) -> Bool {
+        guard let projectID else { return false }
+        return ignoredProjectsByScope[scopeKey]?[projectID] != nil
+    }
+
+    func isDirectoryIgnored(_ directory: String?, scopeKey: String) -> Bool {
+        guard let directory else { return isProjectIgnored("global", scopeKey: scopeKey) }
+        if ignoredProjectsByScope[scopeKey]?.values.contains(where: { $0.contains(directory) }) == true { return true }
+        return projects.contains {
+            isProjectIgnored($0.id, scopeKey: scopeKey)
+                && ($0.worktree == directory || $0.sandboxes?.contains(directory) == true)
+        }
+    }
+
+    func acceptedProjects(scopeKey: String) -> [OpenCodeProject] {
+        projects.filter { !isProjectIgnored($0.id, scopeKey: scopeKey) }
+    }
+
+    func ignoreProject(_ project: OpenCodeProject, directories: [String], scopeKey: String) {
+        ignoredProjectsByScope[scopeKey, default: [:]][project.id] = Array(Set([project.worktree] + directories))
+        persistIgnoredProjects()
+    }
+
+    func restoreProject(_ project: OpenCodeProject, scopeKey: String) {
+        ignoredProjectsByScope[scopeKey]?[project.id] = nil
+        persistIgnoredProjects()
+        setProjectVisibility(project, isVisible: true, scopeKey: scopeKey)
+    }
+
+    private func persistIgnoredProjects() {
+        guard let data = try? JSONEncoder().encode(ignoredProjectsByScope) else { return }
+        userDefaults.set(data, forKey: Self.ignoredProjectsStorageKey)
     }
 
     func orderedProjects(scopeKey: String) -> [OpenCodeProject] {
+        let projects = acceptedProjects(scopeKey: scopeKey)
         let projectsByID = projects.reduce(into: [String: OpenCodeProject]()) { result, project in
             result[project.id] = project
         }

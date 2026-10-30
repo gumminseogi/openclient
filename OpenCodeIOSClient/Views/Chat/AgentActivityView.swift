@@ -99,31 +99,42 @@ struct AgentActivitySheet: View {
     let imageContent: OpenClientImageContentCoordinator?
     let videoStreams: OpenClientVideoStreamCoordinator?
     @Environment(\.dismiss) private var dismiss
-    @State private var path: [String] = []
+    @ObservedObject var navigation: AgentNavigationStore
     @State private var detent: PresentationDetent = .medium
     @State private var loadFailed = false
     @State private var isLoading = true
 
     var body: some View {
         let agents = facade.agentActivity(parentID: parent.id)
-        let inProgress = agents.filter { !$0.status.isFinished }
+        let inProgress = agents.filter { !$0.status.isFinished && $0.status != .idle }
         let completed = agents.filter { $0.status.isFinished }
-        NavigationStack(path: $path) {
+        let idle = agents.filter { $0.status == .idle }
+        NavigationStack(path: $navigation.path) {
             List {
+                if !facade.canOpenAgentConversations {
+                    Label("Connect to open agent conversations", systemImage: "wifi.slash")
+                }
                 if loadFailed {
                     Label("Unable to load agents", systemImage: "exclamationmark.triangle")
                 }
                 if !inProgress.isEmpty {
                     Section("In Progress") {
                         ForEach(inProgress) { agent in
-                            AgentActivityListRow(agent: agent)
+                            AgentActivityListRow(agent: agent).disabled(!facade.canOpenAgentConversations)
                         }
                     }
                 }
                 if !completed.isEmpty {
                     Section("Completed") {
                         ForEach(completed) { agent in
-                            AgentActivityListRow(agent: agent)
+                            AgentActivityListRow(agent: agent).disabled(!facade.canOpenAgentConversations)
+                        }
+                    }
+                }
+                if !idle.isEmpty {
+                    Section("Idle") {
+                        ForEach(idle) { agent in
+                            AgentActivityListRow(agent: agent).disabled(!facade.canOpenAgentConversations)
                         }
                     }
                 }
@@ -142,13 +153,13 @@ struct AgentActivitySheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .navigationDestination(for: String.self) { id in
-                AgentConversationDestination(facade: facade, sessionID: id, imageContent: imageContent, videoStreams: videoStreams)
+                AgentConversationDestination(facade: facade, navigation: navigation, sessionID: id, imageContent: imageContent, videoStreams: videoStreams)
             }
             .refreshable { await reload() }
         }
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
-        .onChange(of: path) { _, value in if !value.isEmpty { detent = .large } }
+        .onChange(of: navigation.path) { _, value in if !value.isEmpty { detent = .large } }
         .task { await reload() }
     }
 
@@ -189,18 +200,19 @@ private struct AgentActivityListRow: View {
 
 private struct AgentConversationDestination: View {
     let facade: ChatFacade
+    @ObservedObject var navigation: AgentNavigationStore
     let sessionID: String
     let imageContent: OpenClientImageContentCoordinator?
     let videoStreams: OpenClientVideoStreamCoordinator?
-    @State private var presentation: TaskSessionPresentation?
     @State private var failed = false
 
     var body: some View {
         Group {
-            if let presentation {
-                ChatView(chatFacade: presentation.chatFacade, browser: presentation.context.browser,
+            if let child = navigation.presentations[sessionID], let context = child.windowContext {
+                ChatView(chatFacade: child, browser: context.browser,
                          imageContent: imageContent, videoStreams: videoStreams, sessionID: sessionID,
-                         isDedicatedWindow: true, usesSheetNavigation: true)
+                          isDedicatedWindow: true, usesSheetNavigation: true,
+                          onOpenSheetSession: navigation.open)
             } else if failed {
                 ContentUnavailableView("Unable to open agent", systemImage: "exclamationmark.bubble")
             } else {
@@ -208,18 +220,13 @@ private struct AgentConversationDestination: View {
             }
         }
         .task(id: sessionID) {
-            guard presentation == nil else { return }
+            guard navigation.presentations[sessionID] == nil else { return }
             guard let session = await facade.sessionForPresentation(sessionID: sessionID), !Task.isCancelled,
-                  let child = facade.childPresentation(for: session),
-                  let result = TaskSessionPresentation(sessionID: sessionID, chatFacade: child) else {
+                  let child = facade.childPresentation(for: session) else {
                 failed = true
                 return
             }
-            presentation = result
-        }
-        .onDisappear {
-            presentation?.context.close()
-            presentation = nil
+            navigation.retain(child, for: sessionID)
         }
     }
 }

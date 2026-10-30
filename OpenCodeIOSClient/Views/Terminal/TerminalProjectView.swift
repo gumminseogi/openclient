@@ -192,6 +192,7 @@ private struct TerminalListRow: View {
 struct TerminalDetailView: View {
     @ObservedObject var facade: TerminalFacade
     let terminalID: String
+    var isPresentedInPopover = false
     @State private var keyboardDismissalCount = 0
     @State private var pasteInvocationCount = 0
 
@@ -211,11 +212,12 @@ struct TerminalDetailView: View {
                     terminalID: terminalID,
                     tabsInset: 0,
                     controlsInset: 52,
-                    fontSize: snapshot.fontSize
+                    fontSize: snapshot.fontSize,
+                    tracksKeyboard: !isPresentedInPopover
                 )
                 .id("\(snapshot.directory ?? ""):\(terminalID)")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea(.keyboard, edges: .bottom)
+                .ignoresSafeArea(.keyboard, edges: isPresentedInPopover ? [] : .bottom)
             } else {
                 ContentUnavailableView("Terminal Closed", systemImage: "terminal", description: Text("Return to the terminal list to open another session."))
             }
@@ -373,6 +375,7 @@ private struct TerminalHostView: UIViewRepresentable {
     let tabsInset: CGFloat
     let controlsInset: CGFloat
     let fontSize: Float
+    let tracksKeyboard: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(facade: facade, terminalID: terminalID, fontSize: fontSize)
@@ -385,6 +388,7 @@ private struct TerminalHostView: UIViewRepresentable {
             tabsInset: tabsInset,
             controlsInset: controlsInset,
             fontSize: fontSize,
+            tracksKeyboard: tracksKeyboard,
             onFontSizeChange: { [weak facade, weak coordinator = context.coordinator] fontSize in
                 facade?.setFontSize(fontSize)
                 coordinator?.fontSizeDidChange()
@@ -472,6 +476,7 @@ private struct TerminalHostView: UIViewRepresentable {
             tabsInset: CGFloat,
             controlsInset: CGFloat,
             fontSize: Float,
+            tracksKeyboard: Bool,
             onFontSizeChange: @escaping (Float) -> Void
         ) {
             self.terminal = terminal
@@ -494,8 +499,10 @@ private struct TerminalHostView: UIViewRepresentable {
                 equalTo: safeAreaLayoutGuide.topAnchor,
                 constant: tabsInset
             )
+            // Popovers already fit their content above the keyboard. Tracking the
+            // window keyboard again here can collapse their terminal to zero height.
             bottomConstraint = terminal.bottomAnchor.constraint(
-                equalTo: keyboardLayoutGuide.topAnchor,
+                equalTo: tracksKeyboard ? keyboardLayoutGuide.topAnchor : safeAreaLayoutGuide.bottomAnchor,
                 constant: -controlsInset
             )
             NSLayoutConstraint.activate([
@@ -1044,7 +1051,8 @@ private struct TerminalHostView: UIViewRepresentable {
                     let transcript = session.readViewportText() ?? ""
                     let error = facade.snapshot.errorMessage.map { " error=\($0)" } ?? ""
                     let fontSize = facade.snapshot.fontSize
-                    terminalView?.accessibilityLabel = "surface=\(isSurfaceAttached ? "attached" : "detached") mounts=\(surfaceAttachmentCount) rx=\(receivedOutputByteCount) applied=\(appliedOutputByteCount) tx=\(sentInputByteCount) rejected=\(rejectedInputByteCount) font=\(fontSize)\(error)\n\(transcript)"
+                    let viewportSize = terminalView?.bounds.size ?? .zero
+                    terminalView?.accessibilityLabel = "surface=\(isSurfaceAttached ? "attached" : "detached") mounts=\(surfaceAttachmentCount) rx=\(receivedOutputByteCount) applied=\(appliedOutputByteCount) tx=\(sentInputByteCount) rejected=\(rejectedInputByteCount) font=\(fontSize) viewport=\(viewportSize.width)x\(viewportSize.height)\(error)\n\(transcript)"
                 }
             }
 #endif
@@ -1071,6 +1079,7 @@ private struct TerminalHostView: View {
     let tabsInset: CGFloat
     let controlsInset: CGFloat
     let fontSize: Float
+    let tracksKeyboard: Bool
 
     var body: some View {
         ContentUnavailableView("Unavailable", systemImage: "terminal")
