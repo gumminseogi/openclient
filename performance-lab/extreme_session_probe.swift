@@ -6,6 +6,9 @@ import UIKit
 final class OpenClientExtremeSessionProbe: @unchecked Sendable {
     static let enabled = ProcessInfo.processInfo.environment["OPENCLIENT_EXTREME_PROBE"] == "1"
     static let shared = OpenClientExtremeSessionProbe()
+    private static let publishedPhases: Set<String> = ["metadata", "appearance_configured",
+        "connection_overlay_dismissed", "selection_started", "canonical_published",
+        "transcript_reveal_completed", "bottom_refresh_method_completed"]
     private let lock = NSLock()
     private let writer: OpenClientExtremeSessionWriter?
     private var operation = 0
@@ -67,6 +70,15 @@ final class OpenClientExtremeSessionProbe: @unchecked Sendable {
         row["epoch_s"] = epoch
         if let data = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]) {
             writer?.append(data)
+        }
+        if Self.publishedPhases.contains(phase) {
+            let env = ProcessInfo.processInfo.environment
+            row["schema"] = 1
+            row["case"] = env["OPENCLIENT_EXTREME_CASE"] ?? ""
+            row["trial"] = env["OPENCLIENT_EXTREME_TRIAL"] ?? ""
+            if let data = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]) {
+                writer?.publishNativeEvent(data)
+            }
         }
     }
 
@@ -186,6 +198,19 @@ private final class OpenClientExtremeSessionWriter: @unchecked Sendable {
     private var buffer = Data()
     private var timer: DispatchSourceTimer?
 
+    // The test runner's owned fixture is the only permitted phase destination.
+    private let nativeEndpoint: URL? = {
+        let env = ProcessInfo.processInfo.environment
+        guard env["OPENCLIENT_EXTREME_PROBE"] == "1",
+              ["cold", "seeded-relaunch", "seeded-revisit"].contains(env["OPENCLIENT_EXTREME_CASE"] ?? ""),
+              env["OPENCLIENT_EXTREME_PASSWORD"] == "ci-fixture-only",
+              let base = URL(string: env["OPENCLIENT_EXTREME_URL"] ?? ""),
+              base.scheme == "http", base.host == "127.0.0.1", base.port == 14097,
+              base.path.isEmpty, base.query == nil, base.fragment == nil,
+              base.user == nil, base.password == nil else { return nil }
+        return base.appendingPathComponent("_lab/native-phase")
+    }()
+
     init?() {
         do {
             let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
@@ -206,6 +231,19 @@ private final class OpenClientExtremeSessionWriter: @unchecked Sendable {
         queue.async { [self] in
             buffer.append(data); buffer.append(10)
             if buffer.count >= 65_536 { flush() }
+        }
+    }
+
+    func publishNativeEvent(_ data: Data) {
+        guard let nativeEndpoint else { return }
+        queue.async {
+            var request = URLRequest(url: nativeEndpoint)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 10
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Basic " + Data("opencode:ci-fixture-only".utf8).base64EncodedString(),
+                forHTTPHeaderField: "Authorization")
+            URLSession.shared.uploadTask(with: request, from: data).resume()
         }
     }
 

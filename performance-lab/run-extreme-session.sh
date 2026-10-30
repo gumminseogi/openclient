@@ -25,7 +25,7 @@ trap cleanup_fixture EXIT
 terminate_owned_app() {
   local output=$1
   if xcrun simctl terminate "$device_id" "$bundle" > "$output/app-terminate.log" 2>&1; then return 0; fi
-  # A cold first launch may have no running/installed app. Other termination
+  # Before the first hosted launch there may be no running/installed app. Other termination
   # failures must stop cache replacement rather than copying a live SQLite store.
   if python3 - "$output/app-terminate.log" <<'PY'
 from pathlib import Path
@@ -50,10 +50,10 @@ Path(sys.argv[1]).write_text(json.dumps({
     'started_epoch_s': time.time(), 'host': platform.platform(),
     'session_id': 'ses_extreme', 'configured_message_count': int(sys.argv[2]),
     'history': 'One opt-in synthetic mixed-tool session; real limit/cursor pagination; no model calls or artificial server delay.',
-    'cache_setup': 'Cold controls run first. Warm cache is prepared in an unmeasured hosted test using a real full API request and the production persistent cache writer, then restored while the app is terminated. This is not a timed UI pagination pass.',
-    'cases': 'cold x1 and seeded-revisit x1 per grouping; seeded-relaunch x3 per grouping. One native app binary for all 10 measured cases.',
-    'measurement_scope': 'Native app phase timestamps plus separately labeled XCTest observations; seconds-level chat loading, not a helper microbenchmark, presented FPS or physical iPhone performance.',
-    'failure_policy': 'Export each measured case, attempt the remaining cases after individual UI failures, and fail if any case fails. Build/fixture/cache preparation failures block dependent warm cases; cold results remain available.'
+    'cache_setup': 'First prepare the full-history warm cache in an unmeasured hosted test using a real full API request and the production persistent cache writer, then restore it while the app is terminated before each measured case. This is not a timed UI pagination pass.',
+    'cases': 'seeded-revisit x1 per grouping: first open, same-process revisit, and bottom refresh. One native app binary for both measured cases.',
+    'measurement_scope': 'Native app phase timestamps plus separately labeled XCTest observations for loading a fully retained long session; not a helper microbenchmark, presented FPS or physical iPhone performance.',
+    'failure_policy': 'Export each measured case, attempt the remaining case after an individual UI failure, and fail if any case fails. Build/fixture/cache preparation failures block the two measured cases; retain setup failure evidence.'
 },indent=2)+'\n')
 PY
 
@@ -147,13 +147,9 @@ run_case() {
   mkdir -p "$output"
   terminate_owned_app "$output"
   container=$(xcrun simctl get_app_container "$device_id" "$bundle" data 2>/dev/null || true)
-  if [[ "$kind" == cold ]]; then
-    if [[ -n "$container" ]]; then rm -rf "$container/Library/Application Support"; fi
-  else
-    [[ -n "$container" && -d "$cache_snapshot" ]] || { echo 'Validated warm-cache snapshot missing' >&2; exit 1; }
-    rm -rf "$container/Library/Application Support"
-    ditto "$cache_snapshot" "$container/Library/Application Support"
-  fi
+  [[ -n "$container" && -d "$cache_snapshot" ]] || { echo 'Validated warm-cache snapshot missing' >&2; exit 1; }
+  rm -rf "$container/Library/Application Support"
+  ditto "$cache_snapshot" "$container/Library/Application Support"
   if [[ -n "$container" ]]; then rm -rf "$container/Documents/OpenClientExtremeSession"; fi
   export TEST_RUNNER_OPENCLIENT_EXTREME_CASE=$kind
   export TEST_RUNNER_OPENCLIENT_EXTREME_GROUPED=$grouped
@@ -166,10 +162,7 @@ run_case() {
   if (( code != 0 )); then case_failures=$((case_failures+1)); fi
 }
 
-# These controls survive even if the much larger persistent-cache preparation fails.
-run_case cold 1 trial1
-run_case cold 0 trial1
-
+# Prepare and verify the retained full-history cache before either measured case.
 seed_output="$results/cache-seed"
 mkdir -p "$seed_output"
 container=$(xcrun simctl get_app_container "$device_id" "$bundle" data 2>/dev/null || true)
@@ -188,7 +181,7 @@ else
   seed_code=$?
 fi
 if ! terminate_owned_app "$seed_output"; then
-  printf '{"reason": "Could not stop the native host before cache snapshot", "warm_cases_skipped": 8}\n' > "$results/warm-blocked.json"
+  printf '{"reason": "Could not stop the native host before cache snapshot", "warm_cases_skipped": 2}\n' > "$results/warm-blocked.json"
   exit 1
 fi
 unset TEST_RUNNER_OPENCLIENT_EXTREME_SEED_ONLY
@@ -219,7 +212,7 @@ PY
   then seed_code=0; else seed_code=1; fi
 fi
 if (( seed_code != 0 )); then
-  printf '{"reason": "Native production-cache preparation failed", "seed_exit_code": %d, "warm_cases_skipped": 8, "cold_case_failures": %d}\n' "$seed_code" "$case_failures" > "$results/warm-blocked.json"
+  printf '{"reason": "Native production-cache preparation failed", "seed_exit_code": %d, "warm_cases_skipped": 2}\n' "$seed_code" > "$results/warm-blocked.json"
   exit 1
 fi
 container=$(xcrun simctl get_app_container "$device_id" "$bundle" data)
@@ -235,11 +228,7 @@ PY
 
 run_case seeded-revisit 1 trial1
 run_case seeded-revisit 0 trial1
-for trial in 1 2 3; do
-  if [[ "$trial" == 2 ]]; then groups=(0 1); else groups=(1 0); fi
-  for grouped in "${groups[@]}"; do run_case seeded-relaunch "$grouped" "trial$trial"; done
-done
-printf '{"failed_measured_ui_cases": %d, "expected_measured_ui_cases": 10, "cache_seed_exit_code": %d}\n' "$case_failures" "$seed_code" > "$results/case-status.json"
+printf '{"failed_measured_ui_cases": %d, "expected_measured_ui_cases": 2, "cache_seed_exit_code": %d}\n' "$case_failures" "$seed_code" > "$results/case-status.json"
 
 # A successful xcodebuild exit is insufficient if the readable evidence is absent.
 python3 - "$results" <<'PY'
@@ -253,7 +242,8 @@ def clock_offset(row):
             or not 0<=after-before<=.1:
         raise ValueError('Invalid or imprecise app/UI clock calibration')
     return epoch-(before+after)/2
-if len(cases)!=10: errors.append(f'Expected 10 measured cases, found {len(cases)}')
+if {p.name for p in cases}!={'seeded-revisit-trial1-g1','seeded-revisit-trial1-g0'}:
+    errors.append('Expected exactly the two seeded-revisit grouping cases, found '+str([p.name for p in cases]))
 for p in cases:
     try:
         status=json.loads((p/'xcodebuild-status.json').read_text())
@@ -265,7 +255,7 @@ for p in cases:
         kind,trial,group=p.name.rsplit('-',2)
         grouped=group=='g1'
         count=int(json.loads((root/'provenance.json').read_text())['configured_message_count'])
-        expected=20 if kind=='cold' else count
+        expected=count
         evidence=[]
         for path in (p/'attachments').rglob('*.json'):
             value=json.loads(path.read_text())
@@ -299,11 +289,11 @@ for p in cases:
         if not appearance or any(r.get('grouping_actual') is not grouped \
                 or r.get('tools_actual') is not True or r.get('reasoning_actual') is not True for r in appearance):
             raise ValueError('Actual native grouping/tools/reasoning settings were not verified')
-        if kind!='cold' and not any(r.get('phase')=='disk_cache_json_decoded' \
+        if not any(r.get('phase')=='disk_cache_json_decoded' \
                 and r.get('cache_messages')==count for r in rows):
             raise ValueError('Warm app process did not decode the prepared full-history disk cache')
         actions=evidence.get('actions',[])
-        stages=['first_open','same_process_revisit','bottom_refresh'] if kind=='seeded-revisit' else ['first_open','bottom_refresh']
+        stages=['first_open','same_process_revisit','bottom_refresh']
         if [a.get('stage') for a in actions]!=stages: raise ValueError('Completed checkpoint is missing an action')
         used_request_ids=set()
         for operation,action in enumerate(actions,1):

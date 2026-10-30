@@ -19,6 +19,9 @@ replace('OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel.swift',
 replace('OpenCodeIOSClient/Views/Root/RootView.swift',
     '        .task {\n#if DEBUG\n            if !didRunUITestAutoConnect,',
     '        .task {\n#if DEBUG\n            if ProcessInfo.processInfo.environment["OPENCLIENT_EXTREME_SEED_ONLY"] == "1" { return }\n            if !didRunUITestAutoConnect,')
+replace('OpenCodeIOSClient/Views/Root/RootView.swift',
+    '        .onChange(of: shell.isShowingConnectionOverlay) { _, isShowing in\n            guard !isShowing else { return }',
+    '        .onChange(of: shell.isShowingConnectionOverlay) { _, isShowing in\n            guard !isShowing else { return }\n            OpenClientExtremeSessionProbe.record("connection_overlay_dismissed", details: ["connected_actual": shell.isConnected])')
 sessions = 'OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel+Sessions.swift'
 replace(sessions, '    func beginSessionNavigation(_ session: OpenCodeSession) -> String? {\n',
     '    func beginSessionNavigation(_ session: OpenCodeSession) -> String? {\n        OpenClientExtremeSessionProbe.beginSelection(sessionID: session.id)\n')

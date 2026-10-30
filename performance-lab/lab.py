@@ -6,6 +6,7 @@ from collections import Counter, deque
 import copy
 import ipaddress
 import json
+import math
 from pathlib import Path
 import re
 import secrets
@@ -59,6 +60,7 @@ class LabState:
         self.condition = threading.Condition(threading.RLock())
         self.stop = threading.Event()
         self.events = deque(maxlen=4096)
+        self.native_events = deque(maxlen=128)
         self.sequence = 0
         self.requests = []
         self.inflight = {}
@@ -279,7 +281,57 @@ class LabState:
                     'summary': summarize(self.requests), 'inflight': copy.deepcopy(list(self.inflight.values()))}
             if self.extreme_profile is not None:
                 result['extreme_profile'] = self.extreme_profile
+                result['native_events'] = copy.deepcopy(list(self.native_events))
             return result
+
+    def record_native_phase(self, event):
+        """Accept only bounded phase metadata from the opt-in synthetic app probe."""
+        required = {'schema', 'case', 'trial', 'phase', 'operation', 'operation_kind',
+                    'uptime_before_s', 'uptime_after_s', 'epoch_s'}
+        details = {
+            'metadata': {'grouping_requested': bool, 'scope': str},
+            'appearance_configured': {'tools_actual': bool, 'reasoning_actual': bool},
+            'connection_overlay_dismissed': {'connected_actual': bool},
+            'selection_started': {},
+            'canonical_published': {'loaded_messages': int},
+            'transcript_reveal_completed': {},
+            'bottom_refresh_method_completed': {},
+        }
+        phase = event.get('phase')
+        if not isinstance(phase, str) or phase not in details:
+            raise ValueError('unknown native phase')
+        if phase != 'metadata':
+            required.add('grouping_actual')
+        if required - event.keys() or event.keys() - required - details[phase].keys():
+            raise ValueError('unknown or missing native phase field')
+        if type(event['schema']) is not int or event['schema'] != 1:
+            raise ValueError('unknown native phase schema')
+        if event['case'] not in ('cold', 'seeded-relaunch', 'seeded-revisit'):
+            raise ValueError('unknown native phase case')
+        if not isinstance(event['trial'], str) or not re.fullmatch(r'trial[1-9][0-9]{0,3}', event['trial']):
+            raise ValueError('invalid native phase trial')
+        bounded(event['operation'], 'operation', 0, 1000000)
+        if event['operation_kind'] not in ('startup', 'selection', 'bottom_refresh'):
+            raise ValueError('unknown native operation kind')
+        for key in ('uptime_before_s', 'uptime_after_s', 'epoch_s'):
+            value = event[key]
+            if type(value) not in (int, float) or not 0 <= value <= 1e12 or not math.isfinite(value):
+                raise ValueError('invalid native phase timestamp')
+        if event['uptime_after_s'] < event['uptime_before_s']:
+            raise ValueError('reversed native phase timestamp')
+        types = dict(details[phase])
+        if phase != 'metadata':
+            types['grouping_actual'] = bool
+        for key, value_type in types.items():
+            if key in event and type(event[key]) is not value_type:
+                raise ValueError('invalid native phase detail')
+        if 'scope' in event and not 1 <= len(event['scope']) <= 512:
+            raise ValueError('invalid native phase scope')
+        if 'loaded_messages' in event:
+            bounded(event['loaded_messages'], 'loaded_messages', 0, 100000)
+        with self.condition:
+            self.native_events.append(copy.deepcopy(event))
+            self.condition.notify_all()
 
     def start_stream(self, sid, chunks=50, interval_ms=100, chunk_bytes=80, part_type='text'):
         bounded(chunks, 'chunks', 1, 10000)
@@ -394,6 +446,9 @@ class Handler(BaseHTTPRequestHandler):
                 state.stop.wait(delay / 1000)
             if self.command == 'GET':
                 self.get(path, query)
+            elif self.command == 'POST' and path == '/_lab/native-phase' and state.profile == 'extreme':
+                state.record_native_phase(self.body())
+                self.reply({'accepted': True}, 202)
             elif self.command == 'POST' and path == '/_lab/stream':
                 body = self.body()
                 allowed = {'sessionID', 'chunks', 'interval_ms', 'chunk_bytes', 'part_type'}
