@@ -222,13 +222,14 @@ extension ToolGroupingUITests {
         let tree = XCTAttachment(string: app.debugDescription)
         tree.name = "extreme-failure-accessibility-tree"; tree.lifetime = .keepAlways; add(tree)
         let transcript = extremeTranscript(app)
-        let value = transcript.exists ? String(describing: transcript.value) : "chat.scroll absent"
+        let value = transcript.exists ? String(describing: transcript.value) : "native chat transcript absent"
         let native = XCTAttachment(string: value)
         native.name = "extreme-failure-native-ax-status"; native.lifetime = .keepAlways; add(native)
     }
 
     private func extremeTranscript(_ app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any).matching(identifier: "chat.scroll").firstMatch
+        // ChatRouteView's DEBUG identifier replaces chat.scroll on this native view.
+        app.descendants(matching: .any).matching(identifier: "navigation.chat.ses_extreme").firstMatch
     }
 
     private func extremeCanonicalProof(_ base: URL, password: String, after baseline: Int, minimum: Int) async throws -> [[String: Any]] {
