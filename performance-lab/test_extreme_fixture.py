@@ -71,6 +71,9 @@ class ExtremeFixtureTests(unittest.TestCase):
                    dict(event, grouping_requested=1), dict(event, grouping_actual=True),
                    dict(event, epoch_s=float('nan')), dict(event, epoch_s=10 ** 100),
                    dict(event, uptime_after_s=9)]
+        startup = {key: value for key, value in event.items() if key not in ('grouping_requested', 'scope')}
+        startup.update(phase='startup_cache_published', grouping_actual=False, loaded_messages=5000)
+        invalid.extend(dict(startup, loaded_messages=value) for value in (True, -1, 100001, 5000.0, '5000'))
         try:
             for body in [lab.encoded(row) for row in invalid] + [b'{', b' ' * 16385]:
                 with self.subTest(body_size=len(body)):
@@ -89,6 +92,7 @@ class ExtremeFixtureTests(unittest.TestCase):
                 ('metadata', {}),
                 ('appearance_configured', {'tools_actual': True, 'reasoning_actual': True}),
                 ('connection_overlay_dismissed', {'connected_actual': True}),
+                ('startup_cache_published', {'loaded_messages': 5000}),
                 ('selection_started', {}), ('canonical_published', {'loaded_messages': 5000}),
                 ('transcript_reveal_completed', {}), ('bottom_refresh_method_completed', {}),
             ):
@@ -97,7 +101,7 @@ class ExtremeFixtureTests(unittest.TestCase):
                 if phase != 'metadata':
                     row['grouping_actual'] = False
                 state.record_native_phase(row)
-            self.assertEqual(len(state.snapshot()['native_events']), 7)
+            self.assertEqual(len(state.snapshot()['native_events']), 8)
         finally:
             server.shutdown()
             server.server_close()

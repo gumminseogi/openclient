@@ -50,9 +50,9 @@ Path(sys.argv[1]).write_text(json.dumps({
     'started_epoch_s': time.time(), 'host': platform.platform(),
     'session_id': 'ses_extreme', 'configured_message_count': int(sys.argv[2]),
     'history': 'One opt-in synthetic mixed-tool session; real limit/cursor pagination; no model calls or artificial server delay.',
-    'cache_setup': 'First prepare the full-history warm cache in an unmeasured hosted test using a real full API request and the production persistent cache writer, then restore it while the app is terminated before each measured case. This is not a timed UI pagination pass.',
+    'cache_setup': 'First prepare directory session metadata and the full chat history in an unmeasured hosted test using real API requests and the production persistent cache writer, verify both through a second repository, then restore the cache while the app is terminated before each measured case. This is not a timed UI pagination pass.',
     'cases': 'seeded-revisit x1 per grouping: first open, same-process revisit, and bottom refresh. One native app binary for both measured cases.',
-    'measurement_scope': 'Native app phase timestamps plus separately labeled XCTest observations for loading a fully retained long session; not a helper microbenchmark, presented FPS or physical iPhone performance.',
+    'measurement_scope': 'Native app phase timestamps plus separately labeled XCTest observations for loading a fully retained long session. Full startup cache hydration is recorded separately and must complete before measured project/session selection. These are not helper microbenchmarks, presented FPS or physical iPhone performance.',
     'failure_policy': 'Export each measured case, attempt the remaining case after an individual UI failure, and fail if any case fails. Build/fixture/cache preparation failures block the two measured cases; retain setup failure evidence.'
 },indent=2)+'\n')
 PY
@@ -203,6 +203,9 @@ try:
             or proof.get('session_id')!='ses_extreme' or proof.get('messages')!=count \
             or proof.get('readback_messages')!=count or proof.get('readback_used_second_repository') is not True:
         errors.append('Native seed proof does not verify the requested full-history cache readback')
+    if proof.get('directory_sessions')!=1 or proof.get('readback_directory_sessions')!=1 \
+            or proof.get('readback_directory_session_ids')!=['ses_extreme']:
+        errors.append('Native seed proof does not verify the sole directory session metadata readback')
     if proof.get('encoded_response_bytes')!=fixture['extreme_profile']['encoded_messages_bytes']:
         errors.append('Native seed HTTP response does not match the configured extreme history')
 except (OSError,ValueError,KeyError,TypeError) as error: errors.append(str(error))
@@ -292,6 +295,14 @@ for p in cases:
         if not any(r.get('phase')=='disk_cache_json_decoded' \
                 and r.get('cache_messages')==count for r in rows):
             raise ValueError('Warm app process did not decode the prepared full-history disk cache')
+        startup=[(index,r) for index,r in enumerate(rows) if r.get('phase')=='startup_cache_published' \
+            and r.get('operation')==0 and r.get('operation_kind')=='startup' \
+            and r.get('loaded_messages')==count and r.get('grouping_actual') is grouped]
+        selection=next(((index,r) for index,r in enumerate(rows) \
+            if r.get('phase')=='selection_started' and r.get('operation')==1),None)
+        if selection is None or not any(index<selection[0] \
+                and r['uptime_after_s']<=selection[1]['uptime_before_s'] for index,r in startup):
+            raise ValueError('Full startup cache was not published with the actual grouping before first selection')
         actions=evidence.get('actions',[])
         stages=['first_open','same_process_revisit','bottom_refresh']
         if [a.get('stage') for a in actions]!=stages: raise ValueError('Completed checkpoint is missing an action')

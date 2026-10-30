@@ -7,7 +7,7 @@ final class OpenClientExtremeSessionProbe: @unchecked Sendable {
     static let enabled = ProcessInfo.processInfo.environment["OPENCLIENT_EXTREME_PROBE"] == "1"
     static let shared = OpenClientExtremeSessionProbe()
     private static let publishedPhases: Set<String> = ["metadata", "appearance_configured",
-        "connection_overlay_dismissed", "selection_started", "canonical_published",
+        "connection_overlay_dismissed", "startup_cache_published", "selection_started", "canonical_published",
         "transcript_reveal_completed", "bottom_refresh_method_completed"]
     private let lock = NSLock()
     private let writer: OpenClientExtremeSessionWriter?
@@ -15,12 +15,9 @@ final class OpenClientExtremeSessionProbe: @unchecked Sendable {
     private var operationKind = "startup"
     private var awaitingCanonical = false
     private var canonical = false
-    private var revealed = false
-    private var refresh = false
     private var input = false
     private var afterCanonicalInput = false
     private var configuredGroup = true
-    @MainActor private weak var transcript: UICollectionView?
 
     private init() {
         writer = Self.enabled ? OpenClientExtremeSessionWriter() : nil
@@ -102,10 +99,9 @@ final class OpenClientExtremeSessionProbe: @unchecked Sendable {
         shared.operation += 1
         shared.operationKind = "selection"
         shared.awaitingCanonical = true
-        shared.canonical = false; shared.revealed = false; shared.refresh = false; shared.input = false; shared.afterCanonicalInput = false
+        shared.canonical = false; shared.input = false; shared.afterCanonicalInput = false
         shared.lock.unlock()
         record("selection_started")
-        shared.updateAccessibility()
     }
 
     @MainActor
@@ -115,17 +111,9 @@ final class OpenClientExtremeSessionProbe: @unchecked Sendable {
         shared.operation += 1
         shared.operationKind = "bottom_refresh"
         shared.awaitingCanonical = true
-        shared.canonical = false; shared.refresh = false; shared.input = false; shared.afterCanonicalInput = false
+        shared.canonical = false; shared.input = false; shared.afterCanonicalInput = false
         shared.lock.unlock()
         record("bottom_refresh_started")
-        shared.updateAccessibility()
-    }
-
-    @MainActor
-    static func registerTranscript(_ view: UICollectionView) {
-        guard enabled else { return }
-        shared.transcript = view
-        shared.updateAccessibility()
     }
 
     @MainActor
@@ -136,7 +124,6 @@ final class OpenClientExtremeSessionProbe: @unchecked Sendable {
         shared.awaitingCanonical = false
         shared.lock.unlock()
         record("canonical_published", details: ["loaded_messages": count])
-        shared.updateAccessibility()
     }
 
     @MainActor
@@ -148,17 +135,13 @@ final class OpenClientExtremeSessionProbe: @unchecked Sendable {
     @MainActor
     static func revealCompleted() {
         guard enabled else { return }
-        shared.lock.lock(); shared.revealed = true; shared.lock.unlock()
         record("transcript_reveal_completed")
-        shared.updateAccessibility()
     }
 
     @MainActor
     static func refreshCompleted(sessionID: String) {
         guard enabled, sessionID == "ses_extreme" else { return }
-        shared.lock.lock(); shared.refresh = true; shared.lock.unlock()
         record("bottom_refresh_method_completed")
-        shared.updateAccessibility()
         DispatchQueue.main.async { record("bottom_refresh_next_main_turn") }
     }
 
@@ -180,15 +163,6 @@ final class OpenClientExtremeSessionProbe: @unchecked Sendable {
             shared.lock.lock(); shared.afterCanonicalInput = true; shared.lock.unlock()
             record("post_canonical_typed_token_accepted", details: ["expected_token": afterToken])
         }
-        shared.updateAccessibility()
-    }
-
-    @MainActor
-    private func updateAccessibility() {
-        lock.lock()
-        let value = "extreme|op=\(operation)|kind=\(operationKind)|grouping=\(configuredGroup ? 1 : 0)|canonical=\(canonical ? 1 : 0)|revealed=\(revealed ? 1 : 0)|refresh=\(refresh ? 1 : 0)|input=\(input ? 1 : 0)|after_input=\(afterCanonicalInput ? 1 : 0)"
-        lock.unlock()
-        transcript?.accessibilityValue = value
     }
 }
 

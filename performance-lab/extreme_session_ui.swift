@@ -29,9 +29,8 @@ extension ToolGroupingUITests {
         let tokenPrefix = "EX\(modeTag)\(trial.filter { $0.isNumber })G\(grouped ? 1 : 0)"
         let app = XCUIApplication()
         addTeardownBlock { @MainActor in
-            if (self.testRun?.failureCount ?? 0) > 0 {
-                await self.extremeCaptureFailure(app: app, base: base, password: password)
-            }
+            // Async thrown failures may not update testRun.failureCount yet.
+            await self.extremeCaptureFailure(app: app, base: base, password: password)
             app.terminate()
         }
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -52,6 +51,14 @@ extension ToolGroupingUITests {
         print("EXTREME launch returned; waiting for native connection completion")
         _ = try await extremeNativePhase(base, password: password, phase: "appearance_configured", operation: 0)
         _ = try await extremeNativePhase(base, password: password, phase: "connection_overlay_dismissed", operation: 0)
+        var warmCacheReadyObserved: Double?
+        if mode != "cold" {
+            let startup = try await extremeNativePhase(base, password: password, phase: "startup_cache_published", operation: 0,
+                minimumLoaded: count)
+            XCTAssertEqual(startup["loaded_messages"] as? Int, count)
+            warmCacheReadyObserved = ProcessInfo.processInfo.systemUptime
+            print("EXTREME full retained warm state published messages=\(count)")
+        }
         print("EXTREME native connection completed; inspecting connected root")
         try await extremeWait("Connected project or session list") {
             let project = app.buttons["projects.project.lab"], session = app.buttons["session.row.ses_extreme"]
@@ -66,7 +73,8 @@ extension ToolGroupingUITests {
         app.buttons["projects.project.lab"].tap()
         let row = app.buttons["session.row.ses_extreme"]
         try await extremeWait("Sole extreme session row") { row.exists && row.isHittable }
-        let projectTiming = ["project_tap_uptime_s": projectTap, "session_row_observed_uptime_s": ProcessInfo.processInfo.systemUptime]
+        var projectTiming = ["project_tap_uptime_s": projectTap, "session_row_observed_uptime_s": ProcessInfo.processInfo.systemUptime]
+        if let warmCacheReadyObserved { projectTiming["warm_cache_ready_observed_uptime_s"] = warmCacheReadyObserved }
 
         let expectedMinimum = mode == "cold" ? 20 : count
         let first = try await extremeOpen(app: app, row: row, base: base, password: password,
@@ -138,7 +146,6 @@ extension ToolGroupingUITests {
             actions: actions, launchStart: launchStart, homeObserved: homeObserved, projectTiming: projectTiming, checkpoint: "complete", complete: true)
         try await Task.sleep(for: .seconds(3)) // Background phase writer flush, excluded from timing.
         print("EXTREME complete case=\(mode) trial=\(trial) grouping=\(grouped)")
-        app.terminate()
     }
 
     private func extremeOpen(app: XCUIApplication, row: XCUIElement, base: URL, password: String,
@@ -154,16 +161,17 @@ extension ToolGroupingUITests {
         // requires the real answer on screen and input accepted by the real composer.
         let revealEvent = try await extremeNativePhase(base, password: password, phase: "transcript_reveal_completed", operation: operation)
         XCTAssertEqual(revealEvent["grouping_actual"] as? Bool, expectedGrouping)
+        let transcript = extremeTranscript(app)
         try await extremeWait("Pinned-tail answer token visibly available") {
             let match = NSPredicate(format: "value CONTAINS %@ OR label CONTAINS %@", sentinel, sentinel)
-            let selectable = app.textViews.matching(match).firstMatch
-            let plain = app.staticTexts.matching(match).firstMatch
+            let selectable = transcript.textViews.matching(match).firstMatch
+            let plain = transcript.staticTexts.matching(match).firstMatch
             return (selectable.exists && selectable.isHittable) || (plain.exists && plain.isHittable)
         }
         let contentObserved = ProcessInfo.processInfo.systemUptime
         try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
             "content_observed_uptime_s": contentObserved, "native_probe_status": revealEvent], stage + "-visible")
-        try await extremeWait("Composer is available") { input.isHittable }
+        try await extremeWait("Composer is available") { input.exists && input.isHittable }
         input.tap(); input.typeText(token)
         XCTAssertTrue((input.value as? String ?? "").contains(token), "A unique plain token must survive typing.")
         let typedObserved = ProcessInfo.processInfo.systemUptime
@@ -228,8 +236,7 @@ extension ToolGroupingUITests {
     }
 
     private func extremeTranscript(_ app: XCUIApplication) -> XCUIElement {
-        // ChatRouteView's DEBUG identifier replaces chat.scroll on this native view.
-        app.descendants(matching: .any).matching(identifier: "navigation.chat.ses_extreme").firstMatch
+        app.descendants(matching: .any).matching(identifier: "chat.scroll").firstMatch
     }
 
     private func extremeCanonicalProof(_ base: URL, password: String, after baseline: Int, minimum: Int) async throws -> [[String: Any]] {
@@ -302,7 +309,7 @@ extension ToolGroupingUITests {
             "profile": profile, "actions": actions, "launch_start_uptime_s": launchStart,
             "home_observed_uptime_s": homeObserved, "project_navigation": projectTiming,
             "clock": ["uptime_before_s": before, "epoch_s": epoch, "uptime_after_s": after],
-            "scope": "UI-observed action times include XCTest scheduling and Accessibility observation. Use the separate native phase probe for app-internal intervals; typing is observed acceptance, not earliest readiness or per-key latency."]
+            "scope": "Seeded cases await normal startup publication of the full retained cache before navigation; launch/op0 timings are separate. UI-observed action times include XCTest/Accessibility overhead. Native callbacks are separate; typed acceptance is not earliest readiness or per-key latency."]
         let item = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys]),
             uniformTypeIdentifier: "public.json")
         item.name = "extreme-\(mode)-\(trial)-g\(grouped ? 1 : 0)-\(checkpoint)"; item.lifetime = .keepAlways; add(item)

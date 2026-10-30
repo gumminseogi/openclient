@@ -22,6 +22,14 @@ replace('OpenCodeIOSClient/Views/Root/RootView.swift',
 replace('OpenCodeIOSClient/Views/Root/RootView.swift',
     '        .onChange(of: shell.isShowingConnectionOverlay) { _, isShowing in\n            guard !isShowing else { return }',
     '        .onChange(of: shell.isShowingConnectionOverlay) { _, isShowing in\n            guard !isShowing else { return }\n            OpenClientExtremeSessionProbe.record("connection_overlay_dismissed", details: ["connected_actual": shell.isConnected])')
+# The DEBUG parent tag propagates over native transcript/composer identifiers.
+# Remove that diagnostic tag only; Release has no tag and routing stays intact.
+replace('OpenCodeIOSClient/Views/Root/RootView.swift',
+    '            #if DEBUG\n            .accessibilityIdentifier("navigation.chat.\\(route.sessionID)")\n',
+    '            #if DEBUG\n')
+replace('OpenCodeIOSClient/Facades/ActivityFacade.swift',
+    '                    store.applyCachedMessageState(snapshot.preparedMessages, forSessionID: result.session.id)',
+    '                    store.applyCachedMessageState(snapshot.preparedMessages, forSessionID: result.session.id)\n                    OpenClientExtremeSessionProbe.record("startup_cache_published", sessionID: result.session.id, details: ["loaded_messages": store.syncStore.messageCount(forSessionID: result.session.id)])')
 sessions = 'OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel+Sessions.swift'
 replace(sessions, '    func beginSessionNavigation(_ session: OpenCodeSession) -> String? {\n',
     '    func beginSessionNavigation(_ session: OpenCodeSession) -> String? {\n        OpenClientExtremeSessionProbe.beginSelection(sessionID: session.id)\n')
@@ -46,9 +54,6 @@ replace(disk,
     '        let todos = record.todosPayload\n            .flatMap { try? decode([OpenCodeTodo].self, from: $0) }',
     '        OpenClientExtremeSessionProbe.record("disk_cache_json_decoded", sessionID: sessionID, details: ["cache_messages": messages?.count ?? 0, "cache_payload_bytes": record.messagesPayload?.count ?? 0])\n        let todos = record.todosPayload\n            .flatMap { try? decode([OpenCodeTodo].self, from: $0) }')
 chat = 'OpenCodeIOSClient/Views/Chat/ChatView.swift'
-replace(chat,
-    '        let collectionView = ChatTranscriptCollection(frame: .zero, collectionViewLayout: Self.makeLayout())',
-    '        let collectionView = ChatTranscriptCollection(frame: .zero, collectionViewLayout: Self.makeLayout())\n        OpenClientExtremeSessionProbe.registerTranscript(collectionView)')
 replace(chat,
     '            if let hiddenAt = initialPresentationHiddenAt {\n                OpenClientSessionSwitchLog.log(',
     '            OpenClientExtremeSessionProbe.revealStarted(rows: rows.count)\n            if let hiddenAt = initialPresentationHiddenAt {\n                OpenClientSessionSwitchLog.log(')

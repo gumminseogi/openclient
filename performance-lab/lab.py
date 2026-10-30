@@ -292,6 +292,7 @@ class LabState:
             'metadata': {'grouping_requested': bool, 'scope': str},
             'appearance_configured': {'tools_actual': bool, 'reasoning_actual': bool},
             'connection_overlay_dismissed': {'connected_actual': bool},
+            'startup_cache_published': {'loaded_messages': int},
             'selection_started': {},
             'canonical_published': {'loaded_messages': int},
             'transcript_reveal_completed': {},

@@ -28,7 +28,9 @@
 
 본 실행은 그룹화 ON/OFF 두 UI case로 전체 캐시 조건에 집중합니다. 각 case에서 최초 열기·같은 프로세스의 재진입·하단 새로고침을 실행합니다. 도구 기록·추론 표시도 켭니다. 각 조건은 한 번이므로 중앙값이나 안정된 개선율을 주장하지 않습니다.
 
-영속 캐시는 **비측정 준비 단계**에서 일반 API의 `limit=5000` 응답을 읽고 production 캐시 저장 API로 만듭니다. SQL을 직접 편집하거나 앱의 실제 조회 limit을 바꾸지 않습니다. 이 준비는 사용자가 UI로 5,000개 기록을 스크롤해 불러오는 시간을 측정한 것이 아닙니다. 캐시가 없는 앱도 첫 진입부터 항상 5,000개를 가져온다고 해석하면 안 됩니다.
+영속 캐시는 **비측정 준비 단계**에서 일반 API의 `limit=5000` 응답과 실제 `/session`의 유일한 세션 목록을 읽고 production 캐시 저장 API로 만듭니다. 새 repository에서 대화 5,000개와 디렉터리 세션 목록을 모두 다시 읽어 검증합니다. SQL을 직접 편집하거나 앱의 실제 조회 limit을 바꾸지 않습니다. 이 준비는 사용자가 UI로 5,000개 기록을 스크롤해 불러오는 시간을 측정한 것이 아닙니다. 캐시가 없는 앱도 첫 진입부터 항상 5,000개를 가져온다고 해석하면 안 됩니다.
+
+각 측정 앱은 정상 Activity 캐시 복원 경로가 실제 canonical store에 5,000개를 적용한 `startup_cache_published`를 기록한 뒤 세션 선택을 시작합니다. 앱 시작·선택 전 캐시 복원(op 0)의 시간도 별도로 보존합니다. 이는 동일한 전체 캐시 상태의 재진입 조건이며 앱 아이콘을 누른 시점부터의 cold launch 측정은 아닙니다.
 
 ## 시간의 의미
 
@@ -46,7 +48,7 @@ canonical 요청 시작부터 typed page 반환까지에는 전송·decode·호�
 
 `.github/workflows/openclient-extreme-session.yml`은 이 테스트 브랜치의 push에서 iPhone Pro Max와 13-inch iPad Pro 시뮬레이터를 각각 사용합니다. 시뮬레이터 서명은 유지합니다. 실제 iPhone 15 Pro의 30초 증상과 같은 원인이라는 결론은 별도로 검증해야 합니다.
 
-비측정 캐시 준비와 두 번째 production repository의 디스크 readback 검증을 먼저 수행합니다. 준비가 실패하면 의존하는 두 UI 조건을 사유와 함께 생략합니다. 개별 UI case 실패도 원본 summary·부분 checkpoint·probe·요청 로그·진단·실패 영상과 화면을 보존하며 성공으로 바꾸지 않습니다. fixture 본문과 DerivedData 전체를 artifact로 올리지 않습니다.
+비측정 캐시 준비와 두 번째 production repository의 디스크 readback 검증을 먼저 수행합니다. 준비가 실패하면 의존하는 두 UI 조건을 사유와 함께 생략합니다. Native startup 5,000개 조건과 각 동작의 전체 GET·반영·입력이 일치해야 완전한 case입니다. 개별 UI case 실패도 원본 summary·부분 checkpoint·probe·요청 로그·진단·영상과 최종 화면을 보존하며 성공으로 바꾸지 않습니다. fixture 본문과 DerivedData 전체를 artifact로 올리지 않습니다.
 
 ## 예비 실행 — 전체 캐시 로딩 결과가 아님
 
@@ -65,3 +67,25 @@ canonical 요청 시작부터 typed page 반환까지에는 전송·decode·호�
 UI는 reveal 이후에도 마지막 응답 마커를 찾지 못했습니다. 따라서 **241.129초의 XCTest 실패 시간은 앱 로딩 시간이 아니며**, 화면 표시·입력까지 성공한 case도 아닙니다. iPhone은 연결 준비 단계에서 끝나 selection marker가 없으므로 **293.948초 역시 채팅 로딩 결과가 아닙니다**. 이 실행에서 5,000개 캐시 복원이나 하단 새로고침을 측정하지 못했습니다. 실패 영상은 당시 upload glob에서 누락됐고 probe·요청·summary는 보존했습니다.
 
 본 실행에서는 작은 native phase event를 루프백 fixture에 비동기로 보내고, UI는 native 연결·reveal 완료를 HTTP로 기다린 다음 실제 문구와 입력을 검사합니다. 반복적으로 긴 접근성 트리를 조회하는 간섭을 줄이기 위한 계측 변경이며 앱의 연결·조회·화면 공개 조건을 우회하지 않습니다. 예비 실행과 이 방법 변경의 숫자를 제품 성능 개선율로 비교하지 않습니다.
+
+## 전체 캐시의 첫 진입 부분 관측
+
+실행 `41048101562`, 테스트 SHA `edc5d8f57fecc3cd72486956f5214856d33cbac4`에서 두 기기 모두 production 캐시의 5,000개 저장과 별도 repository readback을 통과했습니다. 그룹화 ON의 최초 열기에서 전역 마커 검사는 통과했으나 이후 테스트가 `chat.scroll` 식별자를 찾는 과정에서 실패했습니다. 최신 DEBUG navigation 식별자 `navigation.chat.ses_extreme`가 덮어쓰는 상황을 양쪽 실패 snapshot과 `RootView` 코드로 확인했습니다. 전역 마커는 sidebar 세션 미리보기에서도 일치하므로 대화 본문 표시 증거로 사용하지 않습니다. 아래는 native callback 기록이며 입력·재진입·하단 새로고침 통과 결과는 아닙니다.
+
+| Native 구간, 초 | iPhone simulator | iPad simulator |
+| --- | ---: | ---: |
+| 선택 → reveal 완료 callback | 15.315 | 27.233 |
+| 선택 → 첫 canonical 5,000개 반영 | 20.142 | 11.967 |
+| 선택 → 두 번째 canonical 5,000개 반영 | 25.188 | 34.924 |
+| 선택 전 전체 캐시 읽기 | 3.137 | 3.570 |
+| 선택 후 전체 캐시 읽기 | 2.288 | 1.784 |
+
+각 기기에서 133,777,002바이트의 캐시 JSON 5,000개 decode가 두 번 기록됐습니다. iPad의 후속 snapshot 반환값은 0이지만 실제 decode는 5,000개이므로 cache miss나 기록 손실로 해석하지 않습니다. 동시에 도착한 canonical 결과에 대한 취소·stale guard 등으로 snapshot이 폐기됐을 가능성을 남깁니다.
+
+두 기기 모두 `limit=5000` canonical GET을 두 번 완료했습니다. **각 응답 본문 134,609,894바이트, 합계 269,219,788바이트**이며 추가 개별 메시지 조회는 이 합계에 포함하지 않습니다. fixture는 압축을 사용하지 않으며 이 합계는 합성 자료의 HTTP 응답 본문 크기입니다. 실제 사용자 세션의 이동통신 사용량을 측정한 값은 아닙니다. iPhone에서는 두 요청이 겹쳐 native return을 개별 HTTP 요청과 임의로 짝짓지 않습니다.
+
+소스에서도 독립적인 두 경로가 확인됩니다. `SessionListFacade.completeSelection → AppViewModel.selectSession`은 `loadMessages`를 시작하고, `ChatView.task → ChatFacade.hydrateSessionForPresentation`도 `loadMessages`를 호출합니다. optional agent activity의 `children` 요청 실패는 별도 `try?`에서 소거되며 두 번째 전체 조회가 먼저 시작됐으므로 관측된 중복 요청의 원인으로 보지 않습니다. 이 fixture의 optional children API는 404를 반환하므로 해당 활동 상태 갱신의 비용까지 정상 서버와 같다고 주장하지 않습니다.
+
+캐시 준비 XCTest 전체 시간이나 준비용 HTTP await는 위의 채팅 로딩 수치와 별개입니다. 각 환경의 host·작업 스케줄링이 달라 iPhone/iPad 숫자를 기기 성능 순위로 비교하지 않습니다. 마지막 검증에서는 실제 navigation 식별자를 사용하고, HTTP native 단계·실제 문구 표시·실제 입력 값·native 입력 JSONL을 함께 확인합니다.
+
+후속 실행 `41051357147`도 입력 시도 전에 composer 선택자에서 실패했습니다. iPad ON은 실제 canonical 20개, OFF는 5,000개였고 iPhone은 둘 다 20개였습니다. 저장된 chat payload만으로는 초기 Activity 캐시 후보를 보장하지 못했으므로 이 수치는 그룹화 성능 비교에서 제외합니다. 이를 보완해 실제 디렉터리 세션 메타데이터도 seed하고, 정상 startup 적용 5,000개를 명시적으로 확인합니다. CI checkout에서는 Release에 없는 DEBUG 부모 접근성 태그 한 줄만 제거해 원래 transcript/composer ID를 유지하고, 마커를 실제 transcript 안으로 제한합니다. 별도 custom accessibility value 변경은 하지 않습니다. 종료 전에는 성공/실패 모두 화면·접근성 트리·native 상태를 보존합니다.
