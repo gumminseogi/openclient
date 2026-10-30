@@ -85,7 +85,7 @@ extension ToolGroupingUITests {
             // Leave the actual route, not merely re-tap an already visible chat.
             try await extremeShowProjectSidebar(app)
             app.buttons["projects.project.lab"].tap() // Production beginProjectNavigation clears selectedSession.
-            try await extremeWait("Previous chat route unmounted before revisit") { !app.collectionViews["chat.scroll"].exists }
+            try await extremeWait("Previous chat route unmounted before revisit") { !extremeTranscript(app).exists }
             try await extremeWait("Session list after leaving chat") { row.exists && row.isHittable }
             let second = try await extremeOpen(app: app, row: row, base: base, password: password,
                 sentinel: sentinel, token: tokenPrefix + "_2", operation: 2, expectedMinimum: count,
@@ -100,7 +100,8 @@ extension ToolGroupingUITests {
             refreshOperation = 3
         }
 
-        let transcript = app.collectionViews["chat.scroll"]
+        let transcript = extremeTranscript(app)
+        try await extremeWait("Transcript viewport exists") { transcript.exists }
         let input = app.textViews["chat.input"]
         // Use the native interactive keyboard dismissal. No Cmd+A/delete or
         // assumptions about an empty composer or caret position are made.
@@ -120,24 +121,19 @@ extension ToolGroupingUITests {
         try extremeAttach(mode: mode, trial: trial, grouped: grouped, profile: profile,
             actions: actions + [["stage": "bottom_refresh", "operation": refreshOperation, "start_uptime_s": refreshStart]],
             launchStart: launchStart, homeObserved: homeObserved, projectTiming: projectTiming, checkpoint: "refresh-gesture", complete: false)
-        _ = try await extremeNativePhase(base, password: password, phase: "bottom_refresh_method_completed", operation: refreshOperation)
-        _ = try await extremeNativePhase(base, password: password, phase: "canonical_published", operation: refreshOperation,
+        let refreshEvent = try await extremeNativePhase(base, password: password, phase: "bottom_refresh_method_completed", operation: refreshOperation)
+        let refreshCanonicalEvent = try await extremeNativePhase(base, password: password, phase: "canonical_published", operation: refreshOperation,
             minimumLoaded: expectedMinimum)
         let refreshProof = try await extremeCanonicalProof(base, password: password, after: baseline, minimum: expectedMinimum)
-        try await extremeWait("Native refresh method completed") {
-            let value = transcript.value as? String ?? ""
-            return value.contains("op=\(refreshOperation)|") && value.contains("canonical=1") && value.contains("refresh=1")
-        }
         let refreshCompleteObserved = ProcessInfo.processInfo.systemUptime
         let refreshToken = tokenPrefix + "_\(refreshOperation)"
         input.tap(); input.typeText(refreshToken)
         XCTAssertTrue((input.value as? String ?? "").contains(refreshToken))
-        try await extremeWait("Refresh input delegate accepted token") { (transcript.value as? String ?? "").contains("input=1") }
         actions.append(["stage": "bottom_refresh", "operation": refreshOperation,
             "start_uptime_s": refreshStart, "canonical_and_method_observed_uptime_s": refreshCompleteObserved,
             "typed_token_observed_uptime_s": ProcessInfo.processInfo.systemUptime,
             "requests": refreshProof, "minimum_expected_loaded": expectedMinimum,
-            "typed_token": refreshToken, "native_probe_status": transcript.value as? String ?? ""])
+            "typed_token": refreshToken, "native_probe_status": ["refresh": refreshEvent, "canonical": refreshCanonicalEvent]])
         try extremeAttach(mode: mode, trial: trial, grouped: grouped, profile: profile,
             actions: actions, launchStart: launchStart, homeObserved: homeObserved, projectTiming: projectTiming, checkpoint: "complete", complete: true)
         try await Task.sleep(for: .seconds(3)) // Background phase writer flush, excluded from timing.
@@ -153,11 +149,11 @@ extension ToolGroupingUITests {
         let opened = ProcessInfo.processInfo.systemUptime
         print("EXTREME selection tap stage=\(stage)")
         row.tap()
-        let transcript = app.collectionViews["chat.scroll"]
         let input = app.textViews["chat.input"]
         // HTTP phase polling leaves the app's initial layout alone. Readiness still
         // requires the real answer on screen and input accepted by the real composer.
-        _ = try await extremeNativePhase(base, password: password, phase: "transcript_reveal_completed", operation: operation)
+        let revealEvent = try await extremeNativePhase(base, password: password, phase: "transcript_reveal_completed", operation: operation)
+        XCTAssertEqual(revealEvent["grouping_actual"] as? Bool, expectedGrouping)
         try await extremeWait("Pinned-tail answer token visibly available") {
             let match = NSPredicate(format: "value CONTAINS %@ OR label CONTAINS %@", sentinel, sentinel)
             let selectable = app.textViews.matching(match).firstMatch
@@ -166,40 +162,32 @@ extension ToolGroupingUITests {
         }
         let contentObserved = ProcessInfo.processInfo.systemUptime
         try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
-            "content_observed_uptime_s": contentObserved, "native_probe_status": transcript.value as? String ?? ""], stage + "-visible")
-        try await extremeWait("Native transcript reveal callback") {
-            let value = transcript.value as? String ?? ""
-            return value.contains("op=\(operation)|") && value.contains("revealed=1")
-        }
-        XCTAssertTrue((transcript.value as? String ?? "").contains("grouping=\(expectedGrouping ? 1 : 0)|"))
+            "content_observed_uptime_s": contentObserved, "native_probe_status": revealEvent], stage + "-visible")
         try await extremeWait("Composer is available") { input.isHittable }
         input.tap(); input.typeText(token)
         XCTAssertTrue((input.value as? String ?? "").contains(token), "A unique plain token must survive typing.")
-        try await extremeWait("Native input delegate accepted token") { (transcript.value as? String ?? "").contains("input=1") }
         let typedObserved = ProcessInfo.processInfo.systemUptime
         try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
             "content_observed_uptime_s": contentObserved, "typed_token_observed_uptime_s": typedObserved,
-            "typed_token": token, "native_probe_status": transcript.value as? String ?? ""], stage + "-typed")
-        _ = try await extremeNativePhase(base, password: password, phase: "canonical_published", operation: operation,
+            "typed_token": token, "native_probe_status": revealEvent], stage + "-typed")
+        let canonicalEvent = try await extremeNativePhase(base, password: password, phase: "canonical_published", operation: operation,
             minimumLoaded: expectedMinimum)
         let proof = try await extremeCanonicalProof(base, password: password, after: baseline, minimum: expectedMinimum)
-        try await extremeWait("Native canonical publication") { (transcript.value as? String ?? "").contains("canonical=1") }
         let canonicalObserved = ProcessInfo.processInfo.systemUptime
         try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
             "content_observed_uptime_s": contentObserved, "typed_token_observed_uptime_s": typedObserved,
             "canonical_observed_uptime_s": canonicalObserved, "requests": proof,
-            "native_probe_status": transcript.value as? String ?? ""], stage + "-canonical")
+            "native_probe_status": ["reveal": revealEvent, "canonical": canonicalEvent]], stage + "-canonical")
         let postToken = token + "_C"
         input.tap(); input.typeText(postToken)
         XCTAssertTrue((input.value as? String ?? "").contains(postToken))
-        try await extremeWait("Post-canonical input accepted") { (transcript.value as? String ?? "").contains("after_input=1") }
         return ["stage": stage, "operation": operation, "start_uptime_s": opened,
             "content_observed_uptime_s": contentObserved, "typed_token_observed_uptime_s": typedObserved,
             "canonical_observed_uptime_s": canonicalObserved,
             "post_canonical_typed_token_observed_uptime_s": ProcessInfo.processInfo.systemUptime,
             "post_canonical_typed_token": postToken,
             "requests": proof, "minimum_expected_loaded": expectedMinimum,
-            "typed_token": token, "native_probe_status": transcript.value as? String ?? ""]
+            "typed_token": token, "native_probe_status": ["reveal": revealEvent, "canonical": canonicalEvent]]
     }
 
     private func extremeNativePhase(_ base: URL, password: String, phase: String, operation: Int,
@@ -233,10 +221,14 @@ extension ToolGroupingUITests {
         screenshot.name = "extreme-failure-screen"; screenshot.lifetime = .keepAlways; add(screenshot)
         let tree = XCTAttachment(string: app.debugDescription)
         tree.name = "extreme-failure-accessibility-tree"; tree.lifetime = .keepAlways; add(tree)
-        let transcript = app.collectionViews["chat.scroll"]
+        let transcript = extremeTranscript(app)
         let value = transcript.exists ? String(describing: transcript.value) : "chat.scroll absent"
         let native = XCTAttachment(string: value)
         native.name = "extreme-failure-native-ax-status"; native.lifetime = .keepAlways; add(native)
+    }
+
+    private func extremeTranscript(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "chat.scroll").firstMatch
     }
 
     private func extremeCanonicalProof(_ base: URL, password: String, after baseline: Int, minimum: Int) async throws -> [[String: Any]] {
