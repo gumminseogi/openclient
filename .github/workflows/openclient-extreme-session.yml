@@ -30,12 +30,12 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        device: [iphone]
+        device: [iphone, ipad]
     env:
       OPENCLIENT_DEVICE_KIND: ${{ matrix.device }}
       OPENCLIENT_EXTREME_MESSAGES: '5000'
-      OPENCLIENT_EXTREME_GROUPINGS: '0'
-      OPENCLIENT_EXTREME_VERIFY_TELEMETRY_RETRY: '1'
+      OPENCLIENT_EXTREME_GROUPINGS: '1 0'
+      OPENCLIENT_EXTREME_VERIFY_TELEMETRY_RETRY: '0'
       OPENCLIENT_EXTREME_HARNESS_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
