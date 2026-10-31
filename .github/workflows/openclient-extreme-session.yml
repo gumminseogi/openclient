@@ -96,6 +96,12 @@ jobs:
           set -euo pipefail
           device_id="${OPENCLIENT_DESTINATION##*id=}"
           xcrun simctl bootstatus "$device_id" -b 2>&1 | tee "$OPENCLIENT_RESULTS/simulator-boot.log"
+      - name: Measure patched source on the same simulator
+        timeout-minutes: 70
+        shell: bash
+        run: |
+          OPENCLIENT_EXTREME_VARIANT=patched bash performance-lab/run-extreme-session.sh \
+            "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/extreme/patched"
       - name: Measure pinned baseline on the selected simulator
         timeout-minutes: 70
         shell: bash
@@ -107,13 +113,6 @@ jobs:
           cd baseline
           OPENCLIENT_EXTREME_VARIANT=baseline bash performance-lab/run-extreme-session.sh \
             "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/extreme/baseline"
-      - name: Measure patched source on the same simulator
-        if: ${{ !cancelled() }}
-        timeout-minutes: 70
-        shell: bash
-        run: |
-          OPENCLIENT_EXTREME_VARIANT=patched bash performance-lab/run-extreme-session.sh \
-            "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/extreme/patched"
       - name: Compare verified baseline and patched actions
         if: ${{ !cancelled() }}
         shell: bash
@@ -149,7 +148,7 @@ jobs:
                   'baseline_full_body_bytes':b['full_body_bytes'],'patched_full_body_bytes':a['full_body_bytes']})
           report={'complete':True,'baseline_source_sha':data['baseline']['test_checkout_sha'],
               'patched_source_sha':data['patched']['test_checkout_sha'],'cases':compared,
-              'scope':'Same runner and simulator, baseline then patched; one trial per grouping. Native reveal callback and refresh method completion, not presented frames or physical-device timings. Fixed order does not remove thermal/order effects.'}
+              'scope':'Same runner and simulator, patched then baseline; one trial per grouping. Native reveal callback and refresh method completion, not presented frames or physical-device timings. Fixed order does not remove thermal/order effects.'}
           (root/'paired-comparison.json').write_text(json.dumps(report,indent=2)+'\n')
           print(json.dumps(report,indent=2))
           PY

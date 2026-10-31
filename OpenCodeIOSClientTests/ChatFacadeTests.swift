@@ -91,7 +91,7 @@ final class InitialChatHydrationTests: XCTestCase {
         var release: CheckedContinuation<Void, Never>?
         var reads = 0
         InitialHydrationURLProtocol.handler = { request in
-            guard request.url?.path?.hasSuffix("/message") == true else { return self.response(request) }
+            guard request.url?.path.hasSuffix("/message") == true else { return self.response(request) }
             reads += 1
             let read = reads
             if read == 1 { await withCheckedContinuation { release = $0; requested.fulfill() } }
