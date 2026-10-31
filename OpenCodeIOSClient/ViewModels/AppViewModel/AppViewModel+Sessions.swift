@@ -1521,7 +1521,7 @@ extension AppViewModel {
             async let statuses: Void = reloadSessionStatuses()
             async let permissions: Void = loadAllPermissions(for: session)
             async let questions: Void = loadAllQuestions(for: session)
-            async let messages: Void = loadMessages(for: session, refreshTodos: !todosAreFresh)
+            async let messages: Void = chatFacade.loadInitialMessages(for: session, refreshTodos: !todosAreFresh)
             _ = try await (messages, statuses, permissions, questions)
             guard isCurrentBackendConnection(connection), isSessionNavigationCurrent(
                 sessionID: session.id,

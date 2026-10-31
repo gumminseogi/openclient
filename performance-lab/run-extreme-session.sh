@@ -8,7 +8,9 @@ device_id=${destination##*id=}
 bundle=com.ntoporcov.openclient
 messages=${OPENCLIENT_EXTREME_MESSAGES:-5000}
 [[ "$messages" =~ ^[0-9]+$ ]] && (( messages >= 64 && messages <= 10000 )) || { echo 'Extreme fixture message count must be 64...10000' >&2; exit 2; }
-build_root="$RUNNER_TEMP/openclient-extreme-build"
+variant=${OPENCLIENT_EXTREME_VARIANT:-baseline}
+[[ "$variant" == baseline || "$variant" == patched ]] || { echo 'Unknown paired variant' >&2; exit 2; }
+build_root="$RUNNER_TEMP/openclient-extreme-build-$variant"
 cache_snapshot="$build_root/cache-snapshot"
 mkdir -p "$results" "$build_root"
 fixture_pid=''
@@ -41,12 +43,19 @@ PY
   return 1
 }
 
-python3 - "$results/provenance.json" "$messages" <<'PY'
+if xcrun simctl get_app_container "$device_id" "$bundle" data >/dev/null 2>&1; then
+  terminate_owned_app "$results"
+  xcrun simctl uninstall "$device_id" "$bundle"
+fi
+
+python3 - "$results/provenance.json" "$messages" "$variant" <<'PY'
 import json, platform, subprocess, sys, time
 from pathlib import Path
 Path(sys.argv[1]).write_text(json.dumps({
     'upstream_source_sha': '4dedc814bd38d3daa5a53bff01d75209f2865502',
     'test_checkout_sha': subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+    'variant': sys.argv[3],
+    'paired_baseline_sha': '31ad585ce08321ae7c4de7b1f33b991144fa2de5',
     'started_epoch_s': time.time(), 'host': platform.platform(),
     'session_id': 'ses_extreme', 'configured_message_count': int(sys.argv[2]),
     'history': 'One opt-in synthetic mixed-tool session; real limit/cursor pagination; no model calls or artificial server delay.',
@@ -139,6 +148,24 @@ set_test_environment() {
   export TEST_RUNNER_OPENCLIENT_EXTREME_COUNT=$messages
 }
 set_test_environment
+
+if [[ "$variant" == patched ]]; then
+  unit_output="$results/dedup-regressions"
+  mkdir -p "$unit_output"
+  run_test "$unit_output" 'OpenCodeIOSClientTests/InitialChatHydrationTests'
+  python3 - "$unit_output/summary.json" <<'PY'
+import json,sys
+summary=json.load(open(sys.argv[1]))
+if summary.get('result')!='Passed' or summary.get('totalTestCount')!=4 \
+        or summary.get('passedTests')!=summary.get('totalTestCount') \
+        or summary.get('failedTests')!=0 or summary.get('skippedTests')!=0:
+    raise SystemExit('Initial hydration regression tests did not all run and pass')
+PY
+  if xcrun simctl get_app_container "$device_id" "$bundle" data >/dev/null 2>&1; then
+    terminate_owned_app "$unit_output"
+    xcrun simctl uninstall "$device_id" "$bundle"
+  fi
+fi
 
 run_case() {
   local kind=$1 grouped=$2 trial=$3
@@ -239,6 +266,11 @@ from pathlib import Path
 import json,math,sys
 root=Path(sys.argv[1]);cases=sorted(p for p in root.iterdir() if p.is_dir() and '-trial' in p.name)
 errors=[]
+measurements=[]
+provenance=json.loads((root/'provenance.json').read_text())
+variant=provenance['variant']
+if variant=='baseline' and provenance['test_checkout_sha']!=provenance['paired_baseline_sha']:
+    errors.append('Baseline source is not the pinned pre-fix commit')
 def clock_offset(row):
     before,after,epoch=(row[key] for key in ('uptime_before_s','uptime_after_s','epoch_s'))
     if not all(isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) for v in (before,after,epoch)) \
@@ -307,6 +339,7 @@ for p in cases:
         stages=['first_open','same_process_revisit','bottom_refresh']
         if [a.get('stage') for a in actions]!=stages: raise ValueError('Completed checkpoint is missing an action')
         used_request_ids=set()
+        measured_actions=[]
         for operation,action in enumerate(actions,1):
             if action.get('operation')!=operation or action.get('minimum_expected_loaded')!=expected:
                 raise ValueError('UI action has the wrong operation or loaded-history requirement')
@@ -334,8 +367,40 @@ for p in cases:
             ids={r['request_id'] for r in requests}
             if not ids or ids.intersection(used_request_ids): raise ValueError('Canonical HTTP proof is absent or reused from a previous action')
             used_request_ids.update(ids)
+            expected_returns=1 if variant=='patched' or action['stage']=='bottom_refresh' else 2
+            returned=[r for r in native if r.get('phase')=='canonical_typed_page_returned']
+            if len(returned)!=expected_returns or any(r.get('page_messages')!=count for r in returned):
+                raise ValueError('Unexpected full canonical return count for '+variant+' '+action['stage'])
+            if variant=='patched' and sum(r.get('phase')=='canonical_request_started' for r in native)!=1:
+                raise ValueError('Patched action started a duplicate canonical request')
+            start_phase='bottom_refresh_started' if action['stage']=='bottom_refresh' else 'selection_started'
+            end_phase='bottom_refresh_method_completed' if action['stage']=='bottom_refresh' else 'transcript_reveal_completed'
+            start=next(r for r in native if r.get('phase')==start_phase)
+            end=next(r for r in native if r.get('phase')==end_phase)
+            seconds=(end['uptime_before_s']+end['uptime_after_s']-start['uptime_before_s']-start['uptime_after_s'])/2
+            published=[r for r in native if r.get('phase')=='canonical_published']
+            last=max(published,key=lambda r:r['uptime_after_s'])
+            canonical_seconds=(last['uptime_before_s']+last['uptime_after_s']-start['uptime_before_s']-start['uptime_after_s'])/2
+            if not math.isfinite(seconds) or seconds<0:
+                raise ValueError('Invalid native action duration')
+            measured_actions.append({'stage':action['stage'],'native_metric':end_phase,
+                'native_seconds':seconds,'last_canonical_seconds':canonical_seconds,
+                'canonical_request_starts':sum(r.get('phase')=='canonical_request_started' for r in native),
+                'canonical_returns':len(returned)})
+        body_bytes=json.loads((p/'fixture-initial-status.json').read_text())['extreme_profile']['encoded_messages_bytes']
+        log=[json.loads(line) for line in (p/'requests.jsonl').read_text().splitlines()]
+        full=[r for r in log if r.get('method')=='GET' and r.get('path')=='/session/ses_extreme/message'
+            and r.get('status')==200 and not r.get('query',{}).get('before')
+            and int(r.get('query',{}).get('limit',['0'])[0])==count and r.get('response_bytes')==body_bytes]
+        expected_bodies=3 if variant=='patched' else 5
+        if len(full)!=expected_bodies:
+            raise ValueError('Expected '+str(expected_bodies)+' complete full-history HTTP bodies, found '+str(len(full)))
+        measurements.append({'grouping':grouped,'message_count':count,'canonical_body_bytes':body_bytes,
+            'full_body_count':len(full),'full_body_bytes':sum(r['response_bytes'] for r in full),'actions':measured_actions})
     except (OSError,ValueError,KeyError,TypeError) as error: errors.append(p.name+': '+str(error))
 Path(root/'validation.json').write_text(json.dumps({'complete':not errors,'measured_case_count':len(cases),'errors':errors},indent=2)+'\n')
+Path(root/'measurements.json').write_text(json.dumps({'complete':not errors,'variant':variant,
+    'test_checkout_sha':provenance['test_checkout_sha'],'cases':measurements},indent=2)+'\n')
 if errors: raise SystemExit('\n'.join(errors))
 PY
 if (( case_failures != 0 )); then exit 1; fi

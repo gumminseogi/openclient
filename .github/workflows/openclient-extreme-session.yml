@@ -1,4 +1,4 @@
-name: OpenClient extreme session loading
+name: OpenClient paired extreme session loading
 
 on:
   push:
@@ -37,6 +37,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 31ad585ce08321ae7c4de7b1f33b991144fa2de5
+          path: baseline
           persist-credentials: false
       - name: Select an available Pro Max or 13-inch iPad Pro simulator
         shell: bash
@@ -91,10 +96,63 @@ jobs:
           set -euo pipefail
           device_id="${OPENCLIENT_DESTINATION##*id=}"
           xcrun simctl bootstatus "$device_id" -b 2>&1 | tee "$OPENCLIENT_RESULTS/simulator-boot.log"
-      - name: Measure one extreme session from navigation to usable chat
-        timeout-minutes: 150
+      - name: Measure pinned baseline on the selected simulator
+        timeout-minutes: 70
         shell: bash
-        run: bash performance-lab/run-extreme-session.sh "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/extreme"
+        run: |
+          set -euo pipefail
+          # Same instrumentation and validator; only production sources differ.
+          cp performance-lab/run-extreme-session.sh baseline/performance-lab/run-extreme-session.sh
+          cp performance-lab/prepare-extreme-instrumentation.py baseline/performance-lab/prepare-extreme-instrumentation.py
+          cd baseline
+          OPENCLIENT_EXTREME_VARIANT=baseline bash performance-lab/run-extreme-session.sh \
+            "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/extreme/baseline"
+      - name: Measure patched source on the same simulator
+        if: ${{ !cancelled() }}
+        timeout-minutes: 70
+        shell: bash
+        run: |
+          OPENCLIENT_EXTREME_VARIANT=patched bash performance-lab/run-extreme-session.sh \
+            "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/extreme/patched"
+      - name: Compare verified baseline and patched actions
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          python3 - "$OPENCLIENT_RESULTS/extreme" <<'PY'
+          import json,sys
+          from pathlib import Path
+          root=Path(sys.argv[1])
+          data={variant:json.loads((root/variant/'measurements.json').read_text()) for variant in ('baseline','patched')}
+          for variant,value in data.items():
+              if value.get('variant')!=variant or value.get('complete') is not True:
+                  raise SystemExit(variant+': paired input is not fully verified')
+          before={row['grouping']:row for row in data['baseline']['cases']}
+          after={row['grouping']:row for row in data['patched']['cases']}
+          if set(before)!=set(after) or set(before)!={False,True}:
+              raise SystemExit('Grouping conditions do not match')
+          compared=[]
+          for grouped in (True,False):
+              b,a=before[grouped],after[grouped]
+              if b['message_count']!=a['message_count'] or b['canonical_body_bytes']!=a['canonical_body_bytes']:
+                  raise SystemExit('Paired fixture sizes differ')
+              actions=[]
+              for old,new in zip(b['actions'],a['actions']):
+                  if old['stage']!=new['stage']:
+                      raise SystemExit('Paired actions do not match')
+                  actions.append({'stage':old['stage'],'native_metric':old['native_metric'],
+                      'baseline_seconds':old['native_seconds'],'patched_seconds':new['native_seconds'],
+                      'baseline_last_canonical_seconds':old['last_canonical_seconds'],'patched_last_canonical_seconds':new['last_canonical_seconds'],
+                      'baseline_canonical_starts':old['canonical_request_starts'],'patched_canonical_starts':new['canonical_request_starts'],
+                      'baseline_canonical_returns':old['canonical_returns'],'patched_canonical_returns':new['canonical_returns']})
+              compared.append({'grouping':grouped,'actions':actions,
+                  'baseline_full_body_count':b['full_body_count'],'patched_full_body_count':a['full_body_count'],
+                  'baseline_full_body_bytes':b['full_body_bytes'],'patched_full_body_bytes':a['full_body_bytes']})
+          report={'complete':True,'baseline_source_sha':data['baseline']['test_checkout_sha'],
+              'patched_source_sha':data['patched']['test_checkout_sha'],'cases':compared,
+              'scope':'Same runner and simulator, baseline then patched; one trial per grouping. Native reveal callback and refresh method completion, not presented frames or physical-device timings. Fixed order does not remove thermal/order effects.'}
+          (root/'paired-comparison.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report,indent=2))
+          PY
       - name: Export native hang and crash diagnostics
         if: always()
         shell: bash

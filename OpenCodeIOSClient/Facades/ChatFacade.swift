@@ -374,6 +374,18 @@ final class ChatFacade: ObservableObject {
     private var switcherCommit: (id: UUID, task: Task<Void, Never>)?
     // The app's root facade owns canonical configuration work, not any window presentation.
     private var configurationTasksByConnectionID: [UUID: [String: (id: UUID, task: Task<Bool, Never>)]] = [:]
+    private struct InitialMessagesContext: Equatable {
+        let connectionID: UUID
+        let registryGeneration: Int
+        let navigationGeneration: UInt
+        let directoryKey: String
+        let ownerID: ObjectIdentifier
+        let sessionID: String
+        let scope: BackendScope
+        let apiProfile: OpenCodeAPIProfile?
+    }
+    // Keep a successful task for this navigation so a later ChatView.task also joins it.
+    private var initialMessages: (context: InitialMessagesContext, id: UUID, task: Task<Void, Error>)?
     var v2ConfigurationTasks: [String: (id: UUID, task: Task<Bool, Never>)] {
         guard let connectionID = viewModel.backendConnection?.id else { return [:] }
         return viewModel.chatFacade.configurationTasksByConnectionID[connectionID] ?? [:]
@@ -416,9 +428,16 @@ final class ChatFacade: ObservableObject {
             return
         }
         connectionStore.$apiProfile.removeDuplicates().sink { [weak self] profile in
+            self?.cancelInitialMessages()
             if profile != .v2 { self?.cancelConfigurationTasks() }
         }.store(in: &observations)
-        viewModel.$backendConnection.dropFirst().sink { [weak self] _ in self?.cancelConfigurationTasks() }
+        connectionStore.$isConnected.removeDuplicates().sink { [weak self] connected in
+            if !connected { self?.cancelInitialMessages() }
+        }.store(in: &observations)
+        viewModel.$backendConnection.dropFirst().sink { [weak self] _ in
+            self?.cancelInitialMessages()
+            self?.cancelConfigurationTasks()
+        }
             .store(in: &observations)
         bindActiveDirectoryStore(viewModel.directoryStoreRegistry.activeStore)
         viewModel.directoryStoreRegistry.$activeStore
@@ -1381,11 +1400,71 @@ final class ChatFacade: ObservableObject {
             await viewModel.hydrateV2Interactions(for: session)
             return
         }
-        try? await viewModel.loadMessages(
+        try? await loadInitialMessages(
             for: session,
             prefetchToolDetails: false,
             refreshTodos: false
         )
+    }
+
+    /// Selection and the root chat presentation share one canonical read per navigation.
+    /// Explicit refresh, event reconciliation and detached windows still call loadMessages directly.
+    func loadInitialMessages(for session: OpenCodeSession, prefetchToolDetails: Bool = true,
+                             refreshTodos: Bool = true) async throws {
+        try Task.checkCancellation()
+        _ = try viewModel.requireBackendConnection()
+        guard let context = initialMessagesContext(for: session) else { throw CancellationError() }
+        let request: (context: InitialMessagesContext, id: UUID, task: Task<Void, Error>)
+        if let current = initialMessages, current.context == context, !current.task.isCancelled {
+            request = current
+        } else {
+            cancelInitialMessages()
+            let task = Task { @MainActor [weak model = viewModel] in
+                guard let model, model.chatFacade.initialMessagesContext(for: session) == context else {
+                    throw CancellationError()
+                }
+                try Task.checkCancellation()
+                try await model.loadMessages(for: session, prefetchToolDetails: false, refreshTodos: false)
+                try Task.checkCancellation()
+            }
+            request = (context, UUID(), task)
+            initialMessages = request
+        }
+        do {
+            try await request.task.value
+        } catch {
+            if initialMessages?.id == request.id { initialMessages = nil }
+            throw error
+        }
+        // A disappearing view must not cancel the shared read needed by selection.
+        try Task.checkCancellation()
+        guard initialMessagesContext(for: session) == context else { throw CancellationError() }
+        if prefetchToolDetails, viewModel.backendConnection?.openCodeCompatibility != nil {
+            viewModel.prefetchToolMessageDetails(for: session, messages: viewModel.messages)
+        }
+        if refreshTodos, viewModel.backendConnection?.openCodeCompatibility != nil {
+            await viewModel.loadTodos(for: session)
+        }
+    }
+
+    private func initialMessagesContext(for session: OpenCodeSession) -> InitialMessagesContext? {
+        guard windowContext == nil, viewModel.connectionStore.apiProfile != .v2,
+              let connection = viewModel.backendConnection, viewModel.isCurrentBackendConnection(connection),
+              let selected = viewModel.selectedSession, selected.id == session.id,
+              selected.projectID == session.projectID, selected.directory == session.directory,
+              selected.workspaceID == session.workspaceID else { return nil }
+        let registry = viewModel.directoryStoreRegistry
+        let owner = registry.ownerStore(forSessionID: session.id) ?? registry.activeStore
+        return InitialMessagesContext(connectionID: connection.id, registryGeneration: registry.generation,
+            navigationGeneration: viewModel.sessionNavigationGeneration, directoryKey: registry.activeKey,
+            ownerID: ObjectIdentifier(owner), sessionID: session.id,
+            scope: .init(projectID: session.projectID, directory: session.directory, workspaceID: session.workspaceID),
+            apiProfile: viewModel.connectionStore.apiProfile)
+    }
+
+    private func cancelInitialMessages() {
+        initialMessages?.task.cancel()
+        initialMessages = nil
     }
 
     struct PresentedReadKey: Hashable {
@@ -2211,7 +2290,19 @@ final class ChatFacade: ObservableObject {
     }
 
     private func bindActiveDirectoryStore(_ store: DirectoryStore) {
+        if let context = initialMessages?.context,
+           viewModel.selectedSession.flatMap({ initialMessagesContext(for: $0) }) != context {
+            cancelInitialMessages()
+        }
         activeDirectoryObservations.removeAll()
+        store.$selectedSession.dropFirst().sink { [weak self] session in
+            guard let self, let context = self.initialMessages?.context else { return }
+            if session?.id != context.sessionID || session?.directory != context.scope.directory
+                || session?.workspaceID != context.scope.workspaceID || session?.projectID != context.scope.projectID
+                || self.viewModel.sessionNavigationGeneration != context.navigationGeneration {
+                self.cancelInitialMessages()
+            }
+        }.store(in: &activeDirectoryObservations)
         Publishers.Merge(
             store.objectWillChange.eraseToAnyPublisher(),
             store.syncStore.objectWillChange.eraseToAnyPublisher()

@@ -3,6 +3,221 @@ import XCTest
 @testable import OpenClient
 
 @MainActor
+final class InitialChatHydrationTests: XCTestCase {
+    private var originalDrafts: Data?
+    private let session = OpenCodeSession(id: "ses_initial", title: "Initial", workspaceID: nil,
+        directory: "/repo", projectID: "project", parentID: nil)
+
+    override func setUp() async throws {
+        originalDrafts = UserDefaults.standard.data(forKey: OpenClientStorageKey.messageDraftsByChat)
+    }
+
+    override func tearDown() async throws {
+        InitialHydrationURLProtocol.handler = nil
+        UserDefaults.standard.set(originalDrafts, forKey: OpenClientStorageKey.messageDraftsByChat)
+    }
+
+    func testPresentationAndSelectionShareInFlightAndCompletedReadButManualRefreshReadsAgain() async throws {
+        let model = makeModel()
+        defer { model.backendConnection?.close() }
+        let requested = expectation(description: "Presentation canonical read held")
+        let selecting = expectation(description: "Selection metadata requested")
+        var release: CheckedContinuation<Void, Never>?
+        var reads = 0
+        var todos = 0
+        InitialHydrationURLProtocol.handler = { request in
+            switch request.url?.path {
+            case "/session/ses_initial/message":
+                reads += 1
+                if reads == 1 { await withCheckedContinuation { release = $0; requested.fulfill() } }
+                return (200, Self.page(sessionID: self.session.id, messageID: "msg_\(reads)"))
+            case "/permission":
+                selecting.fulfill()
+                return (200, "[]")
+            case "/session/ses_initial/todo":
+                todos += 1
+                return (200, "[]")
+            default: return self.response(request)
+            }
+        }
+        let presentation = Task { await model.chatFacade.hydrateSessionForPresentation(session) }
+        await fulfillment(of: [requested], timeout: 2)
+        let selection = Task { await model.selectSession(session) }
+        await fulfillment(of: [selecting], timeout: 2)
+        presentation.cancel()
+        release?.resume()
+        await presentation.value
+        await selection.value
+        XCTAssertEqual(reads, 1)
+        XCTAssertEqual(todos, 1, "The false/false presentation must not suppress selection's todo refresh")
+        XCTAssertEqual(model.messages.map(\.id), ["msg_1"])
+        await model.chatFacade.hydrateSessionForPresentation(session)
+        XCTAssertEqual(reads, 1, "A later view task in the same navigation reuses the completed read")
+
+        InitialHydrationURLProtocol.handler = { request in
+            if request.url?.path == "/session/ses_initial/message" {
+                reads += 1
+                return (200, Self.page(sessionID: self.session.id, messageID: "msg_refreshed"))
+            }
+            return self.response(request)
+        }
+        await model.refreshChatData(for: session.id)
+        XCTAssertEqual(reads, 2, "Explicit refresh is never memoized by the initial hydration task")
+        XCTAssertEqual(Set(model.messages.map(\.id)), ["msg_1", "msg_refreshed"])
+    }
+
+    func testFailedInitialReadCanRetryWithinSameNavigation() async throws {
+        let model = makeModel()
+        defer { model.backendConnection?.close() }
+        var reads = 0
+        InitialHydrationURLProtocol.handler = { request in
+            guard request.url?.path == "/session/ses_initial/message" else { return self.response(request) }
+            reads += 1
+            return reads == 1 ? (503, "{}") : (200, Self.page(sessionID: self.session.id, messageID: "msg_retry"))
+        }
+        do {
+            try await model.chatFacade.loadInitialMessages(for: session, prefetchToolDetails: false, refreshTodos: false)
+            XCTFail("The failing canonical read must propagate its error")
+        } catch {}
+        try await model.chatFacade.loadInitialMessages(for: session, prefetchToolDetails: false, refreshTodos: false)
+        XCTAssertEqual(reads, 2)
+        XCTAssertEqual(model.messages.map(\.id), ["msg_retry"])
+    }
+
+    func testNavigationAndScopeChangesDoNotReuseOrPublishStaleRead() async throws {
+        let model = makeModel()
+        defer { model.backendConnection?.close() }
+        let requested = expectation(description: "Old navigation held")
+        var release: CheckedContinuation<Void, Never>?
+        var reads = 0
+        InitialHydrationURLProtocol.handler = { request in
+            guard request.url?.path?.hasSuffix("/message") == true else { return self.response(request) }
+            reads += 1
+            let read = reads
+            if read == 1 { await withCheckedContinuation { release = $0; requested.fulfill() } }
+            let id = request.url!.pathComponents[2]
+            return (200, Self.page(sessionID: id, messageID: "msg_\(read)"))
+        }
+        let old = Task { try? await model.chatFacade.loadInitialMessages(for: session,
+            prefetchToolDetails: false, refreshTodos: false) }
+        await fulfillment(of: [requested], timeout: 2)
+        let other = OpenCodeSession(id: "ses_other", title: nil, workspaceID: nil,
+            directory: "/repo", projectID: "project", parentID: nil)
+        model.directoryStore.insertV2Session(other)
+        _ = model.beginSessionNavigation(other)
+        model.prepareSessionSelection(other, preservingDraftForSessionID: nil, animatesChanges: false)
+        try await model.chatFacade.loadInitialMessages(for: other, prefetchToolDetails: false, refreshTodos: false)
+        release?.resume()
+        await old.value
+        XCTAssertEqual(model.messages.map(\.id), ["msg_2"])
+        XCTAssertEqual(model.selectedSession?.id, other.id)
+
+        let moved = OpenCodeSession(id: other.id, title: nil, workspaceID: "worktree",
+            directory: "/repo/worktree", projectID: "project", parentID: nil)
+        model.directoryStore.insertV2Session(moved)
+        model.selectedSession = moved
+        // Same ID and navigation generation still require a new read for a different scope.
+        try await model.chatFacade.loadInitialMessages(for: moved, prefetchToolDetails: false, refreshTodos: false)
+        XCTAssertEqual(reads, 3)
+        XCTAssertEqual(Set(model.messages.map(\.id)), ["msg_2", "msg_3"])
+        XCTAssertTrue(model.directoryStore.syncState.messageEnvelopes(forSessionID: session.id).isEmpty)
+    }
+
+    func testDisconnectAndConnectionReplacementInvalidateCompletedAndInFlightRead() async throws {
+        let model = makeModel()
+        defer { model.backendConnection?.close() }
+        var reads = 0
+        var release: CheckedContinuation<Void, Never>?
+        let requested = expectation(description: "Old connection held")
+        InitialHydrationURLProtocol.handler = { request in
+            guard request.url?.path == "/session/ses_initial/message" else { return self.response(request) }
+            reads += 1
+            let read = reads
+            if read == 3 { await withCheckedContinuation { release = $0; requested.fulfill() } }
+            return (200, Self.page(sessionID: self.session.id, messageID: "msg_\(read)"))
+        }
+        try await model.chatFacade.loadInitialMessages(for: session, prefetchToolDetails: false, refreshTodos: false)
+        model.connectionStore.isConnected = false
+        model.connectionStore.isConnected = true
+        try await model.chatFacade.loadInitialMessages(for: session, prefetchToolDetails: false, refreshTodos: false)
+        XCTAssertEqual(reads, 2)
+        _ = model.beginSessionNavigation(session)
+        let old = Task { try? await model.chatFacade.loadInitialMessages(for: session,
+            prefetchToolDetails: false, refreshTodos: false) }
+        await fulfillment(of: [requested], timeout: 2)
+        model.backendConnection?.close()
+        model.backendConnection = makeConnection(config: model.config)
+        try await model.chatFacade.loadInitialMessages(for: session, prefetchToolDetails: false, refreshTodos: false)
+        release?.resume()
+        await old.value
+        XCTAssertEqual(reads, 4)
+        XCTAssertEqual(Set(model.messages.map(\.id)), ["msg_1", "msg_2", "msg_4"])
+    }
+
+    private func makeModel() -> AppViewModel {
+        let config = OpenCodeServerConfig(baseURL: "https://initial-hydration.invalid", apiPreference: .legacy)
+        let factory = OpenCodeBackendFactory(client: OpenCodeAPIClient(config: config), eventManager: OpenCodeEventManager())
+        // Injected construction skips saved server/Keychain hydration.
+        let model = AppViewModel(backendFactory: factory)
+        model.config = config
+        model.backendConnection = makeConnection(config: config)
+        model.connectionStore.applySuccessfulServerConnection(version: "1", healthy: true)
+        model.localCacheRepository = NoOpOpenCodeLocalCacheRepository()
+        model.directoryStoreRegistry.activate("/repo")
+        model.directoryStore.insertV2Session(session)
+        _ = model.beginSessionNavigation(session)
+        model.prepareSessionSelection(session, preservingDraftForSessionID: nil, animatesChanges: false)
+        return model
+    }
+
+    private func makeConnection(config: OpenCodeServerConfig) -> BackendConnection {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [InitialHydrationURLProtocol.self]
+        let client = OpenCodeAPIClient(config: config, session: URLSession(configuration: configuration))
+        return OpenCodeBackendFactory(client: client, eventManager: OpenCodeEventManager())
+            .makeConnection(profile: .legacy, version: "1", healthy: true)
+    }
+
+    private func response(_ request: URLRequest) -> (Int, String) {
+        switch request.url?.path {
+        case "/session": return (200, #"[{"id":"ses_initial","directory":"/repo","projectID":"project","title":"Initial"}]"#)
+        case "/session/status": return (200, "{}")
+        case "/permission", "/question", "/command", "/session/ses_initial/todo": return (200, "[]")
+        default:
+            XCTFail("Unexpected initial hydration request: \(request.url?.path ?? "nil")")
+            return (404, "{}")
+        }
+    }
+
+    private static func page(sessionID: String, messageID: String) -> String {
+        #"[{"info":{"id":"\#(messageID)","sessionID":"\#(sessionID)","role":"user","time":{"created":100}},"parts":[]}]"#
+    }
+}
+
+private final class InitialHydrationURLProtocol: URLProtocol {
+    @MainActor static var handler: (@MainActor (URLRequest) async throws -> (Int, String))?
+    private struct Delivery: @unchecked Sendable { let loader: InitialHydrationURLProtocol }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let delivery = Delivery(loader: self)
+        let request = request
+        Task { @MainActor in
+            do {
+                let handler = try XCTUnwrap(Self.handler)
+                let (status, body) = try await handler(request)
+                let response = try XCTUnwrap(HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]))
+                delivery.loader.client?.urlProtocol(delivery.loader, didReceive: response, cacheStoragePolicy: .notAllowed)
+                delivery.loader.client?.urlProtocol(delivery.loader, didLoad: Data(body.utf8))
+                delivery.loader.client?.urlProtocolDidFinishLoading(delivery.loader)
+            } catch { delivery.loader.client?.urlProtocol(delivery.loader, didFailWithError: error) }
+        }
+    }
+    override func stopLoading() {}
+}
+
+@MainActor
 final class ChatFacadeTests: XCTestCase {
     func testAgentActivityUsesChildLifecycleAndDoesNotTreatIdleAsSuccess() throws {
         let model = AppViewModel()
