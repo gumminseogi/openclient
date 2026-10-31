@@ -1,0 +1,261 @@
+name: OpenClient giant session capacity
+
+on:
+  push:
+    branches: [giant-session-lab]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openclient-giant-session-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fixture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check synthetic session contracts
+        run: python3 -B -m unittest discover -s performance-lab -p 'test_*.py' -v
+
+  native:
+    needs: fixture
+    runs-on: xcode-27
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        device: [iphone, ipad]
+        messages: [20000, 50000]
+    env:
+      OPENCLIENT_DEVICE_KIND: ${{ matrix.device }}
+      OPENCLIENT_EXTREME_MESSAGES: ${{ matrix.messages }}
+      OPENCLIENT_EXTREME_GROUPINGS: '1 0'
+      OPENCLIENT_EXTREME_VERIFY_TELEMETRY_RETRY: '0'
+      OPENCLIENT_EXTREME_HARNESS_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Select an available Pro Max or 13-inch iPad Pro simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          export OPENCLIENT_RESULTS="$RUNNER_TEMP/openclient-giant-${{ matrix.messages }}-${{ matrix.device }}-results"
+          printf 'OPENCLIENT_RESULTS=%s\n' "$OPENCLIENT_RESULTS" >> "$GITHUB_ENV"
+          mkdir -p "$OPENCLIENT_RESULTS"
+          git rev-parse HEAD > "$OPENCLIENT_RESULTS/source-revision.txt"
+          xcode-select -p
+          xcodebuild -version | tee "$OPENCLIENT_RESULTS/xcode-version.txt"
+          export OPENCLIENT_SDK_VERSION="$(xcrun --sdk iphonesimulator --show-sdk-version)"
+          if xcode-select -p | grep -Eiq 'beta|release.?candidate|_RC'; then
+            echo 'The selected Xcode is prerelease; no simulator tests ran.' >&2
+            exit 1
+          fi
+          xcrun simctl list devices available --json > "$OPENCLIENT_RESULTS/simulators.json"
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+          devices = json.loads((Path(os.environ['OPENCLIENT_RESULTS']) / 'simulators.json').read_text())['devices']
+          patterns = {'iphone': r'^iPhone ([0-9]+) Pro Max$', 'ipad': r'^iPad Pro 13-inch \(M([0-9]+)\)$'}
+          sdk = tuple(map(int, os.environ['OPENCLIENT_SDK_VERSION'].split('.')[:2]))
+          common = []
+          for runtime, rows in devices.items():
+              if '.iOS-' not in runtime:
+                  continue
+              version = tuple(map(int, re.findall(r'[0-9]+', runtime)))
+              if version[:2] > sdk:
+                  continue
+              models = {kind: [device for device in rows if device.get('isAvailable')
+                        and re.fullmatch(pattern, device['name'])
+                        and (kind != 'iphone' or int(re.fullmatch(pattern, device['name']).group(1)) >= 16)]
+                        for kind, pattern in patterns.items()}
+              if all(models.values()):
+                  common.append((version, runtime, models))
+          if not common:
+              raise SystemExit('No supported common runtime for Pro Max and 13-inch iPad Pro; native tests were not run.')
+          _, runtime, models = max(common, key=lambda item: item[0])
+          kind = os.environ['OPENCLIENT_DEVICE_KIND']
+          device = max(models[kind], key=lambda device: int(re.fullmatch(patterns[kind], device['name']).group(1)))
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('OPENCLIENT_DESTINATION=platform=iOS Simulator,id=' + device['udid'] + '\n')
+          print('Selected simulator:', runtime, device['name'], device['udid'])
+          PY
+      - name: Boot the selected simulator before starting XCTest
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          device_id="${OPENCLIENT_DESTINATION##*id=}"
+          xcrun simctl bootstatus "$device_id" -b 2>&1 | tee "$OPENCLIENT_RESULTS/simulator-boot.log"
+      - name: Record host capacity before the native workload
+        shell: bash
+        run: |
+          set -euo pipefail
+          sysctl hw.memsize hw.ncpu > "$OPENCLIENT_RESULTS/host-capacity.txt"
+          vm_stat > "$OPENCLIENT_RESULTS/host-vm-before.txt"
+          df -k "$RUNNER_TEMP" > "$OPENCLIENT_RESULTS/host-disk-before.txt"
+          /usr/bin/sqlite3 ':memory:' 'PRAGMA compile_options;' > "$OPENCLIENT_RESULTS/host-sqlite-cli-options.txt" || true
+      - name: Measure one giant session in the real patched app
+        timeout-minutes: 120
+        shell: bash
+        run: |
+          set +e
+          OPENCLIENT_EXTREME_VARIANT=patched bash performance-lab/run-extreme-session.sh \
+            "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/extreme/patched"
+          code=$?
+          set -e
+          python3 - "$OPENCLIENT_RESULTS/runner-exit.json" "$code" <<'PY'
+          import json,sys
+          from pathlib import Path
+          Path(sys.argv[1]).write_text(json.dumps({'exit_code':int(sys.argv[2])})+'\n')
+          PY
+          exit "$code"
+      - name: Preserve workload stage and host capacity after success or failure
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="${OPENCLIENT_RESULTS:-$RUNNER_TEMP/openclient-giant-results}"
+          mkdir -p "$results"
+          vm_stat > "$results/host-vm-after.txt"
+          df -k "$RUNNER_TEMP" > "$results/host-disk-after.txt"
+          python3 - "$results" <<'PY'
+          import json,os,sys
+          from pathlib import Path
+          root=Path(sys.argv[1]); measured=root/'extreme/patched'
+          def load(path):
+              try: return json.loads(path.read_text())
+              except (OSError,ValueError): return None
+          status=load(root/'runner-exit.json')
+          seed=load(measured/'cache-seed/validation.json')
+          seed_progress=load(measured/'cache-seed/cache-seed-progress.json')
+          warm_blocked=load(measured/'warm-blocked.json')
+          validation=load(measured/'validation.json')
+          native_cases={}
+          for case in measured.glob('seeded-revisit-trial*'):
+              if not case.is_dir(): continue
+              files=list((case/'probes').glob('*.jsonl'))
+              phases=set();actions=set();last=None;unreadable=0
+              for file in files:
+                  with file.open() as source:
+                      for line in source:
+                          try: event=json.loads(line)
+                          except ValueError:
+                              unreadable+=1; continue
+                          if not isinstance(event,dict):
+                              unreadable+=1; continue
+                          phase=event.get('phase')
+                          if phase not in ('heartbeat','native_phase_upload_attempt'):
+                              phases.add(phase)
+                              if last is None or event.get('epoch_s',0)>last.get('epoch_s',0):
+                                  last={key:event[key] for key in ('phase','operation','operation_kind','epoch_s','loaded_messages') if key in event}
+                          if phase in ('selection_started','bottom_refresh_started'):
+                              if type(event.get('operation')) is int:
+                                  actions.add((event['operation'],phase))
+                              else: unreadable+=1
+              native_cases[case.name]={'probe_files':len(files),'unreadable_probe_rows':unreadable,
+                  'phases':sorted(value for value in phases if isinstance(value,str)),
+                  'native_actions_started':[{'operation':op,'phase':phase} for op,phase in sorted(actions)],
+                  'last_native_phase':last}
+          summaries={p.parent.name:load(p) for p in measured.glob('seeded-revisit-trial*/summary.json')}
+          groups=os.environ.get('OPENCLIENT_EXTREME_GROUPINGS','1 0').split()
+          expected_cases={'seeded-revisit-trial1-g'+g for g in groups}
+          ui_passed=set(summaries)==expected_cases and all(v and v.get('result')=='Passed'
+              and v.get('totalTestCount')==v.get('passedTests')==1
+              and v.get('failedTests')==v.get('skippedTests')==0 for v in summaries.values())
+          actions_passed=set(native_cases)==expected_cases and all(case['probe_files']>0
+              and {(r['operation'],r['phase']) for r in case['native_actions_started']}
+                  >= {(1,'selection_started'),(2,'selection_started'),(3,'bottom_refresh_started')}
+              for case in native_cases.values())
+          if status is None:
+              stage='interrupted_or_not_started'
+          elif validation and validation.get('complete') is True and status.get('exit_code')==0 \
+                  and validation.get('measured_case_count')==len(expected_cases) \
+                  and seed and seed.get('complete') is True and ui_passed and actions_passed \
+                  and not any(case['unreadable_probe_rows'] for case in native_cases.values()):
+              stage='completed_native_actions'
+          elif warm_blocked:
+              stage='cache_preparation_or_readback_failure'
+          elif seed and seed.get('complete') is True:
+              if any(case['native_actions_started'] for case in native_cases.values()):
+                  stage='chat_action_or_validation_failure'
+              elif native_cases and any(case['probe_files'] for case in native_cases.values()):
+                  stage='startup_before_session_selection_failure'
+              else:
+                  stage='startup_ui_or_validation_failure'
+          elif (measured/'cache-seed').exists():
+              stage='cache_preparation_or_readback_failure'
+          else:
+              stage='build_or_harness_preparation_failure'
+          report={'stage':stage,'runner_exit':status,'cache_validation':seed,
+              'seed_progress':seed_progress,'warm_blocked':warm_blocked,'native_cases':native_cases,
+              'native_validation':validation,'ui_summaries':summaries,
+              'configured_messages':int(os.environ['OPENCLIENT_EXTREME_MESSAGES']),
+              'device_kind':os.environ['OPENCLIENT_DEVICE_KIND'],
+              'source_sha':os.environ['GITHUB_SHA'],
+              'timing_scope':'Only native operation markers from verified chat actions are app loading measurements. Build, fixture startup, cache seed/readback, preselection waits and whole XCTest totals are separate.'}
+          (root/'giant-stage.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps({'stage':stage,'configured_messages':report['configured_messages'],'device_kind':report['device_kind']}))
+          PY
+      - name: Export native hang and crash diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="${OPENCLIENT_RESULTS:-$RUNNER_TEMP/openclient-giant-${{ matrix.messages }}-${{ matrix.device }}-results}"
+          mkdir -p "$results/diagnostics"
+          if [[ -n "${OPENCLIENT_DESTINATION:-}" ]]; then
+            device_id="${OPENCLIENT_DESTINATION##*id=}"
+            probe_output="$results/diagnostics/interrupted-probes"
+            mkdir -p "$probe_output"
+            printf '%s\n' 'Best-effort partial snapshot of the current app probe files. May contain an incomplete JSONL tail or overlap an exported case; this is not proof of a completed measured trial.' \
+              > "$probe_output/README.txt"
+            container=$(xcrun simctl get_app_container "$device_id" com.ntoporcov.openclient data 2> "$probe_output/export.log" || true)
+            if [[ -n "$container" && -d "$container/Documents/OpenClientExtremeSession" ]]; then
+              ditto "$container/Documents/OpenClientExtremeSession" "$probe_output/app-documents" \
+                >> "$probe_output/export.log" 2>&1 || true
+            fi
+            xcrun simctl spawn "$device_id" log show --style json --last 3h \
+              --predicate 'subsystem == "com.ntoporcov.openclient" AND (category == "Hangs" OR category == "SessionSwitch")' \
+              > "$results/diagnostics/app-hangs.json" 2> "$results/diagnostics/app-hangs-export.log" || true
+          fi
+          python3 - "$results" <<'PYTHON'
+          from pathlib import Path
+          import shutil, sys
+          target = Path(sys.argv[1]) / 'diagnostics'
+          source = Path.home() / 'Library/Logs/DiagnosticReports'
+          for path in source.glob('*.ips'):
+              if path.name.startswith(('OpenClient', 'OpenCodeIOSClient')):
+                  shutil.copy2(path, target / path.name)
+          PYTHON
+      - name: Keep readable measurements and partial failure evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openclient-giant-${{ matrix.messages }}-${{ matrix.device }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.OPENCLIENT_RESULTS }}/*.json
+            ${{ env.OPENCLIENT_RESULTS }}/*.log
+            ${{ env.OPENCLIENT_RESULTS }}/*.txt
+            ${{ env.OPENCLIENT_RESULTS }}/extreme/**/*.json
+            ${{ env.OPENCLIENT_RESULTS }}/extreme/**/*.jsonl
+            ${{ env.OPENCLIENT_RESULTS }}/extreme/**/*.log
+            ${{ env.OPENCLIENT_RESULTS }}/extreme/**/*.txt
+            ${{ env.OPENCLIENT_RESULTS }}/extreme/**/*.ips
+            ${{ env.OPENCLIENT_RESULTS }}/extreme/**/*.png
+            ${{ env.OPENCLIENT_RESULTS }}/extreme/**/*.jpg
+            ${{ env.OPENCLIENT_RESULTS }}/extreme/**/*.jpeg
+            ${{ env.OPENCLIENT_RESULTS }}/extreme/**/*.mp4
+            ${{ env.OPENCLIENT_RESULTS }}/extreme/**/*.mov
+            ${{ env.OPENCLIENT_RESULTS }}/diagnostics/**
+            !${{ env.OPENCLIENT_RESULTS }}/extreme/**/*.xcresult/**
+          retention-days: 3
+          if-no-files-found: warn

@@ -16,7 +16,7 @@ extension ToolGroupingUITests {
         let grouped = env["OPENCLIENT_EXTREME_GROUPED"] == "1"
         guard base.scheme == "http", base.host == "127.0.0.1", base.port == 14097,
               base.path.isEmpty, base.query == nil, base.user == nil, base.password == nil,
-              (64...10000).contains(count), ["cold", "seeded-relaunch", "seeded-revisit"].contains(mode) else {
+              (64...50000).contains(count), ["cold", "seeded-relaunch", "seeded-revisit"].contains(mode) else {
             throw labFailure("Invalid owned extreme lab settings.")
         }
         let initial = try await extremeStatus(base, password: password)
@@ -201,7 +201,7 @@ extension ToolGroupingUITests {
     private func extremeNativePhase(_ base: URL, password: String, phase: String, operation: Int,
                                     minimumLoaded: Int = 0) async throws -> [String: Any] {
         let env = ProcessInfo.processInfo.environment
-        let deadline = ProcessInfo.processInfo.systemUptime + 180
+        let deadline = ProcessInfo.processInfo.systemUptime + 300
         while ProcessInfo.processInfo.systemUptime < deadline {
             let status = try await extremeStatus(base, password: password)
             let events = status["native_events"] as? [[String: Any]] ?? []
@@ -240,7 +240,7 @@ extension ToolGroupingUITests {
     }
 
     private func extremeCanonicalProof(_ base: URL, password: String, after baseline: Int, minimum: Int) async throws -> [[String: Any]] {
-        let deadline = ProcessInfo.processInfo.systemUptime + 180
+        let deadline = ProcessInfo.processInfo.systemUptime + 300
         while ProcessInfo.processInfo.systemUptime < deadline {
             _ = try await extremeStatus(base, password: password)
             let found = ExtremeCanonicalObservation.requests.filter { row in
@@ -278,7 +278,7 @@ extension ToolGroupingUITests {
     }
 
     private func extremeWait(_ label: String, predicate: () -> Bool) async throws {
-        let deadline = ProcessInfo.processInfo.systemUptime + 180
+        let deadline = ProcessInfo.processInfo.systemUptime + 300
         while ProcessInfo.processInfo.systemUptime < deadline {
             if predicate() { return }
             try await Task.sleep(for: .milliseconds(500))
@@ -321,3 +321,4 @@ extension ToolGroupingUITests {
 private enum ExtremeCanonicalObservation {
     static var requests: [[String: Any]] = []
 }
+

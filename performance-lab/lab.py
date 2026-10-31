@@ -78,7 +78,7 @@ class LabState:
         self.sessions = {}
         self.messages = {}
         if profile == 'extreme':
-            size = bounded(extreme_messages, 'extreme_messages', 64, 10000)
+            size = bounded(extreme_messages, 'extreme_messages', 64, 50000)
             sid = EXTREME_SESSION_ID
             self.project['name'] = 'Extreme Synthetic Lab'
             self.sessions[sid] = {'id': sid, 'title': 'Lab: extreme synthetic session',
@@ -237,7 +237,8 @@ class LabState:
                 'reasoning_utf8_bytes': sum(len(part['text'].encode()) for part in reasoning),
                 'text_parts': len(text), 'text_utf8_bytes': sum(len(part['text'].encode()) for part in text),
                 'tool_output_utf8_bytes': sum(len(part['state']['output'].encode()) for part in tools),
-                'encoded_messages_bytes': len(encoded(messages)),
+                'encoded_messages_bytes': 2 + max(0, len(messages) - 1)
+                    + sum(len(encoded(message)) for message in messages),
                 'first_message_id': messages[0]['info']['id'], 'last_message_id': messages[-1]['info']['id'],
                 'ready_sentinel': f'EXTREME_SESSION_READY_{len(messages):06d}'}
 
@@ -515,6 +516,31 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
         self.row['response_bytes'] += len(raw)
 
+    def reply_message_page(self, messages, headers):
+        # Preserve the exact JSON array while avoiding a multi-GB string/bytes pair.
+        # The caller already copied this page under the state lock.
+        length = 2 + max(0, len(messages) - 1) + sum(len(encoded(message)) for message in messages)
+        self.status = 200
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(length))
+        self.send_header('Cache-Control', 'no-store')
+        for key, value in headers.items():
+            self.send_header(key, str(value))
+        self.end_headers()
+
+        def send(raw):
+            self.wfile.write(raw)
+            self.row['response_bytes'] += len(raw)
+
+        send(b'[')
+        for index, message in enumerate(messages):
+            if index:
+                send(b',')
+            send(encoded(message))
+        send(b']')
+        self.wfile.flush()
+
     def get(self, path, query):
         state = self.server.state
         # Return an explicit unavailable v2 probe so automatic mode selects legacy.
@@ -588,7 +614,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.reply({'error': 'unsupported fixture endpoint'}, 404)
                     return
                 value = copy.deepcopy(value)
-            self.reply(value, headers=headers)
+            if state.profile == 'extreme' and kind == 'message' and mid is None:
+                self.reply_message_page(value, headers)
+            else:
+                self.reply(value, headers=headers)
 
     @staticmethod
     def limit(query, default):
@@ -739,3 +768,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

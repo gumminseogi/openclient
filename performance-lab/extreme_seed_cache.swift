@@ -10,9 +10,22 @@ extension OpenCodeLocalCacheRepositoryTests {
         let base = try XCTUnwrap(URL(string: origin))
         guard base.scheme == "http", base.host == "127.0.0.1", base.port == 14097,
               base.user == nil, base.password == nil, base.path.isEmpty, base.query == nil,
-              (64...10000).contains(count), env["OPENCLIENT_EXTREME_SEED_ONLY"] == "1" else {
+              (64...50000).contains(count), env["OPENCLIENT_EXTREME_SEED_ONLY"] == "1" else {
             throw NSError(domain: "OpenClientExtremeSeed", code: 1)
         }
+        let countOfHistory = count
+        func checkpoint(_ phase: String, count: Int? = nil, bytes: Int? = nil) throws {
+            var value: [String: Any] = ["schema": 1, "setup_only": true, "phase": phase,
+                "requested_messages": countOfHistory, "uptime_s": ProcessInfo.processInfo.systemUptime]
+            if let count { value["observed_messages"] = count }
+            if let bytes { value["response_bytes"] = bytes }
+            let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true)
+            try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+                .write(to: documents.appendingPathComponent("OpenClientExtremeCacheSeedProgress.json"), options: .atomic)
+            print("EXTREME seed checkpoint \(phase)")
+        }
+        try checkpoint("directory_request_started")
         let originalRecent = UserDefaults.standard.data(forKey: "recentServerConfigs")
         defer {
             if let originalRecent { UserDefaults.standard.set(originalRecent, forKey: "recentServerConfigs") }
@@ -24,7 +37,7 @@ extension OpenCodeLocalCacheRepositoryTests {
         directoryComponents.queryItems = [URLQueryItem(name: "directory", value: "/openclient-performance-lab"),
             URLQueryItem(name: "roots", value: "true"), URLQueryItem(name: "limit", value: "100")]
         var directoryRequest = URLRequest(url: try XCTUnwrap(directoryComponents.url))
-        directoryRequest.timeoutInterval = 180
+        directoryRequest.timeoutInterval = 300
         directoryRequest.setValue(authorization, forHTTPHeaderField: "Authorization")
         let directoryStarted = ProcessInfo.processInfo.systemUptime
         let (directoryData, directoryResponse) = try await URLSession.shared.data(for: directoryRequest)
@@ -39,18 +52,21 @@ extension OpenCodeLocalCacheRepositoryTests {
         components.queryItems = [URLQueryItem(name: "directory", value: "/openclient-performance-lab"),
             URLQueryItem(name: "limit", value: String(count))]
         var request = URLRequest(url: try XCTUnwrap(components.url))
-        request.timeoutInterval = 180
+        request.timeoutInterval = 300
         request.setValue(authorization, forHTTPHeaderField: "Authorization")
         let setup: (bytes: Int, first: String, last: String, http: Double, decode: Double,
             write: Double, directoryWrite: Double, writtenAt: Double)
         do {
+            try checkpoint("history_request_started")
             let started = ProcessInfo.processInfo.systemUptime
             let (data, response) = try await URLSession.shared.data(for: request)
             XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+            try checkpoint("history_downloaded", bytes: data.count)
             let downloaded = ProcessInfo.processInfo.systemUptime
             let messages = try JSONDecoder().decode([OpenCodeMessageEnvelope].self, from: data)
             XCTAssertEqual(messages.count, count)
             XCTAssertTrue(messages.allSatisfy { $0.info.sessionID == "ses_extreme" })
+            try checkpoint("history_decoded", count: messages.count, bytes: data.count)
             let decoded = ProcessInfo.processInfo.systemUptime
             let repository = OpenCodeLocalCacheRepositoryFactory.makeDefault()
             try await repository.clear(serverID: config.recentServerID)
@@ -59,8 +75,10 @@ extension OpenCodeLocalCacheRepositoryTests {
             try await repository.saveDirectorySessions(sessions, serverID: config.recentServerID,
                 directory: "/openclient-performance-lab", refreshedAt: timestamp, writtenAt: .now)
             let directoryWritten = ProcessInfo.processInfo.systemUptime
+            try checkpoint("cache_write_started", count: messages.count)
             try await repository.saveChatMessages(messages, serverID: config.recentServerID, sessionID: "ses_extreme",
                 refreshedAt: timestamp, writtenAt: .now, coverage: .newestPage(hasOlder: false))
+            try checkpoint("cache_written", count: messages.count)
             let written = ProcessInfo.processInfo.systemUptime
             setup = (data.count, try XCTUnwrap(messages.first?.info.id), try XCTUnwrap(messages.last?.info.id),
                 downloaded - started, decoded - downloaded, written - directoryWritten,
@@ -74,6 +92,7 @@ extension OpenCodeLocalCacheRepositoryTests {
         XCTAssertEqual(directoryReread.sessions.first?.id, "ses_extreme")
         let loaded = try await readRepository.loadChat(serverID: config.recentServerID, sessionID: "ses_extreme")
         let reread = try XCTUnwrap(loaded)
+        try checkpoint("cache_readback_finished", count: reread.preparedMessages.messages.count)
         XCTAssertEqual(reread.preparedMessages.messages.count, count)
         XCTAssertEqual(reread.preparedMessages.messages.first?.id, setup.first)
         XCTAssertEqual(reread.preparedMessages.messages.last?.id, setup.last)
@@ -108,3 +127,4 @@ extension OpenCodeLocalCacheRepositoryTests {
         print("EXTREME seed complete messages=\(count) bytes=\(setup.bytes)")
     }
 }
+

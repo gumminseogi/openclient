@@ -7,7 +7,7 @@ results=$2
 device_id=${destination##*id=}
 bundle=com.ntoporcov.openclient
 messages=${OPENCLIENT_EXTREME_MESSAGES:-5000}
-[[ "$messages" =~ ^[0-9]+$ ]] && (( messages >= 64 && messages <= 10000 )) || { echo 'Extreme fixture message count must be 64...10000' >&2; exit 2; }
+[[ "$messages" =~ ^[0-9]+$ ]] && (( messages >= 64 && messages <= 50000 )) || { echo 'Extreme fixture message count must be 64...50000' >&2; exit 2; }
 variant=${OPENCLIENT_EXTREME_VARIANT:-baseline}
 [[ "$variant" == baseline || "$variant" == patched ]] || { echo 'Unknown paired variant' >&2; exit 2; }
 groupings=${OPENCLIENT_EXTREME_GROUPINGS:-'1 0'}
@@ -134,6 +134,9 @@ export_result() {
   if [[ -n "$container" && -f "$container/Documents/OpenClientExtremeCacheSeed.json" ]]; then
     cp "$container/Documents/OpenClientExtremeCacheSeed.json" "$output/cache-seed-proof.json"
   fi
+  if [[ -n "$container" && -f "$container/Documents/OpenClientExtremeCacheSeedProgress.json" ]]; then
+    cp "$container/Documents/OpenClientExtremeCacheSeedProgress.json" "$output/cache-seed-progress.json"
+  fi
   if [[ -d "$output/tests.xcresult" ]]; then
     xcrun xcresulttool get test-results summary --path "$output/tests.xcresult" > "$output/summary.json" || true
     xcrun xcresulttool get test-results tests --path "$output/tests.xcresult" > "$output/tests.json" || true
@@ -146,7 +149,7 @@ run_test() {
   set +e
   xcodebuild test-without-building -xctestrun "$run_file" -destination "$destination" \
     -parallel-testing-enabled NO -test-timeouts-enabled YES \
-    -default-test-execution-time-allowance 600 -maximum-test-execution-time-allowance 600 \
+    -default-test-execution-time-allowance 1200 -maximum-test-execution-time-allowance 1200 \
     -resultBundlePath "$output/tests.xcresult" "-only-testing:$selector" \
     2>&1 | tee "$output/xcodebuild.log" | awk '/error:|Test Case|Test Suite|EXTREME |\*\* TEST/ { print; fflush() }'
   code=${PIPESTATUS[0]}

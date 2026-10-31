@@ -5,12 +5,57 @@ import json
 import re
 import threading
 import unittest
+from unittest.mock import patch
 from urllib.parse import urlencode
 
 import lab
 
 
 class ExtremeFixtureTests(unittest.TestCase):
+    def test_giant_bound_is_validated_before_generating_payloads(self):
+        class GenerationReached(Exception):
+            pass
+        with patch.object(lab.LabState, 'seed_extreme_message', side_effect=GenerationReached):
+            with self.assertRaises(GenerationReached):
+                lab.LabState(profile='extreme', extreme_messages=50000)
+            with self.assertRaises(ValueError):
+                lab.LabState(profile='extreme', extreme_messages=50001)
+
+    def test_extreme_http_pages_preserve_exact_json_length_and_written_byte_log(self):
+        state = lab.LabState(profile='extreme', extreme_messages=64)
+        server = lab.make_server(state=state, password='ci-fixture-only')
+        worker = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .01}, daemon=True)
+        worker.start()
+        auth = 'Basic ' + base64.b64encode(b'opencode:ci-fixture-only').decode()
+        cases = [('limit=64', state.messages['ses_extreme']),
+                 ('limit=7', state.messages['ses_extreme'][-7:]),
+                 (urlencode({'before': state.messages['ses_extreme'][0]['info']['id']}), [])]
+        try:
+            for query, expected in cases:
+                with self.subTest(query=query):
+                    before = state.next_request
+                    connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+                    try:
+                        connection.request('GET', '/session/ses_extreme/message?' + query,
+                                           headers={'Authorization': auth})
+                        response = connection.getresponse()
+                        body = response.read()
+                        self.assertEqual(response.status, 200)
+                        self.assertEqual(body, lab.encoded(expected))
+                        self.assertEqual(int(response.getheader('Content-Length')), len(body))
+                        self.assertEqual(response.getheader('Cache-Control'), 'no-store')
+                    finally:
+                        connection.close()
+                    with state.condition:
+                        self.assertTrue(state.condition.wait_for(
+                            lambda: any(row['request_id'] > before for row in state.requests), timeout=2))
+                        logged = next(row for row in state.requests if row['request_id'] > before)
+                    self.assertEqual(logged['response_bytes'], len(body))
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=2)
+
     def test_startup_phase_retry_keeps_original_payload_and_does_not_mutate_history(self):
         with self.assertRaises(ValueError):
             lab.LabState(fail_first_startup_phase=True)
@@ -241,16 +286,18 @@ class ExtremeFixtureTests(unittest.TestCase):
         self.assertEqual(profile['messages'], 5000)
         self.assertEqual(profile['tool_parts'], 8750)
         self.assertEqual(profile['parts'], 18125)
+        self.assertEqual(profile['encoded_messages_bytes'], 134609894)
         self.assertGreaterEqual(profile['encoded_messages_bytes'], 100 * 1024 * 1024)
         self.assertLessEqual(profile['encoded_messages_bytes'], 150 * 1024 * 1024)
         self.assertEqual(profile['ready_sentinel'], 'EXTREME_SESSION_READY_005000')
         self.assertIn('openclient_execute_tool', {part.get('tool') for message in state.messages['ses_extreme'][-20:]
                                                 for part in message['parts']})
         self.assertEqual(state.snapshot()['active'], [])
-        for value in (0, 63, 10001):
+        for value in (0, 63, 50001):
             with self.assertRaises(ValueError):
                 lab.LabState(profile='extreme', extreme_messages=value)
 
 
 if __name__ == '__main__':
     unittest.main()
+
