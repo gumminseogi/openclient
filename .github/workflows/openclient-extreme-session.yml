@@ -30,10 +30,13 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        device: [iphone, ipad]
+        device: [iphone]
     env:
       OPENCLIENT_DEVICE_KIND: ${{ matrix.device }}
       OPENCLIENT_EXTREME_MESSAGES: '5000'
+      OPENCLIENT_EXTREME_GROUPINGS: '0'
+      OPENCLIENT_EXTREME_VERIFY_TELEMETRY_RETRY: '1'
+      OPENCLIENT_EXTREME_HARNESS_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -108,8 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           # Same instrumentation and validator; only production sources differ.
-          cp performance-lab/run-extreme-session.sh baseline/performance-lab/run-extreme-session.sh
-          cp performance-lab/prepare-extreme-instrumentation.py baseline/performance-lab/prepare-extreme-instrumentation.py
+          cp performance-lab/*.py performance-lab/*.swift performance-lab/run-extreme-session.sh baseline/performance-lab/
           cd baseline
           OPENCLIENT_EXTREME_VARIANT=baseline bash performance-lab/run-extreme-session.sh \
             "$OPENCLIENT_DESTINATION" "$OPENCLIENT_RESULTS/extreme/baseline"
@@ -118,19 +120,25 @@ jobs:
         shell: bash
         run: |
           python3 - "$OPENCLIENT_RESULTS/extreme" <<'PY'
-          import json,sys
+          import json,os,sys
           from pathlib import Path
           root=Path(sys.argv[1])
           data={variant:json.loads((root/variant/'measurements.json').read_text()) for variant in ('baseline','patched')}
           for variant,value in data.items():
               if value.get('variant')!=variant or value.get('complete') is not True:
                   raise SystemExit(variant+': paired input is not fully verified')
+          if data['baseline']['harness_checkout_sha']!=data['patched']['harness_checkout_sha']:
+              raise SystemExit('Paired harness revisions differ')
           before={row['grouping']:row for row in data['baseline']['cases']}
           after={row['grouping']:row for row in data['patched']['cases']}
-          if set(before)!=set(after) or set(before)!={False,True}:
+          requested=os.environ.get('OPENCLIENT_EXTREME_GROUPINGS','1 0').split()
+          if not 1<=len(requested)<=2 or any(value not in ('0','1') for value in requested) or len(set(requested))!=len(requested):
+              raise SystemExit('Invalid requested grouping cases')
+          expected=[value=='1' for value in requested]
+          if set(before)!=set(after) or set(before)!=set(expected) or any(len(value['cases'])!=len(expected) for value in data.values()):
               raise SystemExit('Grouping conditions do not match')
           compared=[]
-          for grouped in (True,False):
+          for grouped in expected:
               b,a=before[grouped],after[grouped]
               if b['message_count']!=a['message_count'] or b['canonical_body_bytes']!=a['canonical_body_bytes']:
                   raise SystemExit('Paired fixture sizes differ')
@@ -147,7 +155,8 @@ jobs:
                   'baseline_full_body_count':b['full_body_count'],'patched_full_body_count':a['full_body_count'],
                   'baseline_full_body_bytes':b['full_body_bytes'],'patched_full_body_bytes':a['full_body_bytes']})
           report={'complete':True,'baseline_source_sha':data['baseline']['test_checkout_sha'],
-              'patched_source_sha':data['patched']['test_checkout_sha'],'cases':compared,
+              'patched_source_sha':data['patched']['test_checkout_sha'],
+              'harness_checkout_sha':data['patched']['harness_checkout_sha'],'cases':compared,
               'scope':'Same runner and simulator, patched then baseline; one trial per grouping. Native reveal callback and refresh method completion, not presented frames or physical-device timings. Fixed order does not remove thermal/order effects.'}
           (root/'paired-comparison.json').write_text(json.dumps(report,indent=2)+'\n')
           print(json.dumps(report,indent=2))

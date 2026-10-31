@@ -52,7 +52,7 @@ def summarize(rows):
 
 class LabState:
     def __init__(self, text_bytes=512, tool_bytes=4096, assistants_per_turn=7, log_path=None,
-                 *, profile='standard', extreme_messages=5000):
+                 *, profile='standard', extreme_messages=5000, fail_first_startup_phase=False):
         self.text_bytes = bounded(text_bytes, 'text_bytes', 0, 16384)
         self.tool_bytes = bounded(tool_bytes, 'tool_bytes', 0, 65536)
         self.assistants_per_turn = bounded(assistants_per_turn, 'assistants_per_turn', 1, 100)
@@ -61,6 +61,9 @@ class LabState:
         self.stop = threading.Event()
         self.events = deque(maxlen=4096)
         self.native_events = deque(maxlen=128)
+        if type(fail_first_startup_phase) is not bool or (fail_first_startup_phase and profile != 'extreme'):
+            raise ValueError('startup phase fault injection requires the extreme profile')
+        self.fail_first_startup_phase = fail_first_startup_phase
         self.sequence = 0
         self.requests = []
         self.inflight = {}
@@ -331,8 +334,12 @@ class LabState:
         if 'loaded_messages' in event:
             bounded(event['loaded_messages'], 'loaded_messages', 0, 100000)
         with self.condition:
+            if phase == 'startup_cache_published' and self.fail_first_startup_phase:
+                self.fail_first_startup_phase = False
+                return False
             self.native_events.append(copy.deepcopy(event))
             self.condition.notify_all()
+        return True
 
     def start_stream(self, sid, chunks=50, interval_ms=100, chunk_bytes=80, part_type='text'):
         bounded(chunks, 'chunks', 1, 10000)
@@ -448,8 +455,10 @@ class Handler(BaseHTTPRequestHandler):
             if self.command == 'GET':
                 self.get(path, query)
             elif self.command == 'POST' and path == '/_lab/native-phase' and state.profile == 'extreme':
-                state.record_native_phase(self.body())
-                self.reply({'accepted': True}, 202)
+                if state.record_native_phase(self.body()):
+                    self.reply({'accepted': True}, 202)
+                else:
+                    self.reply({'error': 'synthetic startup phase delivery failure'}, 503)
             elif self.command == 'POST' and path == '/_lab/stream':
                 body = self.body()
                 allowed = {'sessionID', 'chunks', 'interval_ms', 'chunk_bytes', 'part_type'}
@@ -681,6 +690,8 @@ def main():
     serve.add_argument('--assistants-per-turn', type=int, default=7)
     serve.add_argument('--profile', choices=('standard', 'extreme'), default='standard')
     serve.add_argument('--extreme-messages', type=int, default=5000)
+    serve.add_argument('--fail-first-startup-phase', action='store_true',
+                       help='Extreme CI only: reject the first valid startup callback to verify transport retry.')
     stream = commands.add_parser('stream')
     stream.add_argument('--url', default='http://127.0.0.1:14097')
     stream.add_argument('--password', required=True)
@@ -708,7 +719,8 @@ def main():
                 print(response.read().decode())
         else:
             state = LabState(args.text_bytes, args.tool_bytes, args.assistants_per_turn, args.log,
-                             profile=args.profile, extreme_messages=args.extreme_messages)
+                             profile=args.profile, extreme_messages=args.extreme_messages,
+                             fail_first_startup_phase=args.fail_first_startup_phase)
             server = make_server(args.host, args.port, state=state, password=args.password,
                                  latency_ms=args.latency_ms, detail_latency_ms=args.detail_latency_ms)
             print(json.dumps({'url': server.base_url, 'username': 'opencode', 'password': server.password,

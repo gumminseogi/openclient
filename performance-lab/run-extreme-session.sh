@@ -10,6 +10,15 @@ messages=${OPENCLIENT_EXTREME_MESSAGES:-5000}
 [[ "$messages" =~ ^[0-9]+$ ]] && (( messages >= 64 && messages <= 10000 )) || { echo 'Extreme fixture message count must be 64...10000' >&2; exit 2; }
 variant=${OPENCLIENT_EXTREME_VARIANT:-baseline}
 [[ "$variant" == baseline || "$variant" == patched ]] || { echo 'Unknown paired variant' >&2; exit 2; }
+groupings=${OPENCLIENT_EXTREME_GROUPINGS:-'1 0'}
+case "$groupings" in
+  '1 0'|'0 1'|0|1) ;;
+  *) echo 'Grouping cases must be unique 0/1 values: 1 0, 0 1, 0, or 1' >&2; exit 2 ;;
+esac
+read -r -a grouped_cases <<< "$groupings"
+expected_cases=${#grouped_cases[@]}
+verify_telemetry_retry=${OPENCLIENT_EXTREME_VERIFY_TELEMETRY_RETRY:-0}
+[[ "$verify_telemetry_retry" == 0 || "$verify_telemetry_retry" == 1 ]] || { echo 'Telemetry retry verification must be 0 or 1' >&2; exit 2; }
 build_root="$RUNNER_TEMP/openclient-extreme-build-$variant"
 cache_snapshot="$build_root/cache-snapshot"
 mkdir -p "$results" "$build_root"
@@ -48,21 +57,25 @@ if xcrun simctl get_app_container "$device_id" "$bundle" data >/dev/null 2>&1; t
   xcrun simctl uninstall "$device_id" "$bundle"
 fi
 
-python3 - "$results/provenance.json" "$messages" "$variant" <<'PY'
-import json, platform, subprocess, sys, time
+python3 - "$results/provenance.json" "$messages" "$variant" "$groupings" "$verify_telemetry_retry" <<'PY'
+import json, os, platform, subprocess, sys, time
 from pathlib import Path
+checkout_sha=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
 Path(sys.argv[1]).write_text(json.dumps({
     'upstream_source_sha': '4dedc814bd38d3daa5a53bff01d75209f2865502',
-    'test_checkout_sha': subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+    'test_checkout_sha': checkout_sha,
+    'harness_checkout_sha': os.environ.get('OPENCLIENT_EXTREME_HARNESS_SHA',checkout_sha),
     'variant': sys.argv[3],
+    'groupings': [value=='1' for value in sys.argv[4].split()],
+    'verify_telemetry_retry': sys.argv[5]=='1',
     'paired_baseline_sha': '31ad585ce08321ae7c4de7b1f33b991144fa2de5',
     'started_epoch_s': time.time(), 'host': platform.platform(),
     'session_id': 'ses_extreme', 'configured_message_count': int(sys.argv[2]),
     'history': 'One opt-in synthetic mixed-tool session; real limit/cursor pagination; no model calls or artificial server delay.',
     'cache_setup': 'First prepare directory session metadata and the full chat history in an unmeasured hosted test using real API requests and the production persistent cache writer, verify both through a second repository, then restore the cache while the app is terminated before each measured case. This is not a timed UI pagination pass.',
-    'cases': 'seeded-revisit x1 per grouping: first open, same-process revisit, and bottom refresh. One native app binary for both measured cases.',
+    'cases': 'seeded-revisit x1 per requested grouping: first open, same-process revisit, and bottom refresh. One native app binary for all requested measured cases.',
     'measurement_scope': 'Native app phase timestamps plus separately labeled XCTest observations for loading a fully retained long session. Full startup cache hydration is recorded separately and must complete before measured project/session selection. These are not helper microbenchmarks, presented FPS or physical iPhone performance.',
-    'failure_policy': 'Export each measured case, attempt the remaining case after an individual UI failure, and fail if any case fails. Build/fixture/cache preparation failures block the two measured cases; retain setup failure evidence.'
+    'failure_policy': 'Export each measured case, attempt the remaining requested cases after an individual UI failure, and fail if any case fails. Build/fixture/cache preparation failures block all requested measured cases; retain setup failure evidence.'
 },indent=2)+'\n')
 PY
 
@@ -86,8 +99,10 @@ start_fixture() {
   local output=$1
   cleanup_fixture
   mkdir -p "$output"
-  python3 -u performance-lab/lab.py serve --profile extreme --extreme-messages "$messages" \
-    --port 14097 --password ci-fixture-only --log "$output/requests.jsonl" \
+  local fixture_args=(serve --profile extreme --extreme-messages "$messages"
+    --port 14097 --password ci-fixture-only --log "$output/requests.jsonl")
+  if [[ "$verify_telemetry_retry" == 1 ]]; then fixture_args+=(--fail-first-startup-phase); fi
+  python3 -u performance-lab/lab.py "${fixture_args[@]}" \
     > "$output/fixture.log" 2>&1 &
   fixture_pid=$!
   python3 - "$output/fixture-initial-status.json" "$messages" "$fixture_pid" <<'PY'
@@ -189,7 +204,7 @@ run_case() {
   if (( code != 0 )); then case_failures=$((case_failures+1)); fi
 }
 
-# Prepare and verify the retained full-history cache before either measured case.
+# Prepare and verify the retained full-history cache before the measured cases.
 seed_output="$results/cache-seed"
 mkdir -p "$seed_output"
 container=$(xcrun simctl get_app_container "$device_id" "$bundle" data 2>/dev/null || true)
@@ -208,7 +223,7 @@ else
   seed_code=$?
 fi
 if ! terminate_owned_app "$seed_output"; then
-  printf '{"reason": "Could not stop the native host before cache snapshot", "warm_cases_skipped": 2}\n' > "$results/warm-blocked.json"
+  printf '{"reason": "Could not stop the native host before cache snapshot", "warm_cases_skipped": %d}\n' "$expected_cases" > "$results/warm-blocked.json"
   exit 1
 fi
 unset TEST_RUNNER_OPENCLIENT_EXTREME_SEED_ONLY
@@ -242,7 +257,7 @@ PY
   then seed_code=0; else seed_code=1; fi
 fi
 if (( seed_code != 0 )); then
-  printf '{"reason": "Native production-cache preparation failed", "seed_exit_code": %d, "warm_cases_skipped": 2}\n' "$seed_code" > "$results/warm-blocked.json"
+  printf '{"reason": "Native production-cache preparation failed", "seed_exit_code": %d, "warm_cases_skipped": %d}\n' "$seed_code" "$expected_cases" > "$results/warm-blocked.json"
   exit 1
 fi
 container=$(xcrun simctl get_app_container "$device_id" "$bundle" data)
@@ -256,9 +271,10 @@ if not rows: raise SystemExit('Production cache snapshot is empty')
 Path(sys.argv[2]).write_text(json.dumps({'files':rows,'total_bytes':sum(r['bytes'] for r in rows)},indent=2)+'\n')
 PY
 
-run_case seeded-revisit 1 trial1
-run_case seeded-revisit 0 trial1
-printf '{"failed_measured_ui_cases": %d, "expected_measured_ui_cases": 2, "cache_seed_exit_code": %d}\n' "$case_failures" "$seed_code" > "$results/case-status.json"
+for grouped in "${grouped_cases[@]}"; do
+  run_case seeded-revisit "$grouped" trial1
+done
+printf '{"failed_measured_ui_cases": %d, "expected_measured_ui_cases": %d, "cache_seed_exit_code": %d}\n' "$case_failures" "$expected_cases" "$seed_code" > "$results/case-status.json"
 
 # A successful xcodebuild exit is insufficient if the readable evidence is absent.
 python3 - "$results" <<'PY'
@@ -269,6 +285,10 @@ errors=[]
 measurements=[]
 provenance=json.loads((root/'provenance.json').read_text())
 variant=provenance['variant']
+groupings=provenance['groupings']
+if not isinstance(groupings,list) or not 1<=len(groupings)<=2 \
+        or not all(isinstance(value,bool) for value in groupings) or len(set(groupings))!=len(groupings):
+    raise ValueError('Invalid requested grouping cases')
 if variant=='baseline' and provenance['test_checkout_sha']!=provenance['paired_baseline_sha']:
     errors.append('Baseline source is not the pinned pre-fix commit')
 def clock_offset(row):
@@ -277,8 +297,9 @@ def clock_offset(row):
             or not 0<=after-before<=.1:
         raise ValueError('Invalid or imprecise app/UI clock calibration')
     return epoch-(before+after)/2
-if {p.name for p in cases}!={'seeded-revisit-trial1-g1','seeded-revisit-trial1-g0'}:
-    errors.append('Expected exactly the two seeded-revisit grouping cases, found '+str([p.name for p in cases]))
+expected_case_names={'seeded-revisit-trial1-g'+str(int(grouped)) for grouped in groupings}
+if {p.name for p in cases}!=expected_case_names:
+    errors.append('Requested seeded-revisit grouping cases are missing or unexpected: '+str([p.name for p in cases]))
 for p in cases:
     try:
         status=json.loads((p/'xcodebuild-status.json').read_text())
@@ -395,12 +416,26 @@ for p in cases:
         expected_bodies=3 if variant=='patched' else 5
         if len(full)!=expected_bodies:
             raise ValueError('Expected '+str(expected_bodies)+' complete full-history HTTP bodies, found '+str(len(full)))
+        if provenance.get('verify_telemetry_retry') is True:
+            if not any(r.get('method')=='POST' and r.get('path')=='/_lab/native-phase' and r.get('status')==503 for r in log):
+                raise ValueError('Injected startup telemetry HTTP 503 was not recorded')
+            delivery=[r for r in rows if r.get('phase')=='native_phase_upload_attempt'
+                and r.get('native_phase')=='startup_cache_published' and r.get('grouping_actual') is grouped]
+            retried=any(failed.get('http_status')==503 and failed.get('error_code')==0
+                and accepted.get('http_status')==202 and accepted.get('error_code')==0
+                and accepted.get('attempt')==failed.get('attempt',0)+1
+                and accepted['uptime_before_s']>=failed['uptime_after_s']
+                for failed in delivery for accepted in delivery)
+            if not retried:
+                raise ValueError('Native startup telemetry did not retry the injected 503 successfully')
         measurements.append({'grouping':grouped,'message_count':count,'canonical_body_bytes':body_bytes,
             'full_body_count':len(full),'full_body_bytes':sum(r['response_bytes'] for r in full),'actions':measured_actions})
     except (OSError,ValueError,KeyError,TypeError) as error: errors.append(p.name+': '+str(error))
-Path(root/'validation.json').write_text(json.dumps({'complete':not errors,'measured_case_count':len(cases),'errors':errors},indent=2)+'\n')
+Path(root/'validation.json').write_text(json.dumps({'complete':not errors,'measured_case_count':len(cases),
+    'expected_measured_case_count':len(groupings),'requested_groupings':groupings,'errors':errors},indent=2)+'\n')
 Path(root/'measurements.json').write_text(json.dumps({'complete':not errors,'variant':variant,
-    'test_checkout_sha':provenance['test_checkout_sha'],'cases':measurements},indent=2)+'\n')
+    'test_checkout_sha':provenance['test_checkout_sha'],'harness_checkout_sha':provenance['harness_checkout_sha'],
+    'cases':measurements},indent=2)+'\n')
 if errors: raise SystemExit('\n'.join(errors))
 PY
 if (( case_failures != 0 )); then exit 1; fi

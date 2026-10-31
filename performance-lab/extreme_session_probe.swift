@@ -74,7 +74,7 @@ final class OpenClientExtremeSessionProbe: @unchecked Sendable {
             row["case"] = env["OPENCLIENT_EXTREME_CASE"] ?? ""
             row["trial"] = env["OPENCLIENT_EXTREME_TRIAL"] ?? ""
             if let data = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]) {
-                writer?.publishNativeEvent(data)
+                writer?.publishNativeEvent(data, phase: phase)
             }
         }
     }
@@ -171,6 +171,15 @@ private final class OpenClientExtremeSessionWriter: @unchecked Sendable {
     private let handle: FileHandle
     private var buffer = Data()
     private var timer: DispatchSourceTimer?
+    private let nativeSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpMaximumConnectionsPerHost = 2
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 12
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        return URLSession(configuration: configuration)
+    }()
 
     // The test runner's owned fixture is the only permitted phase destination.
     private let nativeEndpoint: URL? = {
@@ -208,17 +217,36 @@ private final class OpenClientExtremeSessionWriter: @unchecked Sendable {
         }
     }
 
-    func publishNativeEvent(_ data: Data) {
+    func publishNativeEvent(_ data: Data, phase: String) {
         guard let nativeEndpoint else { return }
-        queue.async {
-            var request = URLRequest(url: nativeEndpoint)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 10
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Basic " + Data("opencode:ci-fixture-only".utf8).base64EncodedString(),
-                forHTTPHeaderField: "Authorization")
-            URLSession.shared.uploadTask(with: request, from: data).resume()
+        queue.async { [self] in
+            uploadNativeEvent(data, phase: phase, endpoint: nativeEndpoint, attempt: 1)
         }
+    }
+
+    private func uploadNativeEvent(_ data: Data, phase: String, endpoint: URL, attempt: Int) {
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Basic " + Data("opencode:ci-fixture-only".utf8).base64EncodedString(),
+            forHTTPHeaderField: "Authorization")
+        nativeSession.uploadTask(with: request, from: data) { [weak self] _, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let errorCode = error.map { ($0 as NSError).code } ?? 0
+            let succeeded = error == nil && status == 202
+            self?.queue.async { [weak self] in
+                guard let self else { return }
+                OpenClientExtremeSessionProbe.record("native_phase_upload_attempt", details: [
+                    "native_phase": phase, "attempt": attempt, "http_status": status, "error_code": errorCode
+                ])
+                guard !succeeded, attempt < 4 else { return }
+                // Retry the same bytes: event timestamps describe the app action, not delivery.
+                self.queue.asyncAfter(deadline: .now() + .milliseconds(250 * attempt)) { [self] in
+                    uploadNativeEvent(data, phase: phase, endpoint: endpoint, attempt: attempt + 1)
+                }
+            }
+        }.resume()
     }
 
     private func flush() {

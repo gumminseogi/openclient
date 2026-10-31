@@ -11,6 +11,44 @@ import lab
 
 
 class ExtremeFixtureTests(unittest.TestCase):
+    def test_startup_phase_retry_keeps_original_payload_and_does_not_mutate_history(self):
+        with self.assertRaises(ValueError):
+            lab.LabState(fail_first_startup_phase=True)
+        state = lab.LabState(profile='extreme', extreme_messages=64, fail_first_startup_phase=True)
+        server = lab.make_server(state=state, password='ci-fixture-only')
+        worker = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .01}, daemon=True)
+        worker.start()
+        auth = 'Basic ' + base64.b64encode(b'opencode:ci-fixture-only').decode()
+        event = {'schema': 1, 'case': 'seeded-revisit', 'trial': 'trial1',
+                 'phase': 'startup_cache_published', 'operation': 0, 'operation_kind': 'startup',
+                 'grouping_actual': False, 'uptime_before_s': 10.0, 'uptime_after_s': 10.1,
+                 'epoch_s': 1793390400.0, 'loaded_messages': 5000}
+
+        def post(body, authorized=True):
+            connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+            try:
+                connection.request('POST', '/_lab/native-phase', lab.encoded(body),
+                                   {'Authorization': auth} if authorized else {})
+                response = connection.getresponse()
+                response.read()
+                return response.status
+            finally:
+                connection.close()
+
+        try:
+            self.assertEqual(post(event, authorized=False), 401)
+            self.assertEqual(post(dict(event, loaded_messages='invalid')), 400)
+            self.assertEqual(post(event), 503)
+            self.assertEqual(state.snapshot()['native_events'], [])
+            self.assertEqual(post(event), 202)
+            self.assertEqual(post(event), 202)
+            self.assertEqual(state.snapshot()['native_events'], [event, event])
+            self.assertEqual(len(state.messages['ses_extreme']), 64)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=2)
+
     def test_native_phase_metadata_is_authenticated_bounded_and_extreme_only(self):
         state = lab.LabState(profile='extreme', extreme_messages=64)
         server = lab.make_server(state=state, password='ci-fixture-only')
