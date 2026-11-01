@@ -2422,16 +2422,19 @@ extension AppViewModel {
         }
     }
 
+    /// Returns at most 20 completed tool envelopes from the accepted HTTP page
+    /// for immediate detail reuse, without retaining the entire response.
+    @discardableResult
     func loadMessages(
         for session: OpenCodeSession,
         prefetchToolDetails: Bool = true,
         refreshTodos: Bool = true,
         presentationIndependent: Bool = false,
         canonicalOwner: DirectoryStore? = nil
-    ) async throws {
+    ) async throws -> [OpenCodeMessageEnvelope] {
         if connectionStore.apiProfile == .v2 {
             await reconcileV2TimelineFromEvent(sessionID: session.id)
-            return
+            return []
         }
         let targetStore = canonicalOwner ?? directoryStoreRegistry.ownerStore(forSessionID: session.id) ?? directoryStore
         let targetGeneration = directoryStoreRegistry.generation
@@ -2447,7 +2450,7 @@ extension AppViewModel {
             scope: .init(projectID: session.projectID, directory: session.directory, workspaceID: session.workspaceID), cursor: nil, limit: messageLimit)
         guard !Task.isCancelled, isCurrentBackendConnection(connection), directoryStoreRegistry.generation == targetGeneration,
               (presentationIndependent || sessionNavigationGeneration == navigationGeneration),
-              directoryStoreRegistry.key(for: targetStore) != nil else { return }
+              directoryStoreRegistry.key(for: targetStore) != nil else { return [] }
         for message in page.messages where message.info.sessionID == session.id {
             confirmCanonicalPromptAdmission(message.info, connectionID: connection.id)
         }
@@ -2465,13 +2468,19 @@ extension AppViewModel {
         let isActiveSession = selectedSession?.id == session.id
         targetStore.applyCanonicalMessages(loadedMessages, forSessionID: session.id)
         chatStore.applyCanonicalMessages(loadedMessages, forSessionID: session.id, isActiveSession: isActiveSession)
+        let canonicalToolDetails = completedCanonicalToolDetails(
+            page.messages, matching: loadedMessages, sessionID: session.id
+        )
+        if !canonicalToolDetails.isEmpty {
+            toolMessageDetails.merge(canonicalToolDetails, uniquingKeysWith: { _, fresh in fresh })
+        }
         finishTranscriptCommit(in: targetStore, sessionID: session.id, completeInventory: page.messages)
         chatStore.applyMessageHistoryPage(nextCursor: page.olderCursor, forSessionID: session.id)
         if (try? connection.requireOpenCodeClient(for: .localCache)) != nil {
             persistLoadedMessagesToLocalCache(loadedMessages, sessionID: session.id)
         }
         inferFunAndGames(from: loadedMessages, forSessionID: session.id)
-        guard isActiveSession else { return }
+        guard isActiveSession else { return Array(canonicalToolDetails.values) }
         if isCapturingStreamingDiagnostics {
             appendDebugLog(serverMessageSummary(loadedMessages, sessionID: session.id, reason: "loadMessages"))
         }
@@ -2483,6 +2492,7 @@ extension AppViewModel {
         if refreshTodos, connection.openCodeCompatibility != nil {
             await loadTodos(for: session)
         }
+        return Array(canonicalToolDetails.values)
     }
 
     @discardableResult
@@ -2563,14 +2573,18 @@ extension AppViewModel {
         do {
             async let sessions: Void = reloadSessions()
             async let statuses: Void = reloadSessionStatuses()
-            async let loadedMessages: Void = loadMessages(for: session)
+            async let loadedMessages = loadMessages(for: session)
             async let permissions: Void = loadAllPermissions(for: session)
             async let questions: Void = loadAllQuestions(for: session)
-            _ = try await (sessions, statuses, loadedMessages, permissions, questions)
+            let (_, _, canonicalMessages, _, _) = try await (sessions, statuses, loadedMessages, permissions, questions)
+            guard !Task.isCancelled, backendConnection?.id == connectionID,
+                  directoryStoreRegistry.generation == generation else { return }
 
             let refreshedSession = self.session(matching: sessionID) ?? session
             if compatibilityClient(for: .interactions) != nil {
-                await refreshToolMessageDetails(for: refreshedSession, messages: cachedMessagesBySessionID[sessionID] ?? messages)
+                await refreshToolMessageDetails(for: refreshedSession,
+                    messages: cachedMessagesBySessionID[sessionID] ?? messages,
+                    canonicalMessages: canonicalMessages)
             }
             errorMessage = nil
         } catch {
@@ -2662,6 +2676,7 @@ extension AppViewModel {
         if isBrowsingLocalCache {
             let owner = directoryStoreRegistry.ownerStore(forSessionID: sessionID) ?? directoryStore
             if let cached = owner.syncState.messageEnvelopes(forSessionID: sessionID).first(where: { $0.id == messageID }) {
+                toolMessageDetails[messageID] = cached
                 return cached
             }
             throw URLError(.notConnectedToInternet)
@@ -2686,9 +2701,15 @@ extension AppViewModel {
         }
         let connectionID = backendConnection?.id
         let generation = directoryStoreRegistry.generation
+        let owner = directoryStoreRegistry.ownerStore(forSessionID: sessionID) ?? directoryStore
+        let messageAtRequestStart = toolDetailMessageSnapshot(in: owner, sessionID: sessionID, messageID: messageID)
         let detail = try await client.getMessage(sessionID: sessionID, messageID: messageID)
         guard !Task.isCancelled, backendConnection?.id == connectionID,
-              directoryStoreRegistry.generation == generation else { throw CancellationError() }
+              directoryStoreRegistry.generation == generation,
+              directoryStoreRegistry.key(for: owner) != nil,
+              toolDetailMessageSnapshot(in: owner, sessionID: sessionID, messageID: messageID) == messageAtRequestStart else {
+            throw CancellationError()
+        }
         toolMessageDetails[messageID] = detail
         return detail
     }
@@ -3496,10 +3517,7 @@ extension AppViewModel {
                     }
                 }
                 do {
-                    let detail = try await self.fetchMessageDetails(sessionID: session.id, messageID: messageID)
-                    await MainActor.run {
-                        self.toolMessageDetails[messageID] = detail
-                    }
+                    _ = try await self.fetchMessageDetails(sessionID: session.id, messageID: messageID)
                 } catch {
                     return
                 }
@@ -3507,13 +3525,55 @@ extension AppViewModel {
         }
     }
 
-    func refreshToolMessageDetails(for session: OpenCodeSession, messages: [OpenCodeMessageEnvelope]) async {
+    private func toolDetailMessageSnapshot(in owner: DirectoryStore, sessionID: String,
+                                          messageID: String) -> OpenCodeMessageEnvelope? {
+        guard let info = owner.syncState.messagesBySessionID[sessionID]?.last(where: { $0.id == messageID }) else { return nil }
+        return OpenCodeMessageEnvelope(info: info, parts: owner.syncState.partsByMessageID[messageID] ?? [])
+    }
+
+    /// Only fresh canonical HTTP entries can replace the detail GET. Memory/disk
+    /// snapshots and ongoing tools still need their normal refresh path.
+    private func completedCanonicalToolDetails(
+        _ canonicalMessages: [OpenCodeMessageEnvelope],
+        matching messages: [OpenCodeMessageEnvelope],
+        sessionID: String
+    ) -> [String: OpenCodeMessageEnvelope] {
+        guard backendConnection?.openCodeCompatibility?.profile == .legacy else { return [:] }
+        let recentIDs = Set(chatStore.recentToolMessageIDs(in: canonicalMessages, limit: 20))
+        let currentByID = Dictionary(messages.filter { recentIDs.contains($0.id) }.map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest })
+        var details: [String: OpenCodeMessageEnvelope] = [:]
+        for message in canonicalMessages where recentIDs.contains(message.id) {
+            guard message.info.sessionID == sessionID,
+                  message.info.role == "assistant", message.info.time?.completed != nil,
+                  currentByID[message.id] == message else { continue }
+            let tools = message.parts.filter { $0.type == "tool" }
+            guard !tools.isEmpty, tools.allSatisfy({ $0.state?.status == "completed" || $0.state?.status == "error" }) else { continue }
+            details[message.id] = message
+        }
+        return details
+    }
+
+    func refreshToolMessageDetails(for session: OpenCodeSession, messages: [OpenCodeMessageEnvelope],
+                                   canonicalMessages: [OpenCodeMessageEnvelope] = []) async {
         guard compatibilityClient(for: .interactions) != nil else { return }
+        let connectionID = backendConnection?.id
+        let generation = directoryStoreRegistry.generation
         let toolMessageIDs = chatStore.recentToolMessageIDs(in: messages, limit: 20)
+        let canonicalDetails = completedCanonicalToolDetails(canonicalMessages, matching: messages, sessionID: session.id)
 
         for messageID in toolMessageIDs {
+            guard !Task.isCancelled, backendConnection?.id == connectionID,
+                  directoryStoreRegistry.generation == generation else { return }
+            // Re-read current state after any preceding detail request suspends.
+            let owner = directoryStoreRegistry.ownerStore(forSessionID: session.id) ?? directoryStore
+            if let detail = canonicalDetails[messageID],
+               toolDetailMessageSnapshot(in: owner, sessionID: session.id, messageID: messageID) == detail {
+                toolMessageDetails[messageID] = detail
+                continue
+            }
             do {
-                toolMessageDetails[messageID] = try await fetchMessageDetails(sessionID: session.id, messageID: messageID)
+                _ = try await fetchMessageDetails(sessionID: session.id, messageID: messageID)
             } catch {
                 appendDebugLog("tool detail refresh failed session=\(debugSessionLabel(session)) message=\(messageID) error=\(error.localizedDescription)")
             }

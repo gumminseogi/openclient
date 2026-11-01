@@ -188,6 +188,19 @@ extension AppViewModel {
         let targetGeneration = directoryStoreRegistry.generation
         let hadInitialMessages = targetStore.syncStore.messageCount(forSessionID: session.id) > 0
         let initialTodos = targetStore.syncState.todosBySessionID[session.id]
+        let runtimeKey = localCacheRuntimeKey(serverID: serverID, value: session.id)
+        let isV2 = OpenCodeLocalCacheIdentity.isV2(serverID)
+        if !isV2, hadInitialMessages, initialTodos != nil {
+            guard !Task.isCancelled,
+                  directoryStoreRegistry.key(for: targetStore) != nil,
+                  navigationGeneration == nil || sessionNavigationGeneration == navigationGeneration,
+                  expectedDirectoryKey == nil || directoryStoreRegistry.activeKey == expectedDirectoryKey,
+                  selectedSession?.id == session.id else { return nil }
+            // Memory already owns both slices; decoding the disk transcript would
+            // not replace these messages. This does not make server data fresh.
+            localCacheHydratedChatKeys.insert(runtimeKey)
+            return nil
+        }
         let streamRevision = chatStore.v2StreamRevision(sessionID: session.id)
         let lifecycleRevision = directoryStoreRegistry.v2LifecycleRevision(sessionID: session.id)
         let snapshot = await localChatSnapshot(
@@ -207,8 +220,6 @@ extension AppViewModel {
               navigationGeneration == nil || sessionNavigationGeneration == navigationGeneration,
               expectedDirectoryKey == nil || directoryStoreRegistry.activeKey == expectedDirectoryKey,
               selectedSession?.id == session.id else { return nil }
-        let runtimeKey = localCacheRuntimeKey(serverID: serverID, value: session.id)
-        let isV2 = OpenCodeLocalCacheIdentity.isV2(serverID)
         if !isV2 { localCacheHydratedChatKeys.insert(runtimeKey) }
         guard let snapshot else { return nil }
         let appliedMessages = !hadInitialMessages

@@ -3,6 +3,137 @@ import XCTest
 
 @MainActor
 final class OpenCodeLocalCacheIntegrationTests: XCTestCase {
+    func testFreshCompletedTranscriptReusesToolDetailsButRunningChangedAndUnprovenEntriesFetch() async throws {
+        let model = AppViewModel()
+        model.config = serverConfig
+        model.backendConnection = cacheConnection(model, profile: .legacy)
+        model.connectionStore.resolveAPIProfile(.legacy)
+        model.localCacheRepository = NoOpOpenCodeLocalCacheRepository()
+        model.selectedDirectory = session.directory
+        model.allSessions = [session]
+        model.selectedSession = session
+        let completed = #"{"info":{"id":"completed","role":"assistant","sessionID":"session-cache","time":{"created":1,"completed":2}},"parts":[{"id":"part-completed","messageID":"completed","sessionID":"session-cache","type":"tool","tool":"bash","callID":"call-completed","state":{"status":"completed","input":{"command":"true"},"output":"snapshot"}}]}"#
+        let running = #"{"info":{"id":"running","role":"assistant","sessionID":"session-cache","time":{"created":3}},"parts":[{"id":"part-running","messageID":"running","sessionID":"session-cache","type":"tool","tool":"bash","callID":"call-running","state":{"status":"running","input":{"command":"true"}}}]}"#
+        let body = "[\(completed),\(running)]"
+        let expected = try JSONDecoder().decode([OpenCodeMessageEnvelope].self, from: Data(body.utf8))
+        var detailIDs: [String] = []
+        var pageReads = 0
+        _ = URLProtocol.registerClass(LocalCacheWorkflowURLProtocol.self)
+        defer {
+            LocalCacheWorkflowURLProtocol.handler = nil
+            URLProtocol.unregisterClass(LocalCacheWorkflowURLProtocol.self)
+        }
+        LocalCacheWorkflowURLProtocol.handler = { request in
+            let path = try XCTUnwrap(request.url).path
+            if path == "/session/session-cache/message" {
+                pageReads += 1
+                return (200, body)
+            }
+            let id = try XCTUnwrap(request.url?.lastPathComponent)
+            XCTAssertTrue(["completed", "running"].contains(id))
+            detailIDs.append(id)
+            return (200, id == "completed" ? completed : running)
+        }
+
+        let canonical = try await model.loadMessages(for: session, prefetchToolDetails: false, refreshTodos: false)
+        XCTAssertEqual(pageReads, 1)
+        XCTAssertEqual(canonical, [expected[0]], "Only bounded completed tool proof is returned, not the whole transcript")
+        XCTAssertEqual(model.toolMessageDetails["completed"], expected[0])
+        XCTAssertNil(model.toolMessageDetails["running"])
+        await model.refreshToolMessageDetails(for: session, messages: model.messages, canonicalMessages: canonical)
+        XCTAssertEqual(detailIDs, ["running"], "A complete canonical tool envelope needs no duplicate detail GET")
+
+        let changed = try JSONDecoder().decode(OpenCodeMessageEnvelope.self,
+            from: Data(completed.replacingOccurrences(of: "snapshot", with: "newer live state").utf8))
+        let current = [changed, expected[1]]
+        model.directoryStore.applyCanonicalMessages(current, forSessionID: session.id)
+        await model.refreshToolMessageDetails(for: session, messages: current, canonicalMessages: canonical)
+        XCTAssertEqual(detailIDs, ["running", "running", "completed"], "A changed entry cannot reuse the older page")
+
+        await model.refreshToolMessageDetails(for: session, messages: [changed])
+        XCTAssertEqual(detailIDs.last, "completed")
+        XCTAssertEqual(detailIDs.count, 4, "An arbitrary memory/detail cache is not fresh HTTP evidence")
+        for task in Array(model.localCacheWriteTasksByKey.values) { await task.value }
+    }
+
+    func testToolDetailReadCannotOverwriteALiveChangeOrRemoval() async throws {
+        let model = AppViewModel()
+        model.config = serverConfig
+        model.backendConnection = cacheConnection(model, profile: .legacy)
+        model.connectionStore.resolveAPIProfile(.legacy)
+        model.selectedDirectory = session.directory
+        model.allSessions = [session]
+        model.selectedSession = session
+        let body = #"{"info":{"id":"completed","role":"assistant","sessionID":"session-cache","time":{"created":1,"completed":2}},"parts":[{"id":"part-completed","type":"tool","tool":"bash","state":{"status":"completed","output":"old"}}]}"#
+        let old = try JSONDecoder().decode(OpenCodeMessageEnvelope.self, from: Data(body.utf8))
+        let newer = try JSONDecoder().decode(OpenCodeMessageEnvelope.self,
+            from: Data(body.replacingOccurrences(of: "old", with: "new live result").utf8))
+        _ = URLProtocol.registerClass(LocalCacheWorkflowURLProtocol.self)
+        defer {
+            LocalCacheWorkflowURLProtocol.handler = nil
+            URLProtocol.unregisterClass(LocalCacheWorkflowURLProtocol.self)
+        }
+        for current in [[newer], []] as [[OpenCodeMessageEnvelope]] {
+            model.directoryStore.applyCanonicalMessages([old], forSessionID: session.id)
+            model.toolMessageDetails = [:]
+            LocalCacheWorkflowURLProtocol.handler = { _ in
+                model.directoryStore.applyCanonicalMessages(current, forSessionID: self.session.id)
+                model.toolMessageDetails["completed"] = current.first
+                return (200, body)
+            }
+            do {
+                _ = try await model.fetchMessageDetails(sessionID: session.id, messageID: "completed")
+                XCTFail("A changed or removed message supersedes an older detail GET")
+            } catch is CancellationError {
+                XCTAssertEqual(model.toolMessageDetails["completed"], current.first)
+            }
+        }
+
+        // A detail read may legitimately load a message absent from the transcript.
+        LocalCacheWorkflowURLProtocol.handler = { _ in (200, body) }
+        let unloaded = try await model.fetchMessageDetails(sessionID: session.id, messageID: "completed")
+        XCTAssertEqual(unloaded, old)
+        XCTAssertEqual(model.toolMessageDetails["completed"], old)
+
+        model.directoryStore.applyCanonicalMessages([old], forSessionID: session.id)
+        LocalCacheWorkflowURLProtocol.handler = { _ in
+            model.directoryStore.applyCanonicalMessages([old, self.message], forSessionID: self.session.id)
+            return (200, body)
+        }
+        let unchanged = try await model.fetchMessageDetails(sessionID: session.id, messageID: "completed")
+        XCTAssertEqual(unchanged, old, "An unrelated message update does not invalidate this detail")
+    }
+
+    func testToolDetailRefreshStopsWhenConnectionChangesDuringARead() async throws {
+        let model = AppViewModel()
+        model.config = serverConfig
+        model.backendConnection = cacheConnection(model, profile: .legacy)
+        model.connectionStore.resolveAPIProfile(.legacy)
+        model.selectedDirectory = session.directory
+        model.allSessions = [session]
+        model.selectedSession = session
+        let body = #"{"info":{"id":"running","role":"assistant","sessionID":"session-cache","time":{"created":1}},"parts":[{"id":"part-running","type":"tool","tool":"bash","state":{"status":"running"}}]}"#
+        let first = try JSONDecoder().decode(OpenCodeMessageEnvelope.self, from: Data(body.utf8))
+        let second = try JSONDecoder().decode(OpenCodeMessageEnvelope.self,
+            from: Data(body.replacingOccurrences(of: "running", with: "other").utf8))
+        var reads = 0
+        _ = URLProtocol.registerClass(LocalCacheWorkflowURLProtocol.self)
+        defer {
+            LocalCacheWorkflowURLProtocol.handler = nil
+            URLProtocol.unregisterClass(LocalCacheWorkflowURLProtocol.self)
+        }
+        LocalCacheWorkflowURLProtocol.handler = { _ in
+            reads += 1
+            model.backendConnection = self.cacheConnection(model, profile: .legacy)
+            return (200, body)
+        }
+
+        await model.refreshToolMessageDetails(for: session, messages: [second, first])
+
+        XCTAssertEqual(reads, 1)
+        XCTAssertTrue(model.toolMessageDetails.isEmpty, "A superseded connection's detail must not be applied")
+    }
+
     func testCachedSelectionCompletionDoesNotReplaceNewerViewLocalDraftWithPersistedPrefix() async throws {
         let originalDrafts = UserDefaults.standard.data(forKey: OpenClientStorageKey.messageDraftsByChat)
         defer { UserDefaults.standard.set(originalDrafts, forKey: OpenClientStorageKey.messageDraftsByChat) }
@@ -511,6 +642,119 @@ final class OpenCodeLocalCacheIntegrationTests: XCTestCase {
         let snapshot = await viewModel.loadCachedProjectsIfEnabled()
 
         XCTAssertEqual(snapshot?.projects, [project])
+    }
+
+    func testLegacyWarmChatSkipsDiskHydrationWithoutClaimingFreshness() async {
+        for todos in [[], [todo]] {
+            let model = AppViewModel()
+            model.config = serverConfig
+            model.backendMode = .cachedServer
+            model.selectedDirectory = session.directory
+            model.selectedSession = session
+            model.directoryStore.applyCanonicalMessages([message], forSessionID: session.id)
+            model.directoryStore.applyTodos(todos, forSessionID: session.id)
+            let access = expectation(description: "Warm memory must not read the disk transcript")
+            access.isInverted = true
+            model.localCacheRepository = ForbiddenLocalCacheRepository(access: access)
+
+            let snapshot = await model.hydrateChatFromLocalCache(session,
+                navigationGeneration: model.sessionNavigationGeneration,
+                expectedDirectoryKey: model.directoryStoreRegistry.activeKey)
+
+            XCTAssertNil(snapshot)
+            XCTAssertTrue(model.hasHydratedLocalChat(sessionID: session.id))
+            XCTAssertEqual(model.directoryStore.syncState.messageEnvelopes(forSessionID: session.id), [message])
+            XCTAssertEqual(model.directoryStore.syncState.todosBySessionID[session.id], todos)
+            XCTAssertTrue(model.localCacheMessageRefreshedAtByKey.isEmpty)
+            XCTAssertTrue(model.localCacheTodoRefreshedAtByKey.isEmpty)
+            await fulfillment(of: [access], timeout: 0.01)
+        }
+    }
+
+    func testLegacyWarmMessagesStillHydrateUnknownTodosWithoutReplacingMessages() async {
+        let model = AppViewModel()
+        model.config = serverConfig
+        model.selectedDirectory = session.directory
+        model.selectedSession = session
+        model.directoryStore.applyCanonicalMessages([message], forSessionID: session.id)
+        let stale = OpenCodeMessageEnvelope.local(role: "assistant", text: "Stale disk transcript",
+            messageID: "message-stale", sessionID: session.id, partID: "part-stale")
+        let cached = OpenCodeCachedChatSnapshot(preparedMessages: .init(envelopes: [stale], sessionID: session.id),
+            todos: [todo], messagesRefreshedAt: .now, todosRefreshedAt: .now)
+        let access = expectation(description: "No unrelated cache operations")
+        access.isInverted = true
+        let loaded = expectation(description: "Unknown todos still require disk hydration")
+        model.localCacheRepository = ForbiddenLocalCacheRepository(access: access, chatLoad: { _, _ in
+            loaded.fulfill()
+            return cached
+        })
+
+        let snapshot = await model.hydrateChatFromLocalCache(session)
+
+        XCTAssertNotNil(snapshot)
+        XCTAssertEqual(model.directoryStore.syncState.messageEnvelopes(forSessionID: session.id), [message])
+        XCTAssertEqual(model.directoryStore.syncState.todosBySessionID[session.id], [todo])
+        XCTAssertTrue(model.hasHydratedLocalChat(sessionID: session.id))
+        XCTAssertFalse(model.areLocalChatMessagesFresh(sessionID: session.id))
+        XCTAssertTrue(model.areLocalChatTodosFresh(sessionID: session.id))
+        await fulfillment(of: [loaded, access], timeout: 0.01)
+    }
+
+    func testLegacyWarmHydrationRejectsInvalidNavigationAndCancellation() async {
+        for invalidation in ["navigation", "directory", "selection", "cancellation"] {
+            let model = AppViewModel()
+            model.config = serverConfig
+            model.selectedDirectory = session.directory
+            model.selectedSession = session
+            model.directoryStore.applyCanonicalMessages([message], forSessionID: session.id)
+            model.directoryStore.applyTodos([], forSessionID: session.id)
+            let access = expectation(description: "Invalid hydration must not read disk")
+            access.isInverted = true
+            model.localCacheRepository = ForbiddenLocalCacheRepository(access: access)
+            let generation = model.sessionNavigationGeneration
+            let key = model.directoryStoreRegistry.activeKey
+            if invalidation == "navigation" { model.sessionNavigationGeneration &+= 1 }
+            if invalidation == "selection" { model.selectedSession = nil }
+            let task = Task { @MainActor in
+                if invalidation == "cancellation" { withUnsafeCurrentTask { $0?.cancel() } }
+                return await model.hydrateChatFromLocalCache(self.session,
+                    navigationGeneration: generation,
+                    expectedDirectoryKey: invalidation == "directory" ? key + "-stale" : key)
+            }
+            let snapshot = await task.value
+
+            XCTAssertNil(snapshot)
+            XCTAssertFalse(model.hasHydratedLocalChat(sessionID: session.id))
+            await fulfillment(of: [access], timeout: 0.01)
+        }
+    }
+
+    func testV2WarmMemoryDoesNotUseLegacyHydrationShortcut() async {
+        let model = AppViewModel()
+        model.config = serverConfig
+        model.config.apiPreference = .automatic
+        model.backendConnection = cacheConnection(model, profile: .v2)
+        model.connectionStore.applySuccessfulV2Connection(version: "test", healthy: true)
+        model.selectedDirectory = session.directory
+        model.selectedSession = session
+        model.directoryStore.applyCanonicalMessages([message], forSessionID: session.id)
+        model.directoryStore.applyTodos([], forSessionID: session.id)
+        let cached = OpenCodeCachedChatSnapshot(preparedMessages: .init(envelopes: [message], sessionID: session.id),
+            todos: [], messagesRefreshedAt: nil, todosRefreshedAt: nil)
+        let access = expectation(description: "No unrelated cache operations")
+        access.isInverted = true
+        let loaded = expectation(description: "V2 retains its existing disk presentation semantics")
+        model.localCacheRepository = ForbiddenLocalCacheRepository(access: access, chatLoad: { _, _ in
+            loaded.fulfill()
+            return cached
+        })
+
+        let snapshot = await model.hydrateChatFromLocalCache(session)
+
+        XCTAssertNotNil(snapshot)
+        XCTAssertFalse(model.hasHydratedLocalChat(sessionID: session.id))
+        XCTAssertFalse(model.areLocalChatMessagesFresh(sessionID: session.id))
+        await fulfillment(of: [loaded, access], timeout: 0.01)
     }
 
     func testDirectoryAndChatCacheHydrateThroughExistingStores() async throws {

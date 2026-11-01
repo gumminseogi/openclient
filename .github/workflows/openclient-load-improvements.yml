@@ -1,0 +1,102 @@
+name: OpenClient load improvement regressions
+
+on:
+  push:
+    branches: [session-load-improvements]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openclient-load-improvements-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Select and boot an iPhone simulator
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/load-improvement-results"
+          git rev-parse HEAD > "$RUNNER_TEMP/load-improvement-results/source-revision.txt"
+          xcodebuild -version > "$RUNNER_TEMP/load-improvement-results/xcode-version.txt"
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/load-improvement-results/simulators.json"
+          device_id=$(python3 - "$RUNNER_TEMP/load-improvement-results/simulators.json" <<'PYTHON'
+          import json,re,subprocess,sys
+          sdk=tuple(map(int,subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-version'],text=True).strip().split('.')[:2]))
+          devices=json.load(open(sys.argv[1]))['devices']
+          candidates=[]
+          for runtime,rows in devices.items():
+              if '.iOS-' not in runtime:
+                  continue
+              version=tuple(map(int,re.findall(r'[0-9]+',runtime)))
+              if version[:2]>sdk:
+                  continue
+              for device in rows:
+                  match=re.fullmatch(r'iPhone ([0-9]+) Pro Max',device['name'])
+                  if device.get('isAvailable') and match and int(match.group(1))>=16:
+                      candidates.append((version,int(match.group(1)),device['udid']))
+          if not candidates:
+              raise SystemExit('No available iPhone Pro Max simulator')
+          print(max(candidates)[2])
+          PYTHON
+          )
+          printf 'OPENCLIENT_TEST_DESTINATION=platform=iOS Simulator,id=%s\n' "$device_id" >> "$GITHUB_ENV"
+          xcrun simctl bootstatus "$device_id" -b
+      - name: Build the app and native regression tests
+        timeout-minutes: 27
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild build-for-testing -project OpenCodeIOSClient.xcodeproj -scheme OpenCodeIOSClient \
+            -destination "$OPENCLIENT_TEST_DESTINATION" \
+            -derivedDataPath "$RUNNER_TEMP/load-improvement-build" \
+            -parallel-testing-enabled NO -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 60 \
+            -only-testing:OpenCodeIOSClientTests/OpenCodeLocalCacheIntegrationTests \
+            -only-testing:OpenCodeIOSClientTests/OpenCodeLocalCacheRepositoryTests \
+            -only-testing:OpenCodeIOSClientTests/ChatStoreTests \
+            -only-testing:OpenCodeIOSClientTests/ChatFacadeTests \
+            2>&1 | tee "$RUNNER_TEMP/load-improvement-results/build.log"
+      - name: Run cache and transcript regressions
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild test-without-building -project OpenCodeIOSClient.xcodeproj -scheme OpenCodeIOSClient \
+            -destination "$OPENCLIENT_TEST_DESTINATION" \
+            -derivedDataPath "$RUNNER_TEMP/load-improvement-build" \
+            -resultBundlePath "$RUNNER_TEMP/load-improvement-results/tests.xcresult" \
+            -parallel-testing-enabled NO -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 60 \
+            -only-testing:OpenCodeIOSClientTests/OpenCodeLocalCacheIntegrationTests \
+            -only-testing:OpenCodeIOSClientTests/OpenCodeLocalCacheRepositoryTests \
+            -only-testing:OpenCodeIOSClientTests/ChatStoreTests \
+            -only-testing:OpenCodeIOSClientTests/ChatFacadeTests \
+            2>&1 | tee "$RUNNER_TEMP/load-improvement-results/tests.log"
+      - name: Export readable test summary
+        if: always()
+        shell: bash
+        run: |
+          results="$RUNNER_TEMP/load-improvement-results"
+          if [[ -d "$results/tests.xcresult" ]]; then
+            xcrun xcresulttool get test-results summary --path "$results/tests.xcresult" --format json > "$results/summary.json"
+          fi
+      - name: Retain test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openclient-load-improvements-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/load-improvement-results/*.txt
+            ${{ runner.temp }}/load-improvement-results/*.json
+            ${{ runner.temp }}/load-improvement-results/*.log
+          if-no-files-found: warn
+          retention-days: 7
