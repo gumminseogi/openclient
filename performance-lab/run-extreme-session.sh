@@ -10,6 +10,11 @@ messages=${OPENCLIENT_EXTREME_MESSAGES:-5000}
 [[ "$messages" =~ ^[0-9]+$ ]] && (( messages >= 64 && messages <= 50000 )) || { echo 'Extreme fixture message count must be 64...50000' >&2; exit 2; }
 variant=${OPENCLIENT_EXTREME_VARIANT:-baseline}
 [[ "$variant" == baseline || "$variant" == patched ]] || { echo 'Unknown paired variant' >&2; exit 2; }
+input_policy=${OPENCLIENT_EXTREME_INPUT_POLICY:-post-canonical-keyboard}
+case "$input_policy" in
+  post-canonical-keyboard|loading-only) ;;
+  *) echo 'Unknown input validation policy' >&2; exit 2 ;;
+esac
 paired_baseline_sha=${OPENCLIENT_EXTREME_PAIRED_BASELINE_SHA:-31ad585ce08321ae7c4de7b1f33b991144fa2de5}
 case "$paired_baseline_sha" in
   31ad585ce08321ae7c4de7b1f33b991144fa2de5|37fa58b3ae9957b6e5d95dc9919841b3eaa58421) ;;
@@ -66,7 +71,7 @@ if xcrun simctl get_app_container "$device_id" "$bundle" data >/dev/null 2>&1; t
   xcrun simctl uninstall "$device_id" "$bundle"
 fi
 
-python3 - "$results/provenance.json" "$messages" "$variant" "$groupings" "$verify_telemetry_retry" "$paired_baseline_sha" "$initial_canonical_reads" <<'PY'
+python3 - "$results/provenance.json" "$messages" "$variant" "$groupings" "$verify_telemetry_retry" "$paired_baseline_sha" "$initial_canonical_reads" "$input_policy" <<'PY'
 import json, os, platform, subprocess, sys, time
 from pathlib import Path
 checkout_sha=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
@@ -79,13 +84,15 @@ Path(sys.argv[1]).write_text(json.dumps({
     'verify_telemetry_retry': sys.argv[5]=='1',
     'paired_baseline_sha': sys.argv[6],
     'initial_canonical_reads': int(sys.argv[7]),
+    'input_validation_policy': sys.argv[8],
+    'input_validation_performed': sys.argv[8]=='post-canonical-keyboard',
     'warm_memory_fast_path_present': 'Memory already owns both slices; decoding the disk transcript would' in Path('OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel+LocalCache.swift').read_text(),
     'started_epoch_s': time.time(), 'host': platform.platform(),
     'session_id': 'ses_extreme', 'configured_message_count': int(sys.argv[2]),
     'history': 'One opt-in synthetic mixed-tool session; real limit/cursor pagination; no model calls or artificial server delay.',
     'cache_setup': 'First prepare directory session metadata, full chat history and known stale todos in an unmeasured hosted test using real API requests and the production persistent cache writer, verify through a second repository, then restore the cache while the app is terminated before each measured case. This is not a timed UI pagination pass.',
     'cases': 'seeded-revisit x1 per requested grouping: first open, same-process revisit, and bottom refresh. One native app binary for all requested measured cases.',
-    'measurement_scope': 'Native app phase timestamps plus separately labeled XCTest observations for loading a fully retained long session. Full startup cache hydration is recorded separately and must complete before measured project/session selection. These are not helper microbenchmarks, presented FPS or physical iPhone performance.',
+    'measurement_scope': 'Native app phase timestamps plus separately labeled XCTest observations for loading a fully retained long session. Full startup cache hydration is recorded separately and must complete before measured project/session selection. These are not helper microbenchmarks, presented FPS or physical iPhone performance. Loading-only policy performs no composer taps, keyboard checks or typing; it does not measure keyboard responsiveness.',
     'failure_policy': 'Export each measured case, attempt the remaining requested cases after an individual UI failure, and fail if any case fails. Build/fixture/cache preparation failures block all requested measured cases; retain setup failure evidence.'
 },indent=2)+'\n')
 PY
@@ -175,6 +182,7 @@ set_test_environment() {
   export TEST_RUNNER_OPENCLIENT_EXTREME_URL=http://127.0.0.1:14097
   export TEST_RUNNER_OPENCLIENT_EXTREME_PASSWORD=ci-fixture-only
   export TEST_RUNNER_OPENCLIENT_EXTREME_COUNT=$messages
+  export TEST_RUNNER_OPENCLIENT_EXTREME_INPUT_POLICY=$input_policy
 }
 set_test_environment
 
@@ -303,6 +311,12 @@ measurements=[]
 provenance=json.loads((root/'provenance.json').read_text())
 variant=provenance['variant']
 groupings=provenance['groupings']
+input_policy=provenance.get('input_validation_policy')
+if input_policy not in ('post-canonical-keyboard','loading-only'):
+    raise ValueError('Unknown or missing input validation policy')
+validates_input=input_policy=='post-canonical-keyboard'
+if provenance.get('input_validation_performed') is not validates_input:
+    raise ValueError('Input-validation policy and declared result scope disagree')
 if not isinstance(groupings,list) or not 1<=len(groupings)<=2 \
         or not all(isinstance(value,bool) for value in groupings) or len(set(groupings))!=len(groupings):
     raise ValueError('Invalid requested grouping cases')
@@ -342,6 +356,9 @@ for p in cases:
         if evidence.get('schema')!=1 or evidence.get('case')!=kind or evidence.get('trial')!=trial \
                 or evidence.get('grouping') is not grouped:
             raise ValueError('Completed UI checkpoint labels disagree with this case')
+        if evidence.get('input_validation_policy')!=input_policy \
+                or evidence.get('input_validation_performed') is not validates_input:
+            raise ValueError('UI input-validation policy disagrees with the declared workload')
         profile=evidence.get('profile',{})
         if profile.get('session_id')!='ses_extreme' or profile.get('messages')!=count:
             raise ValueError('Completed UI checkpoint has the wrong single-session profile')
@@ -399,8 +416,9 @@ for p in cases:
                 raise ValueError('UI action has the wrong operation or loaded-history requirement')
             native=[r for r in rows if r.get('operation')==operation]
             phases={r.get('phase') for r in native}
-            required={'canonical_request_started','canonical_typed_page_returned','canonical_published',
-                      'typed_token_accepted','post_canonical_typed_token_accepted'}
+            required={'canonical_request_started','canonical_typed_page_returned','canonical_published'}
+            if validates_input:
+                required|={'typed_token_accepted','post_canonical_typed_token_accepted'}
             required|=({'bottom_refresh_started','bottom_refresh_method_completed'} if action['stage']=='bottom_refresh' \
                        else {'selection_started','transcript_reveal_completed'})
             if not required.issubset(phases): raise ValueError('Native operation has incomplete phase markers: '+str(sorted(required-phases)))
@@ -408,12 +426,16 @@ for p in cases:
                 raise ValueError('Native canonical request did not use the required history limit')
             if not any(r.get('phase')=='canonical_published' and r.get('loaded_messages')==expected for r in native):
                 raise ValueError('Native canonical publication did not contain the required message count')
-            if not any(r.get('phase')=='typed_token_accepted' and r.get('expected_token')==action.get('typed_token') for r in native):
-                raise ValueError('Native input delegate did not accept the matching action token')
-            after_token=action.get('typed_token') if action['stage']=='bottom_refresh' else action.get('post_canonical_typed_token')
-            if not after_token or not any(r.get('phase')=='post_canonical_typed_token_accepted' \
-                    and r.get('expected_token')==after_token for r in native):
-                raise ValueError('Native input after canonical publication was not verified')
+            if validates_input:
+                if not any(r.get('phase')=='typed_token_accepted' and r.get('expected_token')==action.get('typed_token') for r in native):
+                    raise ValueError('Native input delegate did not accept the matching action token')
+                after_token=action.get('typed_token') if action['stage']=='bottom_refresh' else action.get('post_canonical_typed_token')
+                if not after_token or not any(r.get('phase')=='post_canonical_typed_token_accepted' \
+                        and r.get('expected_token')==after_token for r in native):
+                    raise ValueError('Native input after canonical publication was not verified')
+            elif any(key in action for key in ('typed_token','post_canonical_typed_token',
+                    'typed_token_observed_uptime_s','post_canonical_typed_token_observed_uptime_s')):
+                raise ValueError('Loading-only action must not claim an input validation result')
             requests=[r for r in action.get('requests',[]) if r.get('method')=='GET' \
                 and r.get('path')=='/session/ses_extreme/message' and r.get('status')==200 \
                 and not r.get('query',{}).get('before') \
@@ -483,14 +505,24 @@ for p in cases:
                 for failed in delivery for accepted in delivery)
             if not retried:
                 raise ValueError('Native startup telemetry did not retry the injected 503 successfully')
+        app_gets=[r for r in log if r.get('method')=='GET' \
+            and (not r.get('path','').startswith('/_lab/') or r.get('path')=='/_lab/reference')]
+        case_detail_gets=[r for r in app_gets if r.get('path','').startswith('/session/ses_extreme/message/')]
         measurements.append({'grouping':grouped,'message_count':count,'canonical_body_bytes':body_bytes,
+            'input_validation_policy':input_policy,'input_validation_performed':validates_input,
             'startup_cache_publication_seconds':startup_seconds,
             'startup_metric_scope':'Native startup metadata to full cache publication before selection; excludes seed setup and is not XCTest/launch total',
+            'case_app_get_count':len(app_gets),
+            'case_app_get_scope':'Completed case-wide GET records excluding lab control/polling, including the app preview /_lab/reference; not causal CPU time or cellular wire bytes',
+            'case_app_get_response_body_bytes':sum(r.get('response_bytes',0) for r in app_gets),
+            'case_message_detail_get_count':len(case_detail_gets),
+            'case_message_detail_response_bytes':sum(r.get('response_bytes',0) for r in case_detail_gets),
             'full_body_count':len(full),'full_body_bytes':sum(r['response_bytes'] for r in full),'actions':measured_actions})
     except (OSError,ValueError,KeyError,TypeError) as error: errors.append(p.name+': '+str(error))
 Path(root/'validation.json').write_text(json.dumps({'complete':not errors,'measured_case_count':len(cases),
     'expected_measured_case_count':len(groupings),'requested_groupings':groupings,'errors':errors},indent=2)+'\n')
 Path(root/'measurements.json').write_text(json.dumps({'complete':not errors,'variant':variant,
+    'input_validation_policy':input_policy,'input_validation_performed':validates_input,
     'test_checkout_sha':provenance['test_checkout_sha'],'harness_checkout_sha':provenance['harness_checkout_sha'],
     'cases':measurements},indent=2)+'\n')
 if errors: raise SystemExit('\n'.join(errors))

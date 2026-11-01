@@ -36,6 +36,7 @@ jobs:
       OPENCLIENT_EXTREME_MESSAGES: '20000'
       OPENCLIENT_EXTREME_GROUPINGS: '0'
       OPENCLIENT_EXTREME_VERIFY_TELEMETRY_RETRY: '0'
+      OPENCLIENT_EXTREME_INPUT_POLICY: 'loading-only'
       OPENCLIENT_EXTREME_PAIRED_BASELINE_SHA: '37fa58b3ae9957b6e5d95dc9919841b3eaa58421'
       OPENCLIENT_EXTREME_HARNESS_SHA: ${{ github.sha }}
     steps:
@@ -134,6 +135,9 @@ jobs:
           for variant,value in data.items():
               if value.get('variant')!=variant or value.get('complete') is not True:
                   raise SystemExit(variant+': paired input is not fully verified')
+              if value.get('input_validation_policy')!=os.environ['OPENCLIENT_EXTREME_INPUT_POLICY'] \
+                      or value.get('input_validation_performed') is not False:
+                  raise SystemExit(variant+': expected the same explicitly loading-only workload')
           if data['baseline']['harness_checkout_sha']!=data['patched']['harness_checkout_sha']:
               raise SystemExit('Paired harness revisions differ')
           if data['baseline']['test_checkout_sha']!=os.environ['OPENCLIENT_EXTREME_PAIRED_BASELINE_SHA']:
@@ -149,6 +153,9 @@ jobs:
           compared=[]
           for grouped in expected:
               b,a=before[grouped],after[grouped]
+              if any(row.get('input_validation_policy')!='loading-only' \
+                      or row.get('input_validation_performed') is not False for row in (b,a)):
+                  raise SystemExit('Paired case input-validation scope does not match')
               if b['message_count']!=a['message_count'] or b['canonical_body_bytes']!=a['canonical_body_bytes']:
                   raise SystemExit('Paired fixture sizes differ')
               if b['message_count']!=20000 or b['canonical_body_bytes']!=538607742:
@@ -181,10 +188,15 @@ jobs:
                   'patched_startup_cache_publication_seconds':a['startup_cache_publication_seconds'],
                   'baseline_full_body_count':b['full_body_count'],'patched_full_body_count':a['full_body_count'],
                   'baseline_full_body_bytes':b['full_body_bytes'],'patched_full_body_bytes':a['full_body_bytes']})
+              for field in ('case_app_get_count','case_app_get_response_body_bytes',
+                            'case_message_detail_get_count','case_message_detail_response_bytes'):
+                  compared[-1]['baseline_'+field]=b[field]
+                  compared[-1]['patched_'+field]=a[field]
           report={'complete':True,'baseline_source_sha':data['baseline']['test_checkout_sha'],
               'patched_source_sha':data['patched']['test_checkout_sha'],
+              'input_validation_policy':'loading-only','input_validation_performed':False,
               'harness_checkout_sha':data['patched']['harness_checkout_sha'],'cases':compared,
-              'scope':'Same runner and simulator, baseline then patched; one trial per grouping. Native reveal callback and refresh method completion, not presented frames or physical-device timings. Fixed order does not remove thermal/order effects.'}
+              'scope':'Loading-only: same runner and simulator, baseline then patched; one trial per grouping. No composer taps, keyboard checks or typing; keyboard responsiveness is not measured. Native reveal callback and refresh method completion, not presented frames or physical-device timings. Fixed order does not remove thermal/order effects.'}
           (root/'paired-comparison.json').write_text(json.dumps(report,indent=2)+'\n')
           print(json.dumps(report,indent=2))
           PY
