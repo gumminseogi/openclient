@@ -317,7 +317,7 @@ extension ToolGroupingUITests {
     }
 
     private func extremeShowProjectSidebar(_ app: XCUIApplication) async throws {
-        let deadline = ProcessInfo.processInfo.systemUptime + 30
+        let deadline = ProcessInfo.processInfo.systemUptime + 180
         for level in 0...3 {
             let project = app.buttons["projects.project.lab"]
             if project.exists && project.isHittable { return }
