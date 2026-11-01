@@ -24,4 +24,16 @@ The full-history transfer remains a separate synchronization change requiring ex
 
 The dedicated `OpenClient load improvement regressions` workflow builds the actual iOS app with normal simulator signing and runs the local-cache integration/repository, chat store and shared initial-load facade suites. It retains the readable XCTest summary and build log on both success and failure.
 
-Native validation outcome and source revision will be recorded after the run completes. No new whole-action performance comparison has been measured yet; request/read-count regressions do not establish a latency percentage on a physical iPhone.
+[Native regression run 41294061307](https://github.com/gumminseogi/openclient/actions/runs/41294061307) passed for source revision `ff8da901f4885b09016329499940538d2b0b2ad9`: **177 passed, 0 failed, 0 skipped**, after a successful iOS app/test build. The artifact source-revision file matches that commit. All seven added methods are present as passed cases in the test log:
+
+- Warm memory skips the disk read without advancing freshness; empty and nonempty loaded todo lists are covered.
+- Unknown todos still hydrate without replacing memory messages.
+- Invalid navigation, directory, selection and cancellation do not mark hydration complete.
+- V2 keeps its original hydration behavior.
+- A fresh completed tool envelope avoids its detail GET; running, changed and unproven entries still fetch.
+- A detail response cannot overwrite a live change or removal; unloaded messages and unrelated edits remain valid.
+- Connection replacement stops the old detail refresh.
+
+Raw evidence artifact: `13078482563`, 119,738 bytes, SHA-256 `6ccf8c92d5f9b6f48aa3849d62fbde6a93cbdfbbb6a884786d752b723dc7f2a1`. It contains the readable XCTest summary and build/test logs.
+
+No new whole-action performance comparison has been measured yet; request/read-count regressions do not establish a latency percentage on a physical iPhone.
