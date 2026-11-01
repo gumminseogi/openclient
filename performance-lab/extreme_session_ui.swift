@@ -136,8 +136,7 @@ extension ToolGroupingUITests {
         let refreshProof = try await extremeCanonicalProof(base, password: password, after: baseline, minimum: expectedMinimum)
         let refreshCompleteObserved = ProcessInfo.processInfo.systemUptime
         let refreshToken = tokenPrefix + "_\(refreshOperation)"
-        input.tap(); input.typeText(refreshToken)
-        XCTAssertTrue((input.value as? String ?? "").contains(refreshToken))
+        try await extremeTypeToken(app: app, input: input, token: refreshToken)
         let refreshTypedObserved = ProcessInfo.processInfo.systemUptime
         let refreshLastRequestID = extremeLastRequestID(try await extremeStatus(base, password: password))
         actions.append(["stage": "bottom_refresh", "operation": refreshOperation,
@@ -176,26 +175,26 @@ extension ToolGroupingUITests {
         try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
             "content_observed_uptime_s": contentObserved, "request_id_before_action": baseline,
             "native_probe_status": revealEvent], stage + "-visible")
-        try await extremeWait("Composer is available") { input.exists && input.isHittable }
-        input.tap(); input.typeText(token)
-        XCTAssertTrue((input.value as? String ?? "").contains(token), "A unique plain token must survive typing.")
-        let typedObserved = ProcessInfo.processInfo.systemUptime
-        try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
-            "content_observed_uptime_s": contentObserved, "typed_token_observed_uptime_s": typedObserved,
-            "request_id_before_action": baseline, "typed_token": token,
-            "native_probe_status": revealEvent], stage + "-typed")
+        // Keep the native reveal/canonical measurements independent of input.
+        // Exercise the real composer only after the full canonical page is ready.
         let canonicalEvent = try await extremeNativePhase(base, password: password, phase: "canonical_published", operation: operation,
             minimumLoaded: expectedMinimum)
         let proof = try await extremeCanonicalProof(base, password: password, after: baseline, minimum: expectedMinimum)
         let canonicalObserved = ProcessInfo.processInfo.systemUptime
         try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
-            "content_observed_uptime_s": contentObserved, "typed_token_observed_uptime_s": typedObserved,
+            "content_observed_uptime_s": contentObserved,
             "canonical_observed_uptime_s": canonicalObserved, "requests": proof,
             "request_id_before_action": baseline,
             "native_probe_status": ["reveal": revealEvent, "canonical": canonicalEvent]], stage + "-canonical")
+        try await extremeTypeToken(app: app, input: input, token: token)
+        let typedObserved = ProcessInfo.processInfo.systemUptime
+        try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
+            "content_observed_uptime_s": contentObserved, "typed_token_observed_uptime_s": typedObserved,
+            "canonical_observed_uptime_s": canonicalObserved,
+            "request_id_before_action": baseline, "typed_token": token,
+            "native_probe_status": ["reveal": revealEvent, "canonical": canonicalEvent]], stage + "-typed")
         let postToken = token + "_C"
-        input.tap(); input.typeText(postToken)
-        XCTAssertTrue((input.value as? String ?? "").contains(postToken))
+        try await extremeTypeToken(app: app, input: input, token: postToken)
         let postTypedObserved = ProcessInfo.processInfo.systemUptime
         let lastRequestID = extremeLastRequestID(try await extremeStatus(base, password: password))
         return ["stage": stage, "operation": operation, "start_uptime_s": opened,
@@ -287,13 +286,25 @@ extension ToolGroupingUITests {
             .compactMap { $0["request_id"] as? Int }.max() ?? 0
     }
 
-    private func extremeWait(_ label: String, predicate: () -> Bool) async throws {
-        let deadline = ProcessInfo.processInfo.systemUptime + 300
+    private func extremeWait(_ label: String, timeout: TimeInterval = 300, predicate: () -> Bool) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
         while ProcessInfo.processInfo.systemUptime < deadline {
             if predicate() { return }
             try await Task.sleep(for: .milliseconds(500))
         }
         throw labFailure(label)
+    }
+
+    private func extremeTypeToken(app: XCUIApplication, input: XCUIElement, token: String) async throws {
+        try await extremeWait("Composer is available after canonical completion", timeout: 60) { input.exists && input.isHittable }
+        input.tap()
+        try await extremeWait("Real keyboard is ready after composer focus", timeout: 60) {
+            app.keyboards.firstMatch.exists && app.keyboards.firstMatch.isHittable
+        }
+        input.typeText(token)
+        let accepted = (input.value as? String ?? "").contains(token)
+        XCTAssertTrue(accepted, "A unique plain token must survive typing after canonical completion.")
+        guard accepted else { throw labFailure("Composer did not retain the unique typed token.") }
     }
 
     private func extremeShowProjectSidebar(_ app: XCUIApplication) async throws {
@@ -317,6 +328,7 @@ extension ToolGroupingUITests {
         let evidence: [String: Any] = ["schema": 1, "experiment": "extreme_session_load", "case": mode,
             "trial": trial, "grouping": grouped, "checkpoint": checkpoint, "complete": complete,
             "profile": profile, "actions": actions, "launch_start_uptime_s": launchStart,
+            "input_validation_scope": "Real keyboard and unique typed-token checks occur after canonical completion; no typing-during-load measurement.",
             "home_observed_uptime_s": homeObserved, "project_navigation": projectTiming,
             "clock": ["uptime_before_s": before, "epoch_s": epoch, "uptime_after_s": after],
             "scope": "Seeded cases await normal startup publication of the full retained cache before navigation; launch/op0 timings are separate. UI-observed action times include XCTest/Accessibility overhead. Native callbacks are separate; typed acceptance is not earliest readiness or per-key latency."]
