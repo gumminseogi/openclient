@@ -10,6 +10,15 @@ messages=${OPENCLIENT_EXTREME_MESSAGES:-5000}
 [[ "$messages" =~ ^[0-9]+$ ]] && (( messages >= 64 && messages <= 50000 )) || { echo 'Extreme fixture message count must be 64...50000' >&2; exit 2; }
 variant=${OPENCLIENT_EXTREME_VARIANT:-baseline}
 [[ "$variant" == baseline || "$variant" == patched ]] || { echo 'Unknown paired variant' >&2; exit 2; }
+paired_baseline_sha=${OPENCLIENT_EXTREME_PAIRED_BASELINE_SHA:-31ad585ce08321ae7c4de7b1f33b991144fa2de5}
+case "$paired_baseline_sha" in
+  31ad585ce08321ae7c4de7b1f33b991144fa2de5|37fa58b3ae9957b6e5d95dc9919841b3eaa58421) ;;
+  *) echo 'Unknown paired baseline; add its verified request-count contract before benchmarking' >&2; exit 2 ;;
+esac
+initial_canonical_reads=1
+if [[ "$variant" == baseline && "$paired_baseline_sha" == 31ad585ce08321ae7c4de7b1f33b991144fa2de5 ]]; then
+  initial_canonical_reads=2
+fi
 groupings=${OPENCLIENT_EXTREME_GROUPINGS:-'1 0'}
 case "$groupings" in
   '1 0'|'0 1'|0|1) ;;
@@ -57,7 +66,7 @@ if xcrun simctl get_app_container "$device_id" "$bundle" data >/dev/null 2>&1; t
   xcrun simctl uninstall "$device_id" "$bundle"
 fi
 
-python3 - "$results/provenance.json" "$messages" "$variant" "$groupings" "$verify_telemetry_retry" <<'PY'
+python3 - "$results/provenance.json" "$messages" "$variant" "$groupings" "$verify_telemetry_retry" "$paired_baseline_sha" "$initial_canonical_reads" <<'PY'
 import json, os, platform, subprocess, sys, time
 from pathlib import Path
 checkout_sha=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
@@ -68,11 +77,13 @@ Path(sys.argv[1]).write_text(json.dumps({
     'variant': sys.argv[3],
     'groupings': [value=='1' for value in sys.argv[4].split()],
     'verify_telemetry_retry': sys.argv[5]=='1',
-    'paired_baseline_sha': '31ad585ce08321ae7c4de7b1f33b991144fa2de5',
+    'paired_baseline_sha': sys.argv[6],
+    'initial_canonical_reads': int(sys.argv[7]),
+    'warm_memory_fast_path_present': 'Memory already owns both slices; decoding the disk transcript would' in Path('OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel+LocalCache.swift').read_text(),
     'started_epoch_s': time.time(), 'host': platform.platform(),
     'session_id': 'ses_extreme', 'configured_message_count': int(sys.argv[2]),
     'history': 'One opt-in synthetic mixed-tool session; real limit/cursor pagination; no model calls or artificial server delay.',
-    'cache_setup': 'First prepare directory session metadata and the full chat history in an unmeasured hosted test using real API requests and the production persistent cache writer, verify both through a second repository, then restore the cache while the app is terminated before each measured case. This is not a timed UI pagination pass.',
+    'cache_setup': 'First prepare directory session metadata, full chat history and known stale todos in an unmeasured hosted test using real API requests and the production persistent cache writer, verify through a second repository, then restore the cache while the app is terminated before each measured case. This is not a timed UI pagination pass.',
     'cases': 'seeded-revisit x1 per requested grouping: first open, same-process revisit, and bottom refresh. One native app binary for all requested measured cases.',
     'measurement_scope': 'Native app phase timestamps plus separately labeled XCTest observations for loading a fully retained long session. Full startup cache hydration is recorded separately and must complete before measured project/session selection. These are not helper microbenchmarks, presented FPS or physical iPhone performance.',
     'failure_policy': 'Export each measured case, attempt the remaining requested cases after an individual UI failure, and fail if any case fails. Build/fixture/cache preparation failures block all requested measured cases; retain setup failure evidence.'
@@ -251,6 +262,9 @@ try:
     if proof.get('directory_sessions')!=1 or proof.get('readback_directory_sessions')!=1 \
             or proof.get('readback_directory_session_ids')!=['ses_extreme']:
         errors.append('Native seed proof does not verify the sole directory session metadata readback')
+    if proof.get('todos_via_production_api') is not True or proof.get('readback_todos_known') is not True \
+            or proof.get('readback_todos_stale') is not True or proof.get('readback_todos')!=proof.get('todos'):
+        errors.append('Native seed proof does not verify known stale todos through the production API/cache writer')
     if proof.get('encoded_response_bytes')!=fixture['extreme_profile']['encoded_messages_bytes']:
         errors.append('Native seed HTTP response does not match the configured extreme history')
 except (OSError,ValueError,KeyError,TypeError) as error: errors.append(str(error))
@@ -294,6 +308,8 @@ if not isinstance(groupings,list) or not 1<=len(groupings)<=2 \
     raise ValueError('Invalid requested grouping cases')
 if variant=='baseline' and provenance['test_checkout_sha']!=provenance['paired_baseline_sha']:
     errors.append('Baseline source is not the pinned pre-fix commit')
+if provenance.get('initial_canonical_reads') not in (1,2):
+    errors.append('Expected initial canonical read count is missing or invalid')
 def clock_offset(row):
     before,after,epoch=(row[key] for key in ('uptime_before_s','uptime_after_s','epoch_s'))
     if not all(isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) for v in (before,after,epoch)) \
@@ -359,11 +375,25 @@ for p in cases:
         if selection is None or not any(index<selection[0] \
                 and r['uptime_after_s']<=selection[1]['uptime_before_s'] for index,r in startup):
             raise ValueError('Full startup cache was not published with the actual grouping before first selection')
+        startup_published=min(startup,key=lambda value:value[0])[1]
+        startup_seconds=(startup_published['uptime_before_s']+startup_published['uptime_after_s'] \
+            - rows[0]['uptime_before_s']-rows[0]['uptime_after_s'])/2
+        if not math.isfinite(startup_seconds) or startup_seconds<0:
+            raise ValueError('Invalid startup cache-publication duration')
+        first_native=[r for r in rows if r.get('operation')==1]
+        if provenance.get('warm_memory_fast_path_present') is True:
+            if not any(r.get('phase')=='cache_hydration_skipped_warm_memory' \
+                    and r.get('cache_messages')==count and r.get('todos_known') is True for r in first_native):
+                raise ValueError('Prepared warm memory did not exercise the new disk-hydration shortcut')
+        elif not any(r.get('phase')=='disk_cache_json_decoded' and r.get('cache_messages')==count for r in first_native):
+            raise ValueError('Baseline first selection did not observe the full redundant disk decode')
+        request_log=[json.loads(line) for line in (p/'requests.jsonl').read_text().splitlines()]
         actions=evidence.get('actions',[])
         stages=['first_open','same_process_revisit','bottom_refresh']
         if [a.get('stage') for a in actions]!=stages: raise ValueError('Completed checkpoint is missing an action')
         used_request_ids=set()
         measured_actions=[]
+        previous_after_id=0
         for operation,action in enumerate(actions,1):
             if action.get('operation')!=operation or action.get('minimum_expected_loaded')!=expected:
                 raise ValueError('UI action has the wrong operation or loaded-history requirement')
@@ -391,12 +421,12 @@ for p in cases:
             ids={r['request_id'] for r in requests}
             if not ids or ids.intersection(used_request_ids): raise ValueError('Canonical HTTP proof is absent or reused from a previous action')
             used_request_ids.update(ids)
-            expected_returns=1 if variant=='patched' or action['stage']=='bottom_refresh' else 2
+            expected_returns=1 if action['stage']=='bottom_refresh' else provenance['initial_canonical_reads']
             returned=[r for r in native if r.get('phase')=='canonical_typed_page_returned']
             if len(returned)!=expected_returns or any(r.get('page_messages')!=count for r in returned):
                 raise ValueError('Unexpected full canonical return count for '+variant+' '+action['stage'])
-            if variant=='patched' and sum(r.get('phase')=='canonical_request_started' for r in native)!=1:
-                raise ValueError('Patched action started a duplicate canonical request')
+            if sum(r.get('phase')=='canonical_request_started' for r in native)!=expected_returns:
+                raise ValueError('Unexpected canonical request-start count for '+variant+' '+action['stage'])
             start_phase='bottom_refresh_started' if action['stage']=='bottom_refresh' else 'selection_started'
             end_phase='bottom_refresh_method_completed' if action['stage']=='bottom_refresh' else 'transcript_reveal_completed'
             start=next(r for r in native if r.get('phase')==start_phase)
@@ -405,18 +435,40 @@ for p in cases:
             published=[r for r in native if r.get('phase')=='canonical_published']
             last=max(published,key=lambda r:r['uptime_after_s'])
             canonical_seconds=(last['uptime_before_s']+last['uptime_after_s']-start['uptime_before_s']-start['uptime_after_s'])/2
+            if not math.isfinite(canonical_seconds) or canonical_seconds<=0:
+                raise ValueError('Invalid canonical publication duration')
             if not math.isfinite(seconds) or seconds<0:
                 raise ValueError('Invalid native action duration')
+            before_id,after_id=(action.get(key) for key in ('request_id_before_action','request_id_after_action'))
+            if not all(isinstance(value,int) and not isinstance(value,bool) for value in (before_id,after_id)) \
+                    or not 0<=before_id<after_id:
+                raise ValueError('Native action lacks a valid HTTP request-start ID window')
+            if before_id<previous_after_id:
+                raise ValueError('HTTP action ID windows overlap or run backwards')
+            previous_after_id=after_id
+            window=[r for r in request_log if before_id<r['request_id']<=after_id]
+            if not ids.issubset({r['request_id'] for r in window}):
+                raise ValueError('Canonical request evidence falls outside its action ID window')
+            detail_gets=[r for r in window if r.get('method')=='GET' \
+                and r.get('path','').startswith('/session/ses_extreme/message/')]
             measured_actions.append({'stage':action['stage'],'native_metric':end_phase,
                 'native_seconds':seconds,'last_canonical_seconds':canonical_seconds,
                 'canonical_request_starts':sum(r.get('phase')=='canonical_request_started' for r in native),
-                'canonical_returns':len(returned)})
+                'canonical_returns':len(returned),
+                'request_id_before_action':before_id,'request_id_after_action':after_id,
+                'http_count_scope':'Requests starting in the UI action ID window, not isolated causal CPU work or cellular wire bytes',
+                'message_detail_get_count':len(detail_gets),
+                'message_detail_response_bytes':sum(r.get('response_bytes',0) for r in detail_gets),
+                'http_response_body_bytes':sum(r.get('response_bytes',0) for r in window),
+                'app_http_response_body_bytes':sum(r.get('response_bytes',0) for r in window if not r.get('path','').startswith('/_lab/')),
+                'disk_cache_decode_count':sum(r.get('phase')=='disk_cache_json_decoded' for r in native),
+                'warm_memory_disk_skip_count':sum(r.get('phase')=='cache_hydration_skipped_warm_memory' for r in native)})
         body_bytes=json.loads((p/'fixture-initial-status.json').read_text())['extreme_profile']['encoded_messages_bytes']
         log=[json.loads(line) for line in (p/'requests.jsonl').read_text().splitlines()]
         full=[r for r in log if r.get('method')=='GET' and r.get('path')=='/session/ses_extreme/message'
             and r.get('status')==200 and not r.get('query',{}).get('before')
             and int(r.get('query',{}).get('limit',['0'])[0])==count and r.get('response_bytes')==body_bytes]
-        expected_bodies=3 if variant=='patched' else 5
+        expected_bodies=2*provenance['initial_canonical_reads']+1
         if len(full)!=expected_bodies:
             raise ValueError('Expected '+str(expected_bodies)+' complete full-history HTTP bodies, found '+str(len(full)))
         if provenance.get('verify_telemetry_retry') is True:
@@ -432,6 +484,8 @@ for p in cases:
             if not retried:
                 raise ValueError('Native startup telemetry did not retry the injected 503 successfully')
         measurements.append({'grouping':grouped,'message_count':count,'canonical_body_bytes':body_bytes,
+            'startup_cache_publication_seconds':startup_seconds,
+            'startup_metric_scope':'Native startup metadata to full cache publication before selection; excludes seed setup and is not XCTest/launch total',
             'full_body_count':len(full),'full_body_bytes':sum(r['response_bytes'] for r in full),'actions':measured_actions})
     except (OSError,ValueError,KeyError,TypeError) as error: errors.append(p.name+': '+str(error))
 Path(root/'validation.json').write_text(json.dumps({'complete':not errors,'measured_case_count':len(cases),

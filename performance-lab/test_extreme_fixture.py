@@ -2,9 +2,12 @@
 import base64
 import http.client
 import json
+import os
 import re
+import subprocess
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import urlencode
 
@@ -12,6 +15,29 @@ import lab
 
 
 class ExtremeFixtureTests(unittest.TestCase):
+    def test_paired_baseline_request_contract_preserves_old_and_deduplicated_runs(self):
+        prefix = (Path(__file__).parent / 'run-extreme-session.sh').read_text().split('build_root=', 1)[0]
+        cases = [('baseline', None, '2'),
+                 ('patched', None, '1'),
+                 ('baseline', '37fa58b3ae9957b6e5d95dc9919841b3eaa58421', '1'),
+                 ('patched', '37fa58b3ae9957b6e5d95dc9919841b3eaa58421', '1')]
+        for variant, baseline, expected in cases:
+            with self.subTest(variant=variant, baseline=baseline):
+                env = dict(os.environ, OPENCLIENT_EXTREME_VARIANT=variant)
+                env.pop('OPENCLIENT_EXTREME_PAIRED_BASELINE_SHA', None)
+                if baseline is not None:
+                    env['OPENCLIENT_EXTREME_PAIRED_BASELINE_SHA'] = baseline
+                result = subprocess.run(['bash', '-c', prefix + '\nprintf "%s" "$initial_canonical_reads"',
+                    'contract', 'platform=iOS Simulator,id=unused', 'unused-results'],
+                    env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
+        env = dict(os.environ, OPENCLIENT_EXTREME_PAIRED_BASELINE_SHA='0' * 40)
+        result = subprocess.run(['bash', '-c', prefix, 'contract', 'unused', 'unused-results'],
+            env=env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('Unknown paired baseline', result.stderr)
+
     def test_giant_bound_is_validated_before_generating_payloads(self):
         class GenerationReached(Exception):
             pass

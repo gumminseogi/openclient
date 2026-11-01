@@ -48,6 +48,9 @@ extension OpenCodeLocalCacheRepositoryTests {
         XCTAssertEqual(sessions.first?.id, "ses_extreme")
         XCTAssertEqual(sessions.first?.directory, "/openclient-performance-lab")
         let directoryDecoded = ProcessInfo.processInfo.systemUptime
+        let todoStarted = ProcessInfo.processInfo.systemUptime
+        let todos = try await OpenCodeAPIClient(config: config).getTodos(sessionID: "ses_extreme")
+        let todoDownloaded = ProcessInfo.processInfo.systemUptime
         var components = try XCTUnwrap(URLComponents(url: base.appendingPathComponent("session/ses_extreme/message"), resolvingAgainstBaseURL: false))
         components.queryItems = [URLQueryItem(name: "directory", value: "/openclient-performance-lab"),
             URLQueryItem(name: "limit", value: String(count))]
@@ -78,6 +81,10 @@ extension OpenCodeLocalCacheRepositoryTests {
             try checkpoint("cache_write_started", count: messages.count)
             try await repository.saveChatMessages(messages, serverID: config.recentServerID, sessionID: "ses_extreme",
                 refreshedAt: timestamp, writtenAt: .now, coverage: .newestPage(hasOlder: false))
+            // A known (including empty) todo slice mirrors normal persisted chat
+            // state. Use the same stale age as messages for both paired variants.
+            try await repository.saveTodos(todos, serverID: config.recentServerID, sessionID: "ses_extreme",
+                refreshedAt: timestamp, writtenAt: .now)
             try checkpoint("cache_written", count: messages.count)
             let written = ProcessInfo.processInfo.systemUptime
             setup = (data.count, try XCTUnwrap(messages.first?.info.id), try XCTUnwrap(messages.last?.info.id),
@@ -97,6 +104,9 @@ extension OpenCodeLocalCacheRepositoryTests {
         XCTAssertEqual(reread.preparedMessages.messages.first?.id, setup.first)
         XCTAssertEqual(reread.preparedMessages.messages.last?.id, setup.last)
         XCTAssertFalse(reread.areMessagesFresh())
+        XCTAssertEqual(reread.todos, todos)
+        XCTAssertNotNil(reread.todosRefreshedAt)
+        XCTAssertFalse(reread.areTodosFresh())
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: false)
         let storeURL = support.appendingPathComponent("OpenCodeLocalSnapshotCache.store")
@@ -106,6 +116,11 @@ extension OpenCodeLocalCacheRepositoryTests {
             "session_id": "ses_extreme", "server_id": config.recentServerID,
             "messages": count, "readback_messages": reread.preparedMessages.messages.count,
             "readback_used_second_repository": true, "encoded_response_bytes": setup.bytes,
+            "todos": todos.count, "readback_todos": reread.todos.count,
+            "readback_todos_known": reread.todosRefreshedAt != nil,
+            "readback_todos_stale": !reread.areTodosFresh(),
+            "todos_via_production_api": true,
+            "todos_http_seconds": todoDownloaded - todoStarted,
             "directory_sessions": sessions.count, "readback_directory_sessions": directoryReread.sessions.count,
             "readback_directory_session_ids": directoryReread.sessions.map(\.id),
             "directory_metadata_encoded_response_bytes": directoryData.count,
@@ -118,7 +133,7 @@ extension OpenCodeLocalCacheRepositoryTests {
             "production_cache_write_seconds": setup.write,
             "production_cache_readback_seconds": ProcessInfo.processInfo.systemUptime - setup.writtenAt,
             "repository_factory": "OpenCodeLocalCacheRepositoryFactory.makeDefault; persistent SwiftData through production deferred factory",
-            "scope": "Unmeasured preparation of stale full-history chat and real directory-session metadata through the production persistent writer; not naturally paged history or a UI loading measurement."]
+            "scope": "Unmeasured preparation of stale full-history chat, known stale todos, and real directory-session metadata through the production persistent writer; not naturally paged history or a UI loading measurement."]
         let encoded = try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
         let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         try encoded.write(to: documents.appendingPathComponent("OpenClientExtremeCacheSeed.json"), options: .atomic)

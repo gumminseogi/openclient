@@ -127,7 +127,8 @@ extension ToolGroupingUITests {
             .press(forDuration: 0.05, thenDragTo: transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)),
                    withVelocity: .slow, thenHoldForDuration: 0.2)
         try extremeAttach(mode: mode, trial: trial, grouped: grouped, profile: profile,
-            actions: actions + [["stage": "bottom_refresh", "operation": refreshOperation, "start_uptime_s": refreshStart]],
+            actions: actions + [["stage": "bottom_refresh", "operation": refreshOperation, "start_uptime_s": refreshStart,
+                "request_id_before_action": baseline]],
             launchStart: launchStart, homeObserved: homeObserved, projectTiming: projectTiming, checkpoint: "refresh-gesture", complete: false)
         let refreshEvent = try await extremeNativePhase(base, password: password, phase: "bottom_refresh_method_completed", operation: refreshOperation)
         let refreshCanonicalEvent = try await extremeNativePhase(base, password: password, phase: "canonical_published", operation: refreshOperation,
@@ -137,9 +138,12 @@ extension ToolGroupingUITests {
         let refreshToken = tokenPrefix + "_\(refreshOperation)"
         input.tap(); input.typeText(refreshToken)
         XCTAssertTrue((input.value as? String ?? "").contains(refreshToken))
+        let refreshTypedObserved = ProcessInfo.processInfo.systemUptime
+        let refreshLastRequestID = extremeLastRequestID(try await extremeStatus(base, password: password))
         actions.append(["stage": "bottom_refresh", "operation": refreshOperation,
             "start_uptime_s": refreshStart, "canonical_and_method_observed_uptime_s": refreshCompleteObserved,
-            "typed_token_observed_uptime_s": ProcessInfo.processInfo.systemUptime,
+            "typed_token_observed_uptime_s": refreshTypedObserved,
+            "request_id_before_action": baseline, "request_id_after_action": refreshLastRequestID,
             "requests": refreshProof, "minimum_expected_loaded": expectedMinimum,
             "typed_token": refreshToken, "native_probe_status": ["refresh": refreshEvent, "canonical": refreshCanonicalEvent]])
         try extremeAttach(mode: mode, trial: trial, grouped: grouped, profile: profile,
@@ -170,14 +174,16 @@ extension ToolGroupingUITests {
         }
         let contentObserved = ProcessInfo.processInfo.systemUptime
         try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
-            "content_observed_uptime_s": contentObserved, "native_probe_status": revealEvent], stage + "-visible")
+            "content_observed_uptime_s": contentObserved, "request_id_before_action": baseline,
+            "native_probe_status": revealEvent], stage + "-visible")
         try await extremeWait("Composer is available") { input.exists && input.isHittable }
         input.tap(); input.typeText(token)
         XCTAssertTrue((input.value as? String ?? "").contains(token), "A unique plain token must survive typing.")
         let typedObserved = ProcessInfo.processInfo.systemUptime
         try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
             "content_observed_uptime_s": contentObserved, "typed_token_observed_uptime_s": typedObserved,
-            "typed_token": token, "native_probe_status": revealEvent], stage + "-typed")
+            "request_id_before_action": baseline, "typed_token": token,
+            "native_probe_status": revealEvent], stage + "-typed")
         let canonicalEvent = try await extremeNativePhase(base, password: password, phase: "canonical_published", operation: operation,
             minimumLoaded: expectedMinimum)
         let proof = try await extremeCanonicalProof(base, password: password, after: baseline, minimum: expectedMinimum)
@@ -185,14 +191,18 @@ extension ToolGroupingUITests {
         try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
             "content_observed_uptime_s": contentObserved, "typed_token_observed_uptime_s": typedObserved,
             "canonical_observed_uptime_s": canonicalObserved, "requests": proof,
+            "request_id_before_action": baseline,
             "native_probe_status": ["reveal": revealEvent, "canonical": canonicalEvent]], stage + "-canonical")
         let postToken = token + "_C"
         input.tap(); input.typeText(postToken)
         XCTAssertTrue((input.value as? String ?? "").contains(postToken))
+        let postTypedObserved = ProcessInfo.processInfo.systemUptime
+        let lastRequestID = extremeLastRequestID(try await extremeStatus(base, password: password))
         return ["stage": stage, "operation": operation, "start_uptime_s": opened,
             "content_observed_uptime_s": contentObserved, "typed_token_observed_uptime_s": typedObserved,
             "canonical_observed_uptime_s": canonicalObserved,
-            "post_canonical_typed_token_observed_uptime_s": ProcessInfo.processInfo.systemUptime,
+            "post_canonical_typed_token_observed_uptime_s": postTypedObserved,
+            "request_id_before_action": baseline, "request_id_after_action": lastRequestID,
             "post_canonical_typed_token": postToken,
             "requests": proof, "minimum_expected_loaded": expectedMinimum,
             "typed_token": token, "native_probe_status": ["reveal": revealEvent, "canonical": canonicalEvent]]
