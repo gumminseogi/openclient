@@ -317,14 +317,21 @@ extension ToolGroupingUITests {
     }
 
     private func extremeShowProjectSidebar(_ app: XCUIApplication) async throws {
-        for attempt in 0...3 {
+        let deadline = ProcessInfo.processInfo.systemUptime + 30
+        for level in 0...3 {
             let project = app.buttons["projects.project.lab"]
             if project.exists && project.isHittable { return }
-            guard attempt < 3 else { throw labFailure("Native back navigation did not reveal the owned project.") }
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
-                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)),
-                       withVelocity: .slow, thenHoldForDuration: 0.1)
-            try await Task.sleep(for: .milliseconds(500))
+            guard level < 3, ProcessInfo.processInfo.systemUptime < deadline else {
+                throw labFailure("Native back navigation did not reveal the owned project.")
+            }
+            let back = app.navigationBars.buttons.matching(identifier: "BackButton").firstMatch
+            try await extremeWait("Owned project or native BackButton is available",
+                timeout: max(0, deadline - ProcessInfo.processInfo.systemUptime)) {
+                    (project.exists && project.isHittable) || (back.exists && back.isHittable)
+                }
+            if project.exists && project.isHittable { return }
+            print("EXTREME native back tap level=\(level + 1) label=\(back.label)")
+            back.tap()
         }
     }
 
