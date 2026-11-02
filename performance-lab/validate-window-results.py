@@ -211,12 +211,21 @@ def validate(root):
         if cached:
             require(not any(r.get('phase') in ('canonical_request_started', 'canonical_typed_page_returned', 'canonical_published')
                             for r in native), 'Cached revisit unexpectedly performed canonical loading')
-            ready = one(native, 'cached_transcript_reused')
+            ready_callbacks = [r for r in native if r.get('phase') == 'cached_transcript_reused']
+            require(ready_callbacks and all(r.get('loaded_messages') == expected_loaded for r in ready_callbacks),
+                    'Cached revisit has missing or inconsistent ready callbacks')
+            require(all(midpoint(r) >= midpoint(start) for r in ready_callbacks),
+                    'Cached revisit ready callback predates its selection')
+            # Facade reentry can publish this idempotent state more than once.
+            # Native readiness is the first publication; HTTP status polling may
+            # embed a later genuine callback without changing that timestamp.
+            ready = min(ready_callbacks, key=midpoint)
             expected_status['cache_reuse'] = ready
         else:
             requested = one(native, 'canonical_request_started')
             returned = one(native, 'canonical_typed_page_returned')
             ready = one(native, 'canonical_published')
+            ready_callbacks = [ready]
             require(requested.get('request_limit') == limit and returned.get('page_messages') == expected_loaded,
                     f'{stage}: wrong native canonical request/page size')
             require(midpoint(start) <= midpoint(requested) <= midpoint(returned) <= midpoint(ready),
@@ -277,7 +286,7 @@ def validate(root):
             'ui_start_uptime_s': ui_start, 'ui_visible_uptime_s': ui_visible, 'ui_ready_uptime_s': ui_ready,
             'request_id_before_action': before, 'request_id_after_action': after,
             'canonical_get_count': len(canonical), 'canonical_response_bytes': sum(r['response_bytes'] for r in canonical),
-            'canonical_request_ids': sorted(ids), 'canonical_requests': canonical, 'native_ready_phase': ready['phase'],
+            'canonical_request_ids': sorted(ids), 'canonical_requests': canonical, 'native_ready_phase': ready['phase'], 'native_ready_callback_count': len(ready_callbacks),
             'message_detail_get_count': len(details),
             'message_detail_response_bytes': sum(r['response_bytes'] for r in details),
             'app_response_body_bytes': sum(r['response_bytes'] for r in window if app_get(r)),

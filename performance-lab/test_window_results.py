@@ -120,6 +120,32 @@ def make_run(root, variant='patched', count=1000):
     return case
 
 
+def add_cached_callbacks(case):
+    """Model facade reentry and remount callbacks; polling sees the latest."""
+    path = case / 'probes/app.jsonl'
+    rows = validator.read_jsonl(path)
+    first = next(row for row in rows if row['phase'] == 'cached_transcript_reused')
+    later = []
+    for offset in (1, 2):
+        row = copy.deepcopy(first)
+        for key in ('uptime_before_s', 'uptime_after_s', 'epoch_s'):
+            row[key] += offset
+        later.append(row)
+    index = rows.index(first) + 1
+    rows[index:index] = later
+    reentry = copy.deepcopy(first)
+    reentry['operation'] = 1
+    for key in ('uptime_before_s', 'uptime_after_s', 'epoch_s'):
+        reentry[key] -= 17  # After op1's canonical publication, before op2 starts.
+    index = next(index for index, row in enumerate(rows) if row.get('operation') == 2)
+    rows.insert(index, reentry)
+    write_rows(path, rows)
+    ui_path = case / 'attachments/completed.json'
+    ui = json.loads(ui_path.read_text())
+    ui['actions'][1]['native_probe_status']['cache_reuse'] = copy.deepcopy(later[-1])
+    write(ui_path, ui)
+
+
 class WindowResultsTests(unittest.TestCase):
     def test_realistic_variants_and_small_canary_metrics(self):
         for variant in ('baseline', 'patched'):
@@ -137,6 +163,66 @@ class WindowResultsTests(unittest.TestCase):
                     self.assertEqual(result['totals']['message_detail_get_count'], 1)
                     self.assertEqual(result['totals']['canonical_get_count'], 3 if variant == 'patched' else 4)
                     self.assertEqual(result['totals']['app_response_body_bytes'] - result['totals']['canonical_response_bytes'], 321 + 456)
+
+    def test_repeated_consistent_cached_callbacks_use_earliest_ready_time(self):
+        for count in (64, 1000):
+            with self.subTest(count=count), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                case = make_run(root, count=count)
+                add_cached_callbacks(case)
+                original = (case / 'probes/app.jsonl').read_bytes()
+                result = validator.validate(root)
+                self.assertTrue(result['complete'])
+                self.assertEqual([action['native_ready_callback_count'] for action in result['actions']], [1, 3, 1])
+                revisit = result['actions'][1]
+                self.assertAlmostEqual(revisit['native_ready_seconds'], 3)
+                self.assertAlmostEqual(revisit['native_ready_uptime_s'], 43.00005)
+                self.assertEqual(revisit['loaded_messages'], min(count, 400))
+                self.assertEqual(revisit['canonical_get_count'], 0)
+                self.assertEqual((case / 'probes/app.jsonl').read_bytes(), original, 'Validation must preserve every raw callback')
+
+    def test_repeated_cached_callbacks_cannot_hide_inconsistent_or_fabricated_proof(self):
+        flaws = ('later_wrong_count', 'wrong_operation', 'wrong_kind', 'wrong_group', 'missing_all',
+                 'embedded_fake_phase', 'unexpected_canonical', 'unexpected_http')
+        for flaw in flaws:
+            with self.subTest(flaw=flaw), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                case = make_run(root)
+                add_cached_callbacks(case)
+                path = case / 'probes/app.jsonl'
+                rows = validator.read_jsonl(path)
+                callbacks = [r for r in rows if r['phase'] == 'cached_transcript_reused']
+                latest = callbacks[-1]
+                if flaw == 'later_wrong_count':
+                    latest['loaded_messages'] = 1000
+                elif flaw == 'wrong_operation':
+                    for callback in callbacks:
+                        callback['operation'] = 1
+                elif flaw == 'wrong_kind':
+                    latest['operation_kind'] = 'bottom_refresh'
+                elif flaw == 'wrong_group':
+                    latest['grouping_actual'] = True
+                elif flaw == 'missing_all':
+                    rows = [r for r in rows if r['phase'] != 'cached_transcript_reused']
+                elif flaw == 'embedded_fake_phase':
+                    ui_path = case / 'attachments/completed.json'
+                    ui = json.loads(ui_path.read_text())
+                    ui['actions'][1]['native_probe_status']['cache_reuse']['phase'] = 'canonical_published'
+                    write(ui_path, ui)
+                elif flaw == 'unexpected_canonical':
+                    unexpected = copy.deepcopy(latest)
+                    unexpected['phase'] = 'canonical_published'
+                    rows.append(unexpected)
+                else:
+                    log_path = case / 'requests.jsonl'
+                    log = validator.read_jsonl(log_path)
+                    unexpected = copy.deepcopy(next(r for r in log if r['request_id'] == 12))
+                    unexpected['request_id'] = 32
+                    log.append(unexpected)
+                    write_rows(log_path, log)
+                write_rows(path, rows)
+                with self.assertRaises(ValueError):
+                    validator.validate(root)
 
     def test_rejects_misleading_or_incomplete_evidence(self):
         mutations = {
