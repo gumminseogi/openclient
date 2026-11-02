@@ -947,6 +947,20 @@ private struct ForbiddenLocalCacheRepository: OpenCodeLocalCacheRepository {
         return nil
     }
 
+    func loadChatPreview(serverID: String, sessionID: String) async throws -> OpenCodeCachedChatPreview? {
+        guard let snapshot = try await loadChat(serverID: serverID, sessionID: sessionID) else { return nil }
+        return OpenCodeCachedChatPreview(snapshot: snapshot,
+            hasOlderMessages: snapshot.messages.count >= OpenCodeCachedChatPreview.messageLimit,
+            retainedMessageCount: snapshot.messages.count, hasRetainedHistory: true)
+    }
+
+    func saveChatPreview(_ messages: [OpenCodeMessageEnvelope], hasOlderMessages: Bool,
+                         serverID: String, sessionID: String, refreshedAt: Date, writtenAt: Date,
+                         coverage: OpenCodeLocalCacheTranscriptCoverage) async throws {
+        if let chatSave { chatSave(sessionID); return }
+        access.fulfill()
+    }
+
     func saveChatMessages(_ messages: [OpenCodeMessageEnvelope], serverID: String, sessionID: String, refreshedAt: Date, writtenAt: Date, coverage: OpenCodeLocalCacheTranscriptCoverage) async throws {
         if let chatSave { chatSave(sessionID); return }
         access.fulfill()

@@ -63,7 +63,8 @@ final class InitialChatHydrationTests: XCTestCase {
         }
         await model.refreshChatData(for: session.id)
         XCTAssertEqual(reads, 2, "Explicit refresh is never memoized by the initial hydration task")
-        XCTAssertEqual(Set(model.messages.map(\.id)), ["msg_1", "msg_refreshed"])
+        XCTAssertEqual(model.messages.map(\.id), ["msg_refreshed"],
+            "A complete server inventory removes rows absent from the refreshed transcript")
     }
 
     func testFailedInitialReadCanRetryWithinSameNavigation() async throws {
@@ -119,7 +120,7 @@ final class InitialChatHydrationTests: XCTestCase {
         // Same ID and navigation generation still require a new read for a different scope.
         try await model.chatFacade.loadInitialMessages(for: moved, prefetchToolDetails: false, refreshTodos: false)
         XCTAssertEqual(reads, 3)
-        XCTAssertEqual(Set(model.messages.map(\.id)), ["msg_2", "msg_3"])
+        XCTAssertEqual(model.messages.map(\.id), ["msg_3"])
         XCTAssertTrue(model.directoryStore.syncState.messageEnvelopes(forSessionID: session.id).isEmpty)
     }
 
@@ -151,7 +152,8 @@ final class InitialChatHydrationTests: XCTestCase {
         release?.resume()
         await old.value
         XCTAssertEqual(reads, 4)
-        XCTAssertEqual(Set(model.messages.map(\.id)), ["msg_1", "msg_2", "msg_4"])
+        XCTAssertEqual(model.messages.map(\.id), ["msg_4"],
+            "The new connection's complete inventory replaces earlier snapshots")
     }
 
     private func makeModel() -> AppViewModel {

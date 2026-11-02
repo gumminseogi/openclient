@@ -335,6 +335,7 @@ extension AppViewModel {
         isApplicationActive = isActive
         providerUsageFacade.applicationActivityChanged(isActive: isActive)
         guard isActive else {
+            directoryStoreRegistry.interruptLegacyContinuity()
             chatFacade.foregroundChatRefreshCoordinator.invalidate()
             foregroundChatCatchUpTask = nil
             cancelAutomaticConnectionRetryTask()

@@ -8,6 +8,31 @@ private struct OpenCodeCachedDirectoryPayload: Codable {
     let questions: [OpenCodeQuestionRequest]?
 }
 
+private struct OpenCodeCachedChatRemovals: Codable {
+    var messages: [String: Date] = [:]
+    var parts: [String: [String: Date]] = [:]
+
+    func applying(to source: [OpenCodeMessageEnvelope]) -> [OpenCodeMessageEnvelope] {
+        source.filter { messages[$0.id] == nil }.map { envelope in
+            guard let removed = parts[envelope.id] else { return envelope }
+            var envelope = envelope
+            envelope.parts.removeAll { part in part.id.map { removed[$0] != nil } ?? false }
+            return envelope
+        }
+    }
+
+    mutating func discard(through date: Date) {
+        messages = messages.filter { $0.value > date }
+        parts = parts.mapValues { $0.filter { $0.value > date } }.filter { !$0.value.isEmpty }
+    }
+}
+
+private struct OpenCodeCachedNewestWindowProof: Codable {
+    let firstMessage: OpenCodeMessage
+    let messageIDs: Set<String>
+    let writtenAt: Date
+}
+
 @Model
 final class OpenCodeCachedProjectsRecord {
     @Attribute(.unique) var key: String
@@ -80,6 +105,30 @@ final class OpenCodeCachedChatRecord {
     }
 }
 
+@Model
+final class OpenCodeCachedChatPreviewRecord {
+    @Attribute(.unique) var key: String
+    var serverID: String
+    var sessionID: String
+    var messagesPayload: Data?
+    var todosPayload: Data?
+    var messagesRefreshedAt: Date?
+    var todosRefreshedAt: Date?
+    var messagesWrittenAt: Date = Date.distantPast
+    var todosWrittenAt: Date = Date.distantPast
+    var deletedAt: Date?
+    var hasOlderMessages: Bool = false
+    var retainedMessageCount: Int?
+    var newestProofsPayload: Data?
+    var removalsPayload: Data?
+
+    init(key: String, serverID: String, sessionID: String) {
+        self.key = key
+        self.serverID = serverID
+        self.sessionID = sessionID
+    }
+}
+
 enum OpenCodeLocalCacheSchemaV1: VersionedSchema {
     static var versionIdentifier: Schema.Version {
         Schema.Version(1, 0, 0)
@@ -94,13 +143,21 @@ enum OpenCodeLocalCacheSchemaV1: VersionedSchema {
     }
 }
 
+enum OpenCodeLocalCacheSchemaV2: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 0) }
+
+    static var models: [any PersistentModel.Type] {
+        OpenCodeLocalCacheSchemaV1.models + [OpenCodeCachedChatPreviewRecord.self]
+    }
+}
+
 enum OpenCodeLocalCacheMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [OpenCodeLocalCacheSchemaV1.self]
+        [OpenCodeLocalCacheSchemaV1.self, OpenCodeLocalCacheSchemaV2.self]
     }
 
     static var stages: [MigrationStage] {
-        []
+        [.lightweight(fromVersion: OpenCodeLocalCacheSchemaV1.self, toVersion: OpenCodeLocalCacheSchemaV2.self)]
     }
 }
 
@@ -267,13 +324,46 @@ actor SwiftDataOpenCodeLocalCacheRepository: OpenCodeLocalCacheRepository {
         sessionID: String
     ) async throws -> OpenCodeCachedChatSnapshot? {
         let key = OpenCodeLocalCacheKey.make([serverID, sessionID])
-        guard let record = try chatRecord(forKey: key) else { return nil }
-        guard record.deletedAt == nil else { return nil }
+        guard let record = try chatRecord(forKey: key), record.deletedAt == nil else {
+            guard !OpenCodeLocalCacheIdentity.isV2(serverID),
+                  let preview = try await loadChatPreview(serverID: serverID, sessionID: sessionID) else { return nil }
+            return OpenCodeCachedChatSnapshot(preparedMessages: preview.snapshot.preparedMessages,
+                todos: preview.snapshot.todos, messagesRefreshedAt: nil,
+                todosRefreshedAt: preview.snapshot.todosRefreshedAt)
+        }
 
-        let messages = record.messagesPayload
+        var messages = record.messagesPayload
             .flatMap { try? decode([OpenCodeMessageEnvelope].self, from: $0) }
+        let decodedRetainedMessages = messages != nil
         let todos = record.todosPayload
             .flatMap { try? decode([OpenCodeTodo].self, from: $0) }
+        var loadedTodos = todos ?? []
+        var todosRefreshedAt = todos == nil ? nil : record.todosRefreshedAt
+        if !OpenCodeLocalCacheIdentity.isV2(serverID),
+           let preview = try previewRecord(forKey: key), preview.deletedAt == nil {
+            let removals = removals(in: preview)
+            let proofs = newestProofs(in: preview).filter { $0.writtenAt >= record.messagesWrittenAt }
+            messages = messages.map { existing in
+                existing.filter { message in
+                    guard let proof = proofs.last(where: {
+                        !OpenCodeMessage.isOrderedBefore(message.info, $0.firstMessage)
+                    }) else { return true }
+                    return proof.messageIDs.contains(message.id)
+                }
+            }
+            if preview.messagesWrittenAt >= record.messagesWrittenAt,
+               let payload = preview.messagesPayload,
+               let window = try? decode([OpenCodeMessageEnvelope].self, from: payload) {
+                messages = mergingPreview(window, into: messages ?? [])
+            }
+            if preview.todosWrittenAt >= record.todosWrittenAt,
+               let payload = preview.todosPayload,
+               let previewTodos = try? decode([OpenCodeTodo].self, from: payload) {
+                loadedTodos = previewTodos
+                todosRefreshedAt = preview.todosRefreshedAt
+            }
+            messages = messages.map { removals.applying(to: $0) }
+        }
 
         return OpenCodeCachedChatSnapshot(
             preparedMessages: OpenCodeCachedMessageState(
@@ -281,10 +371,111 @@ actor SwiftDataOpenCodeLocalCacheRepository: OpenCodeLocalCacheRepository {
                 sessionID: sessionID,
                 preservingOrder: OpenCodeLocalCacheIdentity.isV2(serverID)
             ),
-            todos: OpenCodeLocalCacheIdentity.isV2(serverID) ? [] : todos ?? [],
-            messagesRefreshedAt: OpenCodeLocalCacheIdentity.isV2(serverID) ? nil : messages == nil ? nil : record.messagesRefreshedAt,
-            todosRefreshedAt: OpenCodeLocalCacheIdentity.isV2(serverID) ? nil : todos == nil ? nil : record.todosRefreshedAt
+            todos: OpenCodeLocalCacheIdentity.isV2(serverID) ? [] : loadedTodos,
+            messagesRefreshedAt: OpenCodeLocalCacheIdentity.isV2(serverID) || !decodedRetainedMessages ? nil : record.messagesRefreshedAt,
+            todosRefreshedAt: OpenCodeLocalCacheIdentity.isV2(serverID) ? nil : todosRefreshedAt
         )
+    }
+
+    func loadChatPreview(serverID: String, sessionID: String) async throws -> OpenCodeCachedChatPreview? {
+        guard !OpenCodeLocalCacheIdentity.isV2(serverID) else { return nil }
+        let key = OpenCodeLocalCacheKey.make([serverID, sessionID])
+        guard let record = try previewRecord(forKey: key), record.deletedAt == nil,
+              let payload = record.messagesPayload,
+              let messages = try? decode([OpenCodeMessageEnvelope].self, from: payload) else { return nil }
+        let todos = record.todosPayload.flatMap { try? decode([OpenCodeTodo].self, from: $0) }
+        let visibleMessages = removals(in: record).applying(to: messages)
+        let hasRetainedHistory = try hasRetainedChat(forKey: key)
+        return OpenCodeCachedChatPreview(
+            snapshot: OpenCodeCachedChatSnapshot(
+                preparedMessages: OpenCodeCachedMessageState(envelopes: visibleMessages, sessionID: sessionID),
+                todos: todos ?? [], messagesRefreshedAt: record.messagesRefreshedAt,
+                todosRefreshedAt: todos == nil ? nil : record.todosRefreshedAt
+            ),
+            hasOlderMessages: record.hasOlderMessages,
+            retainedMessageCount: hasRetainedHistory ? record.retainedMessageCount : nil,
+            hasRetainedHistory: hasRetainedHistory
+        )
+    }
+
+    func saveChatPreview(
+        _ messages: [OpenCodeMessageEnvelope], hasOlderMessages: Bool,
+        serverID: String, sessionID: String, refreshedAt: Date, writtenAt: Date,
+        coverage: OpenCodeLocalCacheTranscriptCoverage
+    ) async throws {
+        guard !OpenCodeLocalCacheIdentity.isV2(serverID),
+              try canWritePreview(serverID: serverID, sessionID: sessionID, writtenAt: writtenAt) else { return }
+        let key = OpenCodeLocalCacheKey.make([serverID, sessionID])
+        let record = try previewRecord(forKey: key) ?? insertPreviewRecord(key: key, serverID: serverID, sessionID: sessionID)
+        var removals = removals(in: record)
+        let isNewest: Bool
+        if case .newestPage = coverage { isNewest = true } else { isNewest = false }
+        if isNewest, !hasOlderMessages { removals.discard(through: writtenAt) }
+        var source = messages
+        if !isNewest, let payload = record.messagesPayload,
+           let existing = try? decode([OpenCodeMessageEnvelope].self, from: payload) {
+            source = mergingPreview(messages, into: existing)
+        }
+        source = removals.applying(to: source)
+        let window = Array(source.filter { $0.info.sessionID == sessionID }
+            .sorted { OpenCodeMessage.isOrderedBefore($0.info, $1.info) }
+            .suffix(OpenCodeCachedChatPreview.messageLimit))
+        record.messagesPayload = try encode(window)
+        record.removalsPayload = try encode(removals)
+        record.messagesRefreshedAt = refreshedAt
+        record.messagesWrittenAt = writtenAt
+        record.hasOlderMessages = hasOlderMessages || source.count > window.count || (!isNewest && record.hasOlderMessages)
+        if isNewest {
+            var proofs = newestProofs(in: record)
+            if !hasOlderMessages { proofs = [] }
+            else if let first = window.first {
+                let ids = Set(window.map(\.id))
+                proofs.removeAll {
+                    $0.messageIDs == ids
+                        && !OpenCodeMessage.isOrderedBefore($0.firstMessage, first.info)
+                        && !OpenCodeMessage.isOrderedBefore(first.info, $0.firstMessage)
+                }
+                // ponytail: distinct proofs grow until full reconciliation; coalesce ranges if long uninterrupted sessions need it.
+                proofs.append(OpenCodeCachedNewestWindowProof(firstMessage: first.info,
+                    messageIDs: ids, writtenAt: writtenAt))
+            }
+            record.newestProofsPayload = try encode(proofs)
+        }
+        record.deletedAt = nil
+        // An authoritative complete response may replace an obsolete archive without decoding it.
+        if isNewest, !hasOlderMessages {
+            try replaceRetainedMessages(source, serverID: serverID, sessionID: sessionID,
+                refreshedAt: refreshedAt, writtenAt: writtenAt)
+            record.retainedMessageCount = source.count
+        }
+        try modelContext.save()
+        latestMessagesWrittenAtByKey[key] = writtenAt
+    }
+
+    func applyChatRemoval(
+        serverID: String, sessionID: String, messageID: String, partID: String?, writtenAt: Date
+    ) async throws {
+        guard !OpenCodeLocalCacheIdentity.isV2(serverID),
+              try canWritePreview(serverID: serverID, sessionID: sessionID, writtenAt: writtenAt) else { return }
+        let key = OpenCodeLocalCacheKey.make([serverID, sessionID])
+        let record = try previewRecord(forKey: key) ?? insertPreviewRecord(key: key, serverID: serverID, sessionID: sessionID)
+        var removed = removals(in: record)
+        if let partID {
+            var parts = removed.parts[messageID] ?? [:]
+            parts[partID] = max(parts[partID] ?? .distantPast, writtenAt)
+            removed.parts[messageID] = parts
+        } else {
+            removed.messages[messageID] = max(removed.messages[messageID] ?? .distantPast, writtenAt)
+        }
+        record.removalsPayload = try encode(removed)
+        if let payload = record.messagesPayload,
+           let messages = try? decode([OpenCodeMessageEnvelope].self, from: payload) {
+            record.messagesPayload = try encode(removed.applying(to: messages))
+        }
+        record.retainedMessageCount = nil
+        record.messagesWrittenAt = writtenAt
+        try modelContext.save()
+        latestMessagesWrittenAtByKey[key] = writtenAt
     }
 
     func saveChatMessages(
@@ -297,6 +488,15 @@ actor SwiftDataOpenCodeLocalCacheRepository: OpenCodeLocalCacheRepository {
     ) async throws {
         guard writtenAt > (clearedAtByNamespace[serverID] ?? .distantPast) else { return }
         let key = OpenCodeLocalCacheKey.make([serverID, sessionID])
+        guard writtenAt >= (latestMessagesWrittenAtByKey[key] ?? .distantPast) else { return }
+        if !OpenCodeLocalCacheIdentity.isV2(serverID) {
+            guard try canWritePreview(serverID: serverID, sessionID: sessionID, writtenAt: writtenAt) else { return }
+        }
+        if !OpenCodeLocalCacheIdentity.isV2(serverID), case .newestPage(hasOlder: true) = coverage {
+            try await saveChatPreview(messages, hasOlderMessages: true, serverID: serverID,
+                sessionID: sessionID, refreshedAt: refreshedAt, writtenAt: writtenAt, coverage: coverage)
+            return
+        }
         let record = try chatRecord(forKey: key)
         if let record {
             let latestWrittenAt = max(record.messagesWrittenAt, latestMessagesWrittenAtByKey[key] ?? .distantPast)
@@ -308,6 +508,11 @@ actor SwiftDataOpenCodeLocalCacheRepository: OpenCodeLocalCacheRepository {
             try? decode([OpenCodeMessageEnvelope].self, from: $0)
         }
         var messages = messages
+        if !OpenCodeLocalCacheIdentity.isV2(serverID), let preview = try previewRecord(forKey: key) {
+            var removed = removals(in: preview)
+            if case .newestPage(hasOlder: false) = coverage { removed.discard(through: writtenAt) }
+            messages = removed.applying(to: messages)
+        }
         if OpenCodeLocalCacheIdentity.isV2(serverID) {
             // A bounded HTTP page is not a deletion manifest for unloaded history.
             // Merge canonical IDs; oldest entries may be evicted for capacity,
@@ -352,6 +557,10 @@ actor SwiftDataOpenCodeLocalCacheRepository: OpenCodeLocalCacheRepository {
                record.deletedAt == nil {
                 latestMessagesWrittenAtByKey[key] = writtenAt
                 record.messagesWrittenAt = writtenAt
+                if !OpenCodeLocalCacheIdentity.isV2(serverID) {
+                    try mirrorFullChatPreview(messages, serverID: serverID, sessionID: sessionID,
+                        refreshedAt: refreshedAt, writtenAt: writtenAt, coverage: coverage)
+                }
                 try modelContext.save()
                 return
             }
@@ -373,6 +582,10 @@ actor SwiftDataOpenCodeLocalCacheRepository: OpenCodeLocalCacheRepository {
                     messagesWrittenAt: writtenAt
                 )
             )
+        }
+        if !OpenCodeLocalCacheIdentity.isV2(serverID) {
+            try mirrorFullChatPreview(messages, serverID: serverID, sessionID: sessionID,
+                refreshedAt: refreshedAt, writtenAt: writtenAt, coverage: coverage)
         }
         try modelContext.save()
         latestMessagesWrittenAtByKey[key] = writtenAt
@@ -399,6 +612,7 @@ actor SwiftDataOpenCodeLocalCacheRepository: OpenCodeLocalCacheRepository {
                record.deletedAt == nil {
                 latestTodosWrittenAtByKey[key] = writtenAt
                 record.todosWrittenAt = writtenAt
+                try mirrorPreviewTodos(record, key: key)
                 try modelContext.save()
                 return
             }
@@ -420,11 +634,17 @@ actor SwiftDataOpenCodeLocalCacheRepository: OpenCodeLocalCacheRepository {
                 )
             )
         }
+        if let record = try chatRecord(forKey: key) { try mirrorPreviewTodos(record, key: key) }
         try modelContext.save()
         latestTodosWrittenAtByKey[key] = writtenAt
     }
 
     func removeSession(serverID: String, sessionID: String, removedAt: Date) async throws {
+        if !OpenCodeLocalCacheIdentity.isV2(serverID) {
+            let key = OpenCodeLocalCacheKey.make([serverID, sessionID])
+            if let preview = try previewRecord(forKey: key),
+               removedAt < max(preview.messagesWrittenAt, preview.todosWrittenAt) { return }
+        }
         for record in try directorySessionRecords(serverID: serverID) {
             guard removedAt >= record.writtenAt else { continue }
             let payload = try directoryPayload(from: record.payload)
@@ -467,6 +687,25 @@ actor SwiftDataOpenCodeLocalCacheRepository: OpenCodeLocalCacheRepository {
                 )
             )
         }
+        if !OpenCodeLocalCacheIdentity.isV2(serverID) {
+            let preview = try previewRecord(forKey: chatKey)
+                ?? insertPreviewRecord(key: chatKey, serverID: serverID, sessionID: sessionID)
+            if removedAt >= max(preview.messagesWrittenAt, preview.todosWrittenAt),
+               removedAt >= max(latestMessagesWrittenAtByKey[chatKey] ?? .distantPast,
+                                latestTodosWrittenAtByKey[chatKey] ?? .distantPast),
+               preview.deletedAt.map({ removedAt >= $0 }) ?? true {
+                preview.messagesPayload = nil
+                preview.todosPayload = nil
+                preview.removalsPayload = nil
+                preview.newestProofsPayload = nil
+                preview.messagesRefreshedAt = nil
+                preview.todosRefreshedAt = nil
+                preview.messagesWrittenAt = removedAt
+                preview.todosWrittenAt = removedAt
+                preview.deletedAt = removedAt
+                preview.retainedMessageCount = nil
+            }
+        }
         try modelContext.save()
         latestMessagesWrittenAtByKey[chatKey] = max(
             latestMessagesWrittenAtByKey[chatKey] ?? .distantPast,
@@ -491,7 +730,124 @@ actor SwiftDataOpenCodeLocalCacheRepository: OpenCodeLocalCacheRepository {
             latestTodosWrittenAtByKey[record.key] = nil
             modelContext.delete(record)
         }
+        let targetServerID = serverID
+        let previews = FetchDescriptor<OpenCodeCachedChatPreviewRecord>(predicate: #Predicate { $0.serverID == targetServerID })
+        for record in try modelContext.fetch(previews) {
+            latestMessagesWrittenAtByKey[record.key] = nil
+            latestTodosWrittenAtByKey[record.key] = nil
+            modelContext.delete(record)
+        }
         try modelContext.save()
+    }
+
+    private func previewRecord(forKey key: String) throws -> OpenCodeCachedChatPreviewRecord? {
+        let targetKey = key
+        var descriptor = FetchDescriptor<OpenCodeCachedChatPreviewRecord>(predicate: #Predicate { $0.key == targetKey })
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first
+    }
+
+    private func insertPreviewRecord(key: String, serverID: String, sessionID: String) -> OpenCodeCachedChatPreviewRecord {
+        let record = OpenCodeCachedChatPreviewRecord(key: key, serverID: serverID, sessionID: sessionID)
+        modelContext.insert(record)
+        return record
+    }
+
+    private func hasRetainedChat(forKey key: String) throws -> Bool {
+        let targetKey = key
+        let descriptor = FetchDescriptor<OpenCodeCachedChatRecord>(
+            predicate: #Predicate { $0.key == targetKey && $0.deletedAt == nil && $0.messagesPayload != nil })
+        return try modelContext.fetchCount(descriptor) > 0
+    }
+
+    private func canWritePreview(serverID: String, sessionID: String, writtenAt: Date) throws -> Bool {
+        guard writtenAt > (clearedAtByNamespace[serverID] ?? .distantPast) else { return false }
+        let key = OpenCodeLocalCacheKey.make([serverID, sessionID])
+        guard writtenAt >= (latestMessagesWrittenAtByKey[key] ?? .distantPast) else { return false }
+        if let record = try previewRecord(forKey: key) {
+            guard writtenAt >= record.messagesWrittenAt,
+                  record.deletedAt.map({ writtenAt > $0 }) ?? true else { return false }
+        }
+        // COUNT checks metadata without materializing a live archive's potentially huge Data blob.
+        let targetKey = key
+        let incoming = writtenAt
+        let newer = FetchDescriptor<OpenCodeCachedChatRecord>(
+            predicate: #Predicate { $0.key == targetKey && $0.messagesWrittenAt > incoming })
+        guard try modelContext.fetchCount(newer) == 0 else { return false }
+        var deleted = FetchDescriptor<OpenCodeCachedChatRecord>(
+            predicate: #Predicate { $0.key == targetKey && $0.deletedAt != nil })
+        deleted.fetchLimit = 1
+        if let deletion = try modelContext.fetch(deleted).first?.deletedAt, writtenAt <= deletion { return false }
+        return true
+    }
+
+    private func removals(in record: OpenCodeCachedChatPreviewRecord) -> OpenCodeCachedChatRemovals {
+        record.removalsPayload.flatMap { try? decode(OpenCodeCachedChatRemovals.self, from: $0) }
+            ?? OpenCodeCachedChatRemovals()
+    }
+
+    private func newestProofs(in record: OpenCodeCachedChatPreviewRecord) -> [OpenCodeCachedNewestWindowProof] {
+        record.newestProofsPayload.flatMap { try? decode([OpenCodeCachedNewestWindowProof].self, from: $0) } ?? []
+    }
+
+    private func mirrorPreviewTodos(_ retained: OpenCodeCachedChatRecord, key: String) throws {
+        let preview = try previewRecord(forKey: key)
+            ?? insertPreviewRecord(key: key, serverID: retained.serverID, sessionID: retained.sessionID)
+        guard retained.todosWrittenAt >= preview.todosWrittenAt else { return }
+        preview.todosPayload = retained.todosPayload
+        preview.todosRefreshedAt = retained.todosRefreshedAt
+        preview.todosWrittenAt = retained.todosWrittenAt
+        preview.deletedAt = nil
+    }
+
+    private func mergingPreview(
+        _ window: [OpenCodeMessageEnvelope], into existing: [OpenCodeMessageEnvelope]
+    ) -> [OpenCodeMessageEnvelope] {
+        let incomingIDs = Set(window.map(\.id))
+        return (existing.filter { !incomingIDs.contains($0.id) } + window)
+            .sorted { OpenCodeMessage.isOrderedBefore($0.info, $1.info) }
+    }
+
+    private func replaceRetainedMessages(
+        _ messages: [OpenCodeMessageEnvelope], serverID: String, sessionID: String,
+        refreshedAt: Date, writtenAt: Date
+    ) throws {
+        let key = OpenCodeLocalCacheKey.make([serverID, sessionID])
+        if let record = try chatRecord(forKey: key) {
+            record.messagesPayload = try encode(messages)
+            record.messagesRefreshedAt = refreshedAt
+            record.messagesWrittenAt = writtenAt
+            record.deletedAt = nil
+        } else {
+            modelContext.insert(OpenCodeCachedChatRecord(key: key, serverID: serverID, sessionID: sessionID,
+                messagesPayload: try encode(messages), messagesRefreshedAt: refreshedAt, messagesWrittenAt: writtenAt))
+        }
+    }
+
+    private func mirrorFullChatPreview(
+        _ messages: [OpenCodeMessageEnvelope], serverID: String, sessionID: String,
+        refreshedAt: Date?, writtenAt: Date, coverage: OpenCodeLocalCacheTranscriptCoverage
+    ) throws {
+        let key = OpenCodeLocalCacheKey.make([serverID, sessionID])
+        let preview = try previewRecord(forKey: key) ?? insertPreviewRecord(key: key, serverID: serverID, sessionID: sessionID)
+        var removed = removals(in: preview)
+        if case .newestPage(hasOlder: false) = coverage { removed.discard(through: writtenAt) }
+        let visible = removed.applying(to: messages)
+        preview.messagesPayload = try encode(Array(visible.sorted {
+            OpenCodeMessage.isOrderedBefore($0.info, $1.info)
+        }.suffix(OpenCodeCachedChatPreview.messageLimit)))
+        preview.messagesRefreshedAt = refreshedAt
+        preview.messagesWrittenAt = writtenAt
+        preview.hasOlderMessages = visible.count > OpenCodeCachedChatPreview.messageLimit
+        preview.retainedMessageCount = visible.count
+        preview.newestProofsPayload = nil
+        preview.removalsPayload = try encode(removed)
+        preview.deletedAt = nil
+        if let retained = try chatRecord(forKey: key), retained.todosWrittenAt >= preview.todosWrittenAt {
+            preview.todosPayload = retained.todosPayload
+            preview.todosRefreshedAt = retained.todosRefreshedAt
+            preview.todosWrittenAt = retained.todosWrittenAt
+        }
     }
 
     private func projectsRecord(forKey key: String) throws -> OpenCodeCachedProjectsRecord? {
@@ -637,7 +993,7 @@ enum OpenCodeLocalCacheRepositoryFactory {
     }
 
     private static func makeContainer(isStoredInMemoryOnly: Bool) throws -> ModelContainer {
-        let schema = Schema(versionedSchema: OpenCodeLocalCacheSchemaV1.self)
+        let schema = Schema(versionedSchema: OpenCodeLocalCacheSchemaV2.self)
         // Keep this experimental cache app-private and disconnected from CloudKit.
         let configuration = ModelConfiguration(
             "OpenCodeLocalSnapshotCache",
@@ -686,6 +1042,26 @@ struct DeferredOpenCodeLocalCacheRepository: OpenCodeLocalCacheRepository {
 
     func loadChat(serverID: String, sessionID: String) async throws -> OpenCodeCachedChatSnapshot? {
         try await repository.value.loadChat(serverID: serverID, sessionID: sessionID)
+    }
+
+    func loadChatPreview(serverID: String, sessionID: String) async throws -> OpenCodeCachedChatPreview? {
+        try await repository.value.loadChatPreview(serverID: serverID, sessionID: sessionID)
+    }
+
+    func saveChatPreview(
+        _ messages: [OpenCodeMessageEnvelope], hasOlderMessages: Bool,
+        serverID: String, sessionID: String, refreshedAt: Date, writtenAt: Date,
+        coverage: OpenCodeLocalCacheTranscriptCoverage
+    ) async throws {
+        try await repository.value.saveChatPreview(messages, hasOlderMessages: hasOlderMessages,
+            serverID: serverID, sessionID: sessionID, refreshedAt: refreshedAt, writtenAt: writtenAt, coverage: coverage)
+    }
+
+    func applyChatRemoval(
+        serverID: String, sessionID: String, messageID: String, partID: String?, writtenAt: Date
+    ) async throws {
+        try await repository.value.applyChatRemoval(serverID: serverID, sessionID: sessionID,
+            messageID: messageID, partID: partID, writtenAt: writtenAt)
     }
 
     func saveChatMessages(_ messages: [OpenCodeMessageEnvelope], serverID: String, sessionID: String, refreshedAt: Date, writtenAt: Date, coverage: OpenCodeLocalCacheTranscriptCoverage) async throws {

@@ -151,6 +151,7 @@ extension AppViewModel {
                     guard self?.eventManager.generation == streamGeneration else { return }
                     self?.debugLastEventSummary = status
                     self?.appendDebugLog(status)
+                    self?.directoryStoreRegistry.receiveLegacyStreamStatus(status)
                 }
             },
             onRawLine: nil,
@@ -158,6 +159,7 @@ extension AppViewModel {
                 await MainActor.run {
                     guard self?.eventManager.generation == streamGeneration else { return }
                     self?.appendDebugLog(message)
+                    self?.directoryStoreRegistry.receiveLegacyDroppedEvent(message)
                 }
             },
             onEvent: { [weak self] managed in
@@ -253,6 +255,9 @@ extension AppViewModel {
             if status.hasPrefix("stream open") { globalFormsFacade.reconnect() }
             debugLastEventSummary = status
             appendDebugLog(status)
+            if connectionStore.apiProfile != .v2 {
+                directoryStoreRegistry.receiveLegacyStreamStatus(status)
+            }
             if connectionStore.apiProfile == .v2 {
                 if status == "stream v2 reconnecting" {
                     v2TimelineReconcileTask?.cancel()
@@ -266,6 +271,9 @@ extension AppViewModel {
             }
         case let .diagnostic(message):
             appendDebugLog(message)
+            if connectionStore.apiProfile != .v2, message.hasPrefix("drop event:") {
+                directoryStoreRegistry.receiveLegacyDroppedEvent(message)
+            }
         case let .actionSignal(signal):
             guard let connection = backendConnection, let commands = connection.commands else { return }
             projectActionCoordinator.receive(signal, backendID: connection.descriptor.id, contractID: commands.actionContractID)
@@ -654,6 +662,7 @@ extension AppViewModel {
     }
 
     func stopEventStream() {
+        directoryStoreRegistry.interruptLegacyContinuity(streamIsOpen: false)
         backendEventTask?.cancel()
         backendEventTask = nil
         backendConnection?.stopEvents()
@@ -714,6 +723,7 @@ extension AppViewModel {
         guard eventSyncCoordinator.shouldProcessEvent(isConnected: isConnected) else { return }
         guard backendConnection?.openCodeCompatibility?.profile != .v2 else { return }
         guard !projectStore.isDirectoryIgnored(managed.directory == "global" ? nil : managed.directory, scopeKey: config.recentServerID) else { return }
+        persistLegacyChatRemoval(managed)
 
         if shouldLogEventDetails(for: managed.envelope.type) {
             appendDebugLog(eventScopeSummary(for: managed))
@@ -766,6 +776,21 @@ extension AppViewModel {
             return
         }
         guard confirmRoutedPromptAdmission(managed, targets: targetStores) else { return }
+        for store in targetStores {
+            switch managed.typed {
+            case let .messageRemoved(sessionID, messageID):
+                store.recordLegacyTranscriptRemoval(sessionID: sessionID, messageID: messageID, partID: nil)
+            case let .messagePartRemoved(messageID, partID):
+                store.recordLegacyTranscriptRemoval(sessionID: managed.envelope.properties.sessionID,
+                    messageID: messageID, partID: partID)
+            case let .sessionDeleted(session):
+                store.discardLegacyTranscript(sessionID: session.id)
+            case let .sessionUpdated(session) where session.isArchived:
+                store.discardLegacyTranscript(sessionID: session.id)
+            default:
+                break
+            }
+        }
         let updatesActiveStore = targetStores.contains { $0 === directoryStore }
 
         if eventAffectsActiveSession(managed) {

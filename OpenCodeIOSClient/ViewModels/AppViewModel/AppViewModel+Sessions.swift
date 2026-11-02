@@ -2439,24 +2439,48 @@ extension AppViewModel {
         let targetStore = canonicalOwner ?? directoryStoreRegistry.ownerStore(forSessionID: session.id) ?? directoryStore
         let targetGeneration = directoryStoreRegistry.generation
         let existingMessages = targetStore.syncState.messageEnvelopes(forSessionID: session.id)
-        #if targetEnvironment(macCatalyst)
-        let messageLimit = max(200, existingMessages.count)
-        #else
-        let messageLimit = max(20, existingMessages.count)
-        #endif
         let connection = try requireBackendConnection()
+        let usesWindowPolicy = connection.openCodeCompatibility?.profile == .legacy
+        let readRevision = targetStore.beginLegacyTranscriptRead(sessionID: session.id)
+        defer { targetStore.endLegacyTranscriptRead(sessionID: session.id, revision: readRevision) }
+        let legacyWindow = targetStore.legacyTranscriptWindows[session.id]
+        let continuityEpoch = directoryStoreRegistry.legacyContinuityEpoch
+        let streamWasOpen = directoryStoreRegistry.legacyStreamIsOpen
+        let requiresInventory = usesWindowPolicy && LegacyTranscriptCoordinator.needsCompleteInventory(
+            window: legacyWindow, streamIsOpen: streamWasOpen, continuityEpoch: continuityEpoch)
+        #if targetEnvironment(macCatalyst)
+        let compatibilityLimit = max(200, existingMessages.count)
+        #else
+        let compatibilityLimit = max(20, existingMessages.count)
+        #endif
+        let messageLimit = usesWindowPolicy
+            ? (requiresInventory ? Int.max : OpenCodeCachedChatPreview.messageLimit) : compatibilityLimit
         let navigationGeneration = sessionNavigationGeneration
-        let page = try await connection.chat.transcript(sessionID: session.id,
-            scope: .init(projectID: session.projectID, directory: session.directory, workspaceID: session.workspaceID), cursor: nil, limit: messageLimit)
+        let page: BackendTranscriptPage
+        if usesWindowPolicy {
+            page = try await LegacyTranscriptCoordinator.read(connection: connection, session: session,
+                completeInventory: requiresInventory)
+        } else {
+            page = try await connection.chat.transcript(sessionID: session.id,
+                scope: .init(projectID: session.projectID, directory: session.directory, workspaceID: session.workspaceID),
+                cursor: nil, limit: messageLimit)
+        }
         guard !Task.isCancelled, isCurrentBackendConnection(connection), directoryStoreRegistry.generation == targetGeneration,
+              targetStore.legacyTranscriptReadRevision(sessionID: session.id) == readRevision,
               (presentationIndependent || sessionNavigationGeneration == navigationGeneration),
               directoryStoreRegistry.key(for: targetStore) != nil else { return [] }
         for message in page.messages where message.info.sessionID == session.id {
             confirmCanonicalPromptAdmission(message.info, connectionID: connection.id)
         }
+        if usesWindowPolicy, selectedSession?.id == session.id {
+            flushPendingTranscriptEvents(reason: "before legacy HTTP commit")
+        }
         let currentMessages = targetStore.syncState.messageEnvelopes(forSessionID: session.id)
-        var loadedMessages = ChatStore.mergingCanonicalMessagePage(page.messages.filter { $0.info.sessionID == session.id },
-            into: chatStore.withoutRecoveryMessages(existingMessages, sessionID: session.id))
+        let isCompleteInventory = page.olderCursor == nil
+        var loadedMessages = LegacyTranscriptCoordinator.mergingNewestPage(
+            page.messages.filter { $0.info.sessionID == session.id },
+            into: chatStore.withoutRecoveryMessages(existingMessages, sessionID: session.id),
+            replacesExisting: usesWindowPolicy && (legacyWindow?.origin != .canonical || isCompleteInventory))
         if currentMessages != existingMessages {
             let previousByID = Dictionary(existingMessages.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
             let removedIDs = Set(previousByID.keys).subtracting(currentMessages.map(\.id))
@@ -2464,6 +2488,8 @@ extension AppViewModel {
             loadedMessages = ChatStore.mergingCanonicalMessagePage(changedMessages, into: loadedMessages)
                 .filter { !removedIDs.contains($0.id) }
         }
+        loadedMessages = targetStore.applyingLegacyTranscriptRemovals(to: loadedMessages,
+            sessionID: session.id, revision: readRevision)
         refreshSessionPreview(for: session.id, messages: loadedMessages)
         let isActiveSession = selectedSession?.id == session.id
         targetStore.applyCanonicalMessages(loadedMessages, forSessionID: session.id)
@@ -2474,10 +2500,21 @@ extension AppViewModel {
         if !canonicalToolDetails.isEmpty {
             toolMessageDetails.merge(canonicalToolDetails, uniquingKeysWith: { _, fresh in fresh })
         }
-        finishTranscriptCommit(in: targetStore, sessionID: session.id, completeInventory: page.messages)
-        chatStore.applyMessageHistoryPage(nextCursor: page.olderCursor, forSessionID: session.id)
+        finishTranscriptCommit(in: targetStore, sessionID: session.id,
+            completeInventory: isCompleteInventory ? loadedMessages : nil)
+        if !usesWindowPolicy || legacyWindow?.origin != .canonical || requiresInventory || isCompleteInventory {
+            chatStore.applyMessageHistoryPage(nextCursor: page.olderCursor, forSessionID: session.id)
+        }
+        let continuous = streamWasOpen && directoryStoreRegistry.legacyStreamIsOpen
+            && directoryStoreRegistry.legacyContinuityEpoch == continuityEpoch
+        if usesWindowPolicy {
+            targetStore.recordLegacyCanonicalWindow(sessionID: session.id,
+                hasOlderMessages: chatStore.hasOlderMessages(forSessionID: session.id),
+                continuityEpoch: continuous ? continuityEpoch : nil)
+        }
         if (try? connection.requireOpenCodeClient(for: .localCache)) != nil {
-            persistLoadedMessagesToLocalCache(loadedMessages, sessionID: session.id)
+            persistLoadedMessagesToLocalCache(loadedMessages, sessionID: session.id,
+                coverage: .newestPage(hasOlder: !isCompleteInventory))
         }
         inferFunAndGames(from: loadedMessages, forSessionID: session.id)
         guard isActiveSession else { return Array(canonicalToolDetails.values) }
@@ -2503,18 +2540,33 @@ extension AppViewModel {
             guard await loadOlderV2Messages(sessionID: session.id, windowContext: windowContext) else { return 0 }
             return max(0, (chatStore.cachedMessagesBySessionID[session.id]?.count ?? 0) - before)
         }
+        let owner = directoryStoreRegistry.ownerStore(forSessionID: session.id) ?? directoryStore
+        if backendConnection?.openCodeCompatibility?.profile == .legacy,
+           owner.legacyTranscriptWindows[session.id]?.origin == .canonical,
+           !directoryStoreRegistry.canReuseLegacyTranscript(owner.legacyTranscriptWindows[session.id]) {
+            let previousCount = owner.syncStore.messageCount(forSessionID: session.id)
+            do {
+                try await loadMessages(for: session, prefetchToolDetails: false, refreshTodos: false,
+                    presentationIndependent: windowContext != nil, canonicalOwner: owner)
+                guard windowContext?.isCurrent ?? true else { return 0 }
+                return max(0, owner.syncStore.messageCount(forSessionID: session.id) - previousCount)
+            } catch { return 0 }
+        }
         guard let connection = try? requireBackendConnection(),
               let cursor = chatStore.beginLoadingOlderMessages(forSessionID: session.id) else { return 0 }
         let targetStore = directoryStoreRegistry.ownerStore(forSessionID: session.id) ?? directoryStore
         let targetGeneration = directoryStoreRegistry.generation
         let existingMessages = targetStore.syncState.messageEnvelopes(forSessionID: session.id)
         let navigationGeneration = sessionNavigationGeneration
+        let readRevision = targetStore.beginLegacyTranscriptRead(sessionID: session.id)
+        defer { targetStore.endLegacyTranscriptRead(sessionID: session.id, revision: readRevision) }
 
         do {
             let page = try await connection.chat.transcript(sessionID: session.id,
                 scope: .init(projectID: session.projectID, directory: session.directory, workspaceID: session.workspaceID),
                 cursor: cursor, limit: max(1, count))
             guard isCurrentBackendConnection(connection), directoryStoreRegistry.generation == targetGeneration,
+                   targetStore.legacyTranscriptReadRevision(sessionID: session.id) == readRevision,
                    (windowContext?.isCurrent ?? (sessionNavigationGeneration == navigationGeneration)),
                   directoryStoreRegistry.key(for: targetStore) != nil else {
                 return 0
@@ -2528,17 +2580,28 @@ extension AppViewModel {
                 chatStore.failLoadingOlderMessages(forSessionID: session.id)
                 return 0
             }
-            let loadedMessages = ChatStore.mergingCanonicalMessagePage(page.messages.filter { $0.info.sessionID == session.id },
-                into: chatStore.withoutRecoveryMessages(existingMessages, sessionID: session.id))
+            let loadedMessages = targetStore.applyingLegacyTranscriptRemovals(
+                to: ChatStore.mergingCanonicalMessagePage(page.messages.filter { $0.info.sessionID == session.id },
+                    into: chatStore.withoutRecoveryMessages(existingMessages, sessionID: session.id)),
+                sessionID: session.id, revision: readRevision)
             let addedCount = max(0, loadedMessages.count - existingMessages.count)
             let isActiveSession = selectedSession?.id == session.id
             targetStore.applyCanonicalMessages(loadedMessages, forSessionID: session.id)
             chatStore.applyCanonicalMessages(loadedMessages, forSessionID: session.id, isActiveSession: isActiveSession)
-            finishTranscriptCommit(in: targetStore, sessionID: session.id, completeInventory: page.messages)
+            finishTranscriptCommit(in: targetStore, sessionID: session.id,
+                completeInventory: page.olderCursor == nil ? loadedMessages : nil)
             chatStore.applyMessageHistoryPage(nextCursor: page.olderCursor, forSessionID: session.id)
+            if connection.openCodeCompatibility?.profile == .legacy {
+                let previous = targetStore.legacyTranscriptWindows[session.id]
+                targetStore.recordLegacyCanonicalWindow(sessionID: session.id,
+                    hasOlderMessages: page.olderCursor != nil,
+                    continuityEpoch: directoryStoreRegistry.canReuseLegacyTranscript(previous)
+                        ? directoryStoreRegistry.legacyContinuityEpoch : nil)
+            }
             refreshSessionPreview(for: session.id, messages: loadedMessages)
             if (try? connection.requireOpenCodeClient(for: .localCache)) != nil {
-                persistLoadedMessagesToLocalCache(loadedMessages, sessionID: session.id)
+                persistLoadedMessagesToLocalCache(loadedMessages, sessionID: session.id,
+                    coverage: .newestPage(hasOlder: page.olderCursor != nil))
             }
             inferFunAndGames(from: loadedMessages, forSessionID: session.id)
             if let windowContext { windowContext.errorMessage = nil }
@@ -2546,6 +2609,7 @@ extension AppViewModel {
             return addedCount
         } catch {
             guard isCurrentBackendConnection(connection), directoryStoreRegistry.generation == targetGeneration,
+                   targetStore.legacyTranscriptReadRevision(sessionID: session.id) == readRevision,
                    (windowContext?.isCurrent ?? (sessionNavigationGeneration == navigationGeneration)) else { return 0 }
             chatStore.failLoadingOlderMessages(forSessionID: session.id)
             appendDebugLog("older messages error session=\(debugSessionLabel(session)) error=\(error.localizedDescription)")

@@ -190,7 +190,12 @@ extension AppViewModel {
         let initialTodos = targetStore.syncState.todosBySessionID[session.id]
         let runtimeKey = localCacheRuntimeKey(serverID: serverID, value: session.id)
         let isV2 = OpenCodeLocalCacheIdentity.isV2(serverID)
-        if !isV2, hadInitialMessages, initialTodos != nil {
+        let cachedWindow = targetStore.legacyTranscriptWindows[session.id]
+        let needsArchive = isBrowsingLocalCache && cachedWindow.map {
+            $0.origin == .preview || ($0.origin == .canonical && $0.hasOlderMessages)
+        } == true
+        if !isV2, hadInitialMessages, initialTodos != nil,
+           !needsArchive {
             guard !Task.isCancelled,
                   directoryStoreRegistry.key(for: targetStore) != nil,
                   navigationGeneration == nil || sessionNavigationGeneration == navigationGeneration,
@@ -220,10 +225,11 @@ extension AppViewModel {
               navigationGeneration == nil || sessionNavigationGeneration == navigationGeneration,
               expectedDirectoryKey == nil || directoryStoreRegistry.activeKey == expectedDirectoryKey,
               selectedSession?.id == session.id else { return nil }
-        if !isV2 { localCacheHydratedChatKeys.insert(runtimeKey) }
         guard let snapshot else { return nil }
+        if !isV2 { localCacheHydratedChatKeys.insert(runtimeKey) }
         let appliedMessages = !hadInitialMessages
             && targetStore.syncStore.messageCount(forSessionID: session.id) == 0
+            && (isV2 || targetStore.legacyTranscriptWindows[session.id]?.origin != .canonical)
             && (!snapshot.preparedMessages.messages.isEmpty || snapshot.messagesRefreshedAt != nil)
         if appliedMessages {
             if isV2 {
@@ -236,6 +242,10 @@ extension AppViewModel {
             } else {
                 targetStore.applyCachedMessageState(snapshot.preparedMessages, forSessionID: session.id)
                 chatStore.cacheMessages(snapshot.preparedMessages.immediateMessages, forSessionID: session.id)
+                targetStore.recordLegacyCachedWindow(sessionID: session.id,
+                    hasOlderMessages: targetStore.legacyTranscriptWindows[session.id]?.hasOlderMessages
+                        ?? (snapshot.preparedMessages.messages.count >= OpenCodeCachedChatPreview.messageLimit),
+                    isArchive: isBrowsingLocalCache)
             }
         }
         let appliedTodos = targetStore.syncState.todosBySessionID[session.id] == initialTodos
@@ -280,8 +290,21 @@ extension AppViewModel {
             task = existingTask
         } else {
             let repository = localCacheRepository
-            task = Task {
-                try? await repository.loadChat(serverID: serverID, sessionID: sessionID)
+            let readsPreview = !OpenCodeLocalCacheIdentity.isV2(serverID) && !isBrowsingLocalCache
+            let registryGeneration = directoryStoreRegistry.generation
+            task = Task { [weak self] in
+                if readsPreview {
+                    let preview = try? await repository.loadChatPreview(serverID: serverID, sessionID: sessionID)
+                    guard let self, !Task.isCancelled, self.localCacheNamespace == serverID,
+                          self.backendConnection?.id == connectionID,
+                          self.directoryStoreRegistry.generation == registryGeneration else { return nil }
+                    if let preview {
+                        let owner = self.directoryStoreRegistry.ownerStore(forSessionID: sessionID) ?? self.directoryStore
+                        owner.recordLegacyCachedWindow(sessionID: sessionID, hasOlderMessages: preview.hasOlderMessages)
+                    }
+                    return preview?.snapshot
+                }
+                return try? await repository.loadChat(serverID: serverID, sessionID: sessionID)
             }
             localCachePrefetchTasksByKey[key] = task
         }
@@ -336,14 +359,22 @@ extension AppViewModel {
         localCacheWriteTasksByKey[runtimeKey] = Task {
             guard !Task.isCancelled else { return }
             guard localCacheNamespace == serverID, backendConnection?.id == connectionID else { return }
-            try? await repository.saveChatMessages(
-                messages,
-                serverID: serverID,
-                sessionID: sessionID,
-                refreshedAt: refreshedAt,
-                writtenAt: writtenAt,
-                coverage: coverage
-            )
+            if !OpenCodeLocalCacheIdentity.isV2(serverID) {
+                if case .newestPage(hasOlder: false) = coverage {
+                    try? await repository.saveChatMessages(messages, serverID: serverID, sessionID: sessionID,
+                        refreshedAt: refreshedAt, writtenAt: writtenAt, coverage: coverage)
+                } else {
+                    let hasOlder = self.directoryStoreRegistry.ownerStore(forSessionID: sessionID)?
+                        .legacyTranscriptWindows[sessionID]?.hasOlderMessages ?? true
+                    try? await repository.saveChatPreview(messages,
+                        hasOlderMessages: hasOlder || messages.count > OpenCodeCachedChatPreview.messageLimit,
+                        serverID: serverID, sessionID: sessionID, refreshedAt: refreshedAt,
+                        writtenAt: writtenAt, coverage: coverage)
+                }
+            } else {
+                try? await repository.saveChatMessages(messages, serverID: serverID, sessionID: sessionID,
+                    refreshedAt: refreshedAt, writtenAt: writtenAt, coverage: coverage)
+            }
         }
     }
 
@@ -382,6 +413,7 @@ extension AppViewModel {
         localCacheWriteTasksByKey[runtimeKey]?.cancel()
         let repository = localCacheRepository
         let syncState = store.syncState
+        let hasOlder = store.legacyTranscriptWindows[sessionID]?.hasOlderMessages ?? true
         let messagesValidatedAt = localCacheMessageRefreshedAtByKey[runtimeKey] ?? .distantPast
         let todosValidatedAt = localCacheTodoRefreshedAtByKey[runtimeKey] ?? .distantPast
         let writtenAt = Date()
@@ -397,13 +429,10 @@ extension AppViewModel {
             }) else { return }
             let messages = syncState.messageEnvelopes(forSessionID: sessionID)
             let todos = syncState.todosBySessionID[sessionID] ?? []
-            try? await repository.saveChatMessages(
-                messages,
-                serverID: serverID,
-                sessionID: sessionID,
-                refreshedAt: messagesValidatedAt,
-                writtenAt: writtenAt
-            )
+            try? await repository.saveChatPreview(messages,
+                hasOlderMessages: hasOlder || messages.count > OpenCodeCachedChatPreview.messageLimit,
+                serverID: serverID, sessionID: sessionID, refreshedAt: messagesValidatedAt,
+                writtenAt: writtenAt, coverage: .partial)
             if includesTodos, !Task.isCancelled {
                 try? await repository.saveTodos(
                     todos,
@@ -440,6 +469,39 @@ extension AppViewModel {
                 sessionID: sessionID,
                 removedAt: removedAt
             )
+        }
+    }
+
+    /// Removal IDs must survive a partial preview write without decoding the
+    /// archived transcript. A later offline read must not resurrect them.
+    func persistLegacyChatRemoval(_ managed: OpenCodeManagedEvent) {
+        guard usesLocalCache, let serverID = localCacheNamespace,
+              !OpenCodeLocalCacheIdentity.isV2(serverID) else { return }
+        let sessionID: String?
+        let messageID: String
+        let partID: String?
+        switch managed.typed {
+        case let .messageRemoved(id, message):
+            sessionID = id; messageID = message; partID = nil
+        case let .messagePartRemoved(message, part):
+            messageID = message; partID = part
+            sessionID = managed.envelope.properties.sessionID
+                ?? directoryStoreRegistry.allStores.lazy.compactMap { store in
+                    store.syncState.messagesBySessionID.first { _, messages in
+                        messages.contains { $0.id == message }
+                    }?.key
+                }.first
+        default: return
+        }
+        guard let sessionID else { return }
+        invalidatePrefetchedChat(serverID: serverID, sessionID: sessionID)
+        let repository = localCacheRepository
+        let connectionID = backendConnection?.id
+        let writtenAt = Date()
+        Task {
+            guard localCacheNamespace == serverID, backendConnection?.id == connectionID else { return }
+            try? await repository.applyChatRemoval(serverID: serverID, sessionID: sessionID,
+                messageID: messageID, partID: partID, writtenAt: writtenAt)
         }
     }
 

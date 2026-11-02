@@ -56,6 +56,19 @@ protocol OpenCodeLocalCacheRepository: Sendable {
         serverID: String,
         sessionID: String
     ) async throws -> OpenCodeCachedChatSnapshot?
+    func loadChatPreview(serverID: String, sessionID: String) async throws -> OpenCodeCachedChatPreview?
+    func saveChatPreview(
+        _ messages: [OpenCodeMessageEnvelope],
+        hasOlderMessages: Bool,
+        serverID: String,
+        sessionID: String,
+        refreshedAt: Date,
+        writtenAt: Date,
+        coverage: OpenCodeLocalCacheTranscriptCoverage
+    ) async throws
+    func applyChatRemoval(
+        serverID: String, sessionID: String, messageID: String, partID: String?, writtenAt: Date
+    ) async throws
     func saveChatMessages(
         _ messages: [OpenCodeMessageEnvelope],
         serverID: String,
@@ -101,6 +114,27 @@ enum OpenCodeLocalCacheEventWritePolicy {
 }
 
 extension OpenCodeLocalCacheRepository {
+    func applyChatRemoval(
+        serverID: String, sessionID: String, messageID: String, partID: String?, writtenAt: Date
+    ) async throws {}
+    // Custom repositories can omit previews without silently decoding their full archive.
+    func loadChatPreview(serverID: String, sessionID: String) async throws -> OpenCodeCachedChatPreview? { nil }
+
+    func saveChatPreview(
+        _ messages: [OpenCodeMessageEnvelope], hasOlderMessages: Bool,
+        serverID: String, sessionID: String, refreshedAt: Date, writtenAt: Date,
+        coverage: OpenCodeLocalCacheTranscriptCoverage
+    ) async throws {}
+
+    func saveChatPreview(
+        _ messages: [OpenCodeMessageEnvelope], hasOlderMessages: Bool,
+        serverID: String, sessionID: String, refreshedAt: Date, writtenAt: Date
+    ) async throws {
+        try await saveChatPreview(messages, hasOlderMessages: hasOlderMessages,
+            serverID: serverID, sessionID: sessionID, refreshedAt: refreshedAt,
+            writtenAt: writtenAt, coverage: .partial)
+    }
+
     func saveChatMessages(
         _ messages: [OpenCodeMessageEnvelope], serverID: String, sessionID: String,
         refreshedAt: Date, writtenAt: Date
@@ -267,6 +301,16 @@ struct OpenCodeCachedChatSnapshot: Sendable {
     ) -> Bool {
         OpenCodeLocalCacheFreshness.isFresh(todosRefreshedAt, at: date, maxAge: maxAge)
     }
+}
+
+/// A display window is not proof that the retained archive is current or complete.
+struct OpenCodeCachedChatPreview: Sendable {
+    static let messageLimit = 400
+
+    let snapshot: OpenCodeCachedChatSnapshot
+    let hasOlderMessages: Bool
+    let retainedMessageCount: Int?
+    let hasRetainedHistory: Bool
 }
 
 struct OpenCodeCachedMessageState: Sendable {
