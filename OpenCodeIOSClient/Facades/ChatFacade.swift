@@ -375,6 +375,7 @@ final class ChatFacade: ObservableObject {
     // The app's root facade owns canonical configuration work, not any window presentation.
     private var configurationTasksByConnectionID: [UUID: [String: (id: UUID, task: Task<Bool, Never>)]] = [:]
     private struct InitialMessagesContext: Equatable {
+        let legacyContinuityEpoch: UInt
         let connectionID: UUID
         let registryGeneration: Int
         let navigationGeneration: UInt
@@ -1414,6 +1415,18 @@ final class ChatFacade: ObservableObject {
         try Task.checkCancellation()
         _ = try viewModel.requireBackendConnection()
         guard let context = initialMessagesContext(for: session) else { throw CancellationError() }
+        let owner = viewModel.directoryStoreRegistry.ownerStore(forSessionID: session.id)
+            ?? viewModel.directoryStore
+        if viewModel.directoryStoreRegistry.canReuseLegacyTranscript(owner.legacyTranscriptWindows[session.id]),
+           owner.syncStore.messageCount(forSessionID: session.id) > 0 {
+            viewModel.chatStore.finishLoadingSelectedSession()
+            viewModel.syncComposerSelections(for: session,
+                sourceMessages: owner.syncState.messageEnvelopes(forSessionID: session.id))
+            if refreshTodos, !viewModel.areLocalChatTodosFresh(sessionID: session.id) {
+                await viewModel.loadTodos(for: session)
+            }
+            return
+        }
         let request: (context: InitialMessagesContext, id: UUID, task: Task<Void, Error>)
         if let current = initialMessages, current.context == context, !current.task.isCancelled {
             request = current
@@ -1455,7 +1468,8 @@ final class ChatFacade: ObservableObject {
               selected.workspaceID == session.workspaceID else { return nil }
         let registry = viewModel.directoryStoreRegistry
         let owner = registry.ownerStore(forSessionID: session.id) ?? registry.activeStore
-        return InitialMessagesContext(connectionID: connection.id, registryGeneration: registry.generation,
+        return InitialMessagesContext(legacyContinuityEpoch: registry.legacyContinuityEpoch,
+            connectionID: connection.id, registryGeneration: registry.generation,
             navigationGeneration: viewModel.sessionNavigationGeneration, directoryKey: registry.activeKey,
             ownerID: ObjectIdentifier(owner), sessionID: session.id,
             scope: .init(projectID: session.projectID, directory: session.directory, workspaceID: session.workspaceID),

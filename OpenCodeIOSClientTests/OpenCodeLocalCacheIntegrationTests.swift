@@ -671,6 +671,184 @@ final class OpenCodeLocalCacheIntegrationTests: XCTestCase {
         }
     }
 
+    func testLegacyOfflineHydrationExpandsPartialMemoryFromRetainedArchive() async throws {
+        let archive = (0..<600).map { index in
+            OpenCodeMessageEnvelope.local(role: "assistant", text: "Archived \(index)",
+                messageID: String(format: "message-%04d", index), sessionID: session.id,
+                partID: String(format: "part-%04d", index))
+        }
+        var preview = Array(archive.suffix(OpenCodeCachedChatPreview.messageLimit))
+        preview[preview.count - 1].parts[0].text = "Newer preview"
+        let archiveDate = Date(timeIntervalSince1970: 1)
+        let previewDate = Date()
+        for canonical in [false, true] {
+            let repository = try OpenCodeLocalCacheRepositoryFactory.makeInMemory()
+            try await repository.saveChatMessages(archive, serverID: serverConfig.recentServerID,
+                sessionID: session.id, refreshedAt: archiveDate, writtenAt: archiveDate, coverage: .partial)
+            try await repository.saveChatPreview(preview, hasOlderMessages: true,
+                serverID: serverConfig.recentServerID, sessionID: session.id,
+                refreshedAt: previewDate, writtenAt: previewDate, coverage: .newestPage(hasOlder: true))
+            let model = AppViewModel()
+            model.config = serverConfig
+            model.backendMode = .server
+            model.localCacheRepository = repository
+            model.selectedDirectory = session.directory
+            model.selectedSession = session
+            let onlineSnapshot = await model.hydrateChatFromLocalCache(session)
+            let online = try XCTUnwrap(onlineSnapshot)
+            XCTAssertEqual(online.messages.count, 400)
+            var current = model.directoryStore.syncState.messageEnvelopes(forSessionID: session.id)
+            current[current.count - 1].parts[0].text = "Fresher memory"
+            model.directoryStore.applyCanonicalMessages(current, forSessionID: session.id)
+            model.directoryStore.applyTodos([], forSessionID: session.id)
+            if canonical {
+                model.directoryStore.recordLegacyCanonicalWindow(sessionID: session.id,
+                    hasOlderMessages: true, continuityEpoch: nil)
+            }
+            // The online prefetched slice must not substitute for the archive.
+            let runtimeKey = try XCTUnwrap(model.localCacheMessageRefreshedAtByKey.keys.first)
+            model.localCachePrefetchedChatsByKey[runtimeKey] = online
+            model.localCachePrefetchedChatKeys = [runtimeKey]
+            model.backendMode = .cachedServer
+
+            let offline = await model.hydrateChatFromLocalCache(session)
+
+            let expanded = model.directoryStore.syncState.messageEnvelopes(forSessionID: session.id)
+            XCTAssertEqual(expanded.count, 600)
+            XCTAssertEqual(Array(expanded.suffix(400)), current)
+            XCTAssertEqual(expanded.first, archive.first)
+            XCTAssertEqual(offline?.messagesRefreshedAt, archiveDate)
+            XCTAssertFalse(model.areLocalChatMessagesFresh(sessionID: session.id))
+            XCTAssertEqual(model.directoryStore.legacyTranscriptWindows[session.id]?.origin, .archive)
+            let access = expectation(description: "An expanded offline archive is reused")
+            access.isInverted = true
+            model.localCacheRepository = ForbiddenLocalCacheRepository(access: access)
+            let repeated = await model.hydrateChatFromLocalCache(session)
+            XCTAssertNil(repeated)
+            XCTAssertEqual(model.directoryStore.syncState.messageEnvelopes(forSessionID: session.id), expanded)
+            await fulfillment(of: [access], timeout: 0.01)
+        }
+    }
+
+    func testLegacyOfflineArchiveExpansionPreservesChangesAndRemovalsDuringRead() async {
+        let model = AppViewModel()
+        model.config = serverConfig
+        model.backendMode = .cachedServer
+        model.selectedDirectory = session.directory
+        model.selectedSession = session
+        let older = OpenCodeMessageEnvelope.local(role: "assistant", text: "Older archive row",
+            messageID: "message-older", sessionID: session.id, partID: "part-older")
+        let removed = OpenCodeMessageEnvelope.local(role: "assistant", text: "Removed during read",
+            messageID: "message-removed", sessionID: session.id, partID: "part-removed")
+        let hidden = OpenCodeMessageEnvelope.local(role: "assistant", text: "Unloaded removal",
+            messageID: "message-hidden", sessionID: session.id, partID: "part-hidden")
+        let archive = OpenCodeCachedChatSnapshot(
+            preparedMessages: .init(envelopes: [older, hidden, removed, message], sessionID: session.id),
+            todos: [], messagesRefreshedAt: .distantPast, todosRefreshedAt: nil)
+        model.directoryStore.applyCanonicalMessages([removed, message], forSessionID: session.id)
+        model.directoryStore.applyTodos([], forSessionID: session.id)
+        model.directoryStore.recordLegacyCachedWindow(sessionID: session.id, hasOlderMessages: true)
+        var changed = message
+        changed.parts[0].text = "Changed while the disk read was suspended"
+        let current = changed
+        let sessionID = session.id
+        let access = expectation(description: "No unrelated cache operations")
+        access.isInverted = true
+        model.localCacheRepository = ForbiddenLocalCacheRepository(access: access, chatLoad: { _, _ in
+            await MainActor.run {
+                model.directoryStore.applyCanonicalMessages([current], forSessionID: sessionID)
+                model.directoryStore.recordLegacyTranscriptRemoval(sessionID: sessionID,
+                    messageID: hidden.id, partID: nil)
+                model.directoryStore.recordLegacyTranscriptRemoval(sessionID: sessionID,
+                    messageID: older.id, partID: "part-older")
+            }
+            return archive
+        })
+
+        let loaded = await model.hydrateChatFromLocalCache(session)
+
+        XCTAssertNotNil(loaded)
+        let expanded = model.directoryStore.syncState.messageEnvelopes(forSessionID: session.id)
+        XCTAssertEqual(Set(expanded.map(\.id)), [older.id, current.id])
+        XCTAssertEqual(expanded.first(where: { $0.id == current.id }), current)
+        XCTAssertTrue(expanded.first(where: { $0.id == older.id })?.parts.isEmpty == true)
+        XCTAssertFalse(model.areLocalChatMessagesFresh(sessionID: session.id))
+        await fulfillment(of: [access], timeout: 0.01)
+    }
+
+    func testLegacyColdOfflineHydrationDoesNotReuseAnOnlinePreviewTask() async {
+        let model = AppViewModel()
+        model.config = serverConfig
+        model.backendMode = .cachedServer
+        model.selectedDirectory = session.directory
+        model.selectedSession = session
+        let preview = OpenCodeCachedChatSnapshot(preparedMessages: .init(envelopes: [message], sessionID: session.id),
+            todos: [], messagesRefreshedAt: .now, todosRefreshedAt: nil)
+        let older = OpenCodeMessageEnvelope.local(role: "assistant", text: "Retained history",
+            messageID: "message-older", sessionID: session.id, partID: "part-older")
+        let archive = OpenCodeCachedChatSnapshot(preparedMessages: .init(envelopes: [older, message], sessionID: session.id),
+            todos: [], messagesRefreshedAt: .distantPast, todosRefreshedAt: nil)
+        let serverID = serverConfig.recentServerID
+        let runtimeKey = "s\(serverID.utf8.count):\(serverID)s\(session.id.utf8.count):\(session.id):offline"
+        model.localCachePrefetchTasksByKey[runtimeKey] = Task { preview }
+        let access = expectation(description: "No unrelated cache operations")
+        access.isInverted = true
+        let archiveRead = expectation(description: "Offline hydration reads the full retained archive")
+        let sessionID = session.id
+        model.localCacheRepository = ForbiddenLocalCacheRepository(access: access, chatLoad: { _, _ in
+            archiveRead.fulfill()
+            await MainActor.run {
+                model.directoryStore.recordLegacyTranscriptRemoval(sessionID: sessionID,
+                    messageID: older.id, partID: "part-older")
+            }
+            return archive
+        })
+
+        let loaded = await model.hydrateChatFromLocalCache(session)
+
+        XCTAssertEqual(loaded?.messages.count, 2)
+        XCTAssertEqual(Set(model.directoryStore.syncState.messageEnvelopes(forSessionID: session.id).map(\.id)),
+            [older.id, message.id])
+        XCTAssertTrue(model.directoryStore.syncState.messageEnvelopes(forSessionID: session.id)
+            .first(where: { $0.id == older.id })?.parts.isEmpty == true)
+        XCTAssertEqual(model.directoryStore.legacyTranscriptWindows[session.id]?.origin, .archive)
+        XCTAssertFalse(model.areLocalChatMessagesFresh(sessionID: session.id))
+        await fulfillment(of: [archiveRead, access], timeout: 0.01)
+    }
+
+    func testLegacySelectedOnlinePreviewCannotBecomeArchiveAfterSwitchingOffline() async {
+        let model = AppViewModel()
+        model.config = serverConfig
+        model.backendMode = .server
+        model.selectedDirectory = session.directory
+        model.selectedSession = session
+        let preview = OpenCodeCachedChatSnapshot(preparedMessages: .init(envelopes: [message], sessionID: session.id),
+            todos: [], messagesRefreshedAt: .now, todosRefreshedAt: nil)
+        let started = expectation(description: "Selected online hydration is awaiting its preview")
+        let gate = LocalCacheChatReadGate()
+        let access = expectation(description: "No unrelated cache operations")
+        access.isInverted = true
+        model.localCacheRepository = ForbiddenLocalCacheRepository(access: access, chatLoad: { _, _ in
+            await gate.wait(started: started)
+            return preview
+        })
+        let hydration = Task { @MainActor in
+            await model.hydrateChatFromLocalCache(self.session)
+        }
+        await fulfillment(of: [started], timeout: 1)
+        model.backendMode = .cachedServer
+        await gate.resume()
+
+        let loaded = await hydration.value
+
+        XCTAssertNil(loaded)
+        XCTAssertEqual(model.directoryStore.syncStore.messageCount(forSessionID: session.id), 0)
+        XCTAssertNotEqual(model.directoryStore.legacyTranscriptWindows[session.id]?.origin, .archive)
+        XCTAssertFalse(model.hasHydratedLocalChat(sessionID: session.id))
+        XCTAssertFalse(model.areLocalChatMessagesFresh(sessionID: session.id))
+        await fulfillment(of: [access], timeout: 0.01)
+    }
+
     func testLegacyWarmMessagesStillHydrateUnknownTodosWithoutReplacingMessages() async {
         let model = AppViewModel()
         model.config = serverConfig
@@ -947,6 +1125,20 @@ private struct ForbiddenLocalCacheRepository: OpenCodeLocalCacheRepository {
         return nil
     }
 
+    func loadChatPreview(serverID: String, sessionID: String) async throws -> OpenCodeCachedChatPreview? {
+        guard let snapshot = try await loadChat(serverID: serverID, sessionID: sessionID) else { return nil }
+        return OpenCodeCachedChatPreview(snapshot: snapshot,
+            hasOlderMessages: snapshot.messages.count >= OpenCodeCachedChatPreview.messageLimit,
+            retainedMessageCount: snapshot.messages.count, hasRetainedHistory: true)
+    }
+
+    func saveChatPreview(_ messages: [OpenCodeMessageEnvelope], hasOlderMessages: Bool,
+                         serverID: String, sessionID: String, refreshedAt: Date, writtenAt: Date,
+                         coverage: OpenCodeLocalCacheTranscriptCoverage) async throws {
+        if let chatSave { chatSave(sessionID); return }
+        access.fulfill()
+    }
+
     func saveChatMessages(_ messages: [OpenCodeMessageEnvelope], serverID: String, sessionID: String, refreshedAt: Date, writtenAt: Date, coverage: OpenCodeLocalCacheTranscriptCoverage) async throws {
         if let chatSave { chatSave(sessionID); return }
         access.fulfill()
@@ -962,6 +1154,22 @@ private struct ForbiddenLocalCacheRepository: OpenCodeLocalCacheRepository {
 
     func clear(serverID: String) async throws {
         access.fulfill()
+    }
+}
+
+private actor LocalCacheChatReadGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait(started: XCTestExpectation) async {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            started.fulfill()
+        }
+    }
+
+    func resume() {
+        continuation?.resume()
+        continuation = nil
     }
 }
 

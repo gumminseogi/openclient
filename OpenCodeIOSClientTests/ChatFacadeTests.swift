@@ -63,7 +63,8 @@ final class InitialChatHydrationTests: XCTestCase {
         }
         await model.refreshChatData(for: session.id)
         XCTAssertEqual(reads, 2, "Explicit refresh is never memoized by the initial hydration task")
-        XCTAssertEqual(Set(model.messages.map(\.id)), ["msg_1", "msg_refreshed"])
+        XCTAssertEqual(model.messages.map(\.id), ["msg_refreshed"],
+            "A complete server inventory removes rows absent from the refreshed transcript")
     }
 
     func testFailedInitialReadCanRetryWithinSameNavigation() async throws {
@@ -119,7 +120,7 @@ final class InitialChatHydrationTests: XCTestCase {
         // Same ID and navigation generation still require a new read for a different scope.
         try await model.chatFacade.loadInitialMessages(for: moved, prefetchToolDetails: false, refreshTodos: false)
         XCTAssertEqual(reads, 3)
-        XCTAssertEqual(Set(model.messages.map(\.id)), ["msg_2", "msg_3"])
+        XCTAssertEqual(model.messages.map(\.id), ["msg_3"])
         XCTAssertTrue(model.directoryStore.syncState.messageEnvelopes(forSessionID: session.id).isEmpty)
     }
 
@@ -151,7 +152,8 @@ final class InitialChatHydrationTests: XCTestCase {
         release?.resume()
         await old.value
         XCTAssertEqual(reads, 4)
-        XCTAssertEqual(Set(model.messages.map(\.id)), ["msg_1", "msg_2", "msg_4"])
+        XCTAssertEqual(model.messages.map(\.id), ["msg_4"],
+            "The new connection's complete inventory replaces earlier snapshots")
     }
 
     private func makeModel() -> AppViewModel {
@@ -608,15 +610,18 @@ final class ChatFacadeTests: XCTestCase {
     }
 
     func testObservationRebindsToNewActiveDirectoryStoreAndSyncStore() async {
-        let viewModel = makeViewModel()
+        // Saved metadata/cache hydration can publish unrelated model changes.
+        let viewModel = AppViewModel(backendFactory: HomeTestBackend())
         let facade = viewModel.chatFacade
         let oldStore = viewModel.directoryStoreRegistry.activeStore
         let newStore = viewModel.directoryStoreRegistry.activate("/tmp/other")
 
-        // Rebinding and activation invalidations are queued on main before this checkpoint.
-        let activated = expectation(description: "Active directory observation rebound")
-        DispatchQueue.main.async { activated.fulfill() }
-        await fulfillment(of: [activated], timeout: 1)
+        // receive(on:) and downstream debounce forward activation on separate turns.
+        for _ in 0..<3 {
+            let activated = expectation(description: "Active directory observation rebound")
+            DispatchQueue.main.async { activated.fulfill() }
+            await fulfillment(of: [activated], timeout: 1)
+        }
 
         var changeCount = 0
         var pendingChange: XCTestExpectation?

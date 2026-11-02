@@ -85,6 +85,7 @@ final class ActivityFacade: ObservableObject {
     private struct CachedChatHydrationResult: Sendable {
         let session: OpenCodeSession
         let snapshot: OpenCodeCachedChatSnapshot?
+        let preview: OpenCodeCachedChatPreview?
     }
 
     // These copy-on-write values deliberately exclude transcript text. Comparing them
@@ -523,6 +524,7 @@ final class ActivityFacade: ObservableObject {
         let candidates = recentCandidates()
         guard !candidates.isEmpty else { return }
         let repository = viewModel.localCacheRepository
+        let readsArchive = viewModel.isBrowsingLocalCache
         let registryGeneration = viewModel.directoryStoreRegistry.generation
         guard !Task.isCancelled, generation == hydrationGeneration,
               viewModel.localCacheNamespace == serverID, viewModel.backendConnection?.id == connectionID else { return }
@@ -538,11 +540,12 @@ final class ActivityFacade: ObservableObject {
             for candidate in candidates {
                 let session = candidate.session
                 group.addTask {
-                    let snapshot = try? await repository.loadChat(
-                        serverID: serverID,
-                        sessionID: session.id
-                    )
-                    return CachedChatHydrationResult(session: session, snapshot: snapshot)
+                    if readsArchive {
+                        let snapshot = try? await repository.loadChat(serverID: serverID, sessionID: session.id)
+                        return CachedChatHydrationResult(session: session, snapshot: snapshot, preview: nil)
+                    }
+                    let preview = try? await repository.loadChatPreview(serverID: serverID, sessionID: session.id)
+                    return CachedChatHydrationResult(session: session, snapshot: preview?.snapshot, preview: preview)
                 }
             }
 
@@ -558,8 +561,11 @@ final class ActivityFacade: ObservableObject {
                       store.sessions.contains(where: { $0.id == result.session.id }) else { continue }
 
                 if store.syncStore.messageCount(forSessionID: result.session.id) == 0,
+                   store.legacyTranscriptWindows[result.session.id]?.origin != .canonical,
                    !snapshot.preparedMessages.messages.isEmpty || snapshot.messagesRefreshedAt != nil {
                     store.applyCachedMessageState(snapshot.preparedMessages, forSessionID: result.session.id)
+                    store.recordLegacyCachedWindow(sessionID: result.session.id,
+                        hasOlderMessages: result.preview?.hasOlderMessages ?? false, isArchive: readsArchive)
                 }
                 if store.syncState.todosBySessionID[result.session.id] == nil,
                    !snapshot.todos.isEmpty || snapshot.todosRefreshedAt != nil {
@@ -693,6 +699,7 @@ final class ActivityFacade: ObservableObject {
         let lifecycleRevision = viewModel.directoryStoreRegistry.v2LifecycleRevision(sessionID: session.id)
         let streamRevision = viewModel.chatStore.v2StreamRevision(sessionID: session.id)
         let previousMessages = store.syncState.messageEnvelopes(forSessionID: session.id)
+        let legacyReadRevision = store.legacyTranscriptReadRevision(sessionID: session.id)
         let previousCachedMessages = viewModel.chatStore.cachedMessagesBySessionID[session.id]
         let previousTodos = store.syncState.todosBySessionID[session.id]
         let previousSession = store.sessions.first { $0.id == session.id }
@@ -735,6 +742,7 @@ final class ActivityFacade: ObservableObject {
         guard result.0?.isArchived != true else { return }
         var appliedTranscript = false
         if let page = result.1, result.0 != nil, !isForeground,
+           store.legacyTranscriptReadRevision(sessionID: session.id) == legacyReadRevision,
            viewModel.chatStore.v2StreamRevision(sessionID: session.id) == streamRevision,
            viewModel.chatStore.cachedMessagesBySessionID[session.id] == previousCachedMessages,
            store.syncState.messageEnvelopes(forSessionID: session.id) == previousMessages {
@@ -746,6 +754,7 @@ final class ActivityFacade: ObservableObject {
                 viewModel.inferFunAndGames(from: mergedMessages, forSessionID: session.id)
             } else {
                 store.applyCanonicalMessages(mergedMessages, forSessionID: session.id)
+                store.recordLegacyCachedWindow(sessionID: session.id, hasOlderMessages: page.olderCursor != nil)
             }
             viewModel.refreshSessionPreview(for: session.id, messages: mergedMessages)
             viewModel.chatStore.cachePreloadedMessages(mergedMessages, forSessionID: session.id, preservingOrder: isV2)

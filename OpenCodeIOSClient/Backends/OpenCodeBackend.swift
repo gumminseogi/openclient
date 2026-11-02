@@ -252,7 +252,10 @@ final class OpenCodeBackendAdapter: BackendProjectsService, BackendSessionsServi
             let page = try await client.listV2Messages(sessionID: sessionID, cursor: cursor, limit: limit)
             return .init(messages: page.messages, olderCursor: page.olderCursor)
         }
-        let page = try await client.listMessagePage(sessionID: sessionID, limit: limit, before: cursor, directory: scope.directory)
+        // The legacy endpoint's omitted limit is its complete-inventory request.
+        // Never serialize Int.max as a JavaScript-unsafe numeric query value.
+        let page = try await client.listMessagePage(sessionID: sessionID,
+            limit: limit == Int.max ? nil : limit, before: cursor, directory: scope.directory)
         return .init(messages: page.messages, olderCursor: page.nextCursor)
     }
 

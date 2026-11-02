@@ -1828,18 +1828,47 @@ struct OpenCodeAPIClient: Sendable {
         try await listMessagePage(sessionID: sessionID, limit: limit, directory: directory).messages
     }
 
+    private static let cumulativeMessageCursorPrefix = "openclient-legacy-limit-v1:"
+    private static let escapedMessageCursorPrefix = "openclient-legacy-server-v1:"
+    private static let maximumMessageLimit = 9_007_199_254_740_991
+
     func listMessagePage(
         sessionID: String,
         limit: Int? = nil,
         before: String? = nil,
         directory: String? = nil
     ) async throws -> OpenCodeMessagePage {
-        var queryItems: [URLQueryItem] = []
-        if let limit {
-            queryItems.append(URLQueryItem(name: "limit", value: String(limit)))
+        if let limit, !(1...Self.maximumMessageLimit).contains(limit) {
+            throw OpenCodeAPIError.invalidResponse
         }
-        if let before {
-            queryItems.append(URLQueryItem(name: "before", value: before))
+        var requestLimit = limit
+        var serverCursor = before
+        if let before, before.hasPrefix(Self.escapedMessageCursorPrefix) {
+            let value = String(before.dropFirst(Self.escapedMessageCursorPrefix.count))
+            guard let data = Data(base64Encoded: value),
+                  let decoded = String(data: data, encoding: .utf8), !decoded.isEmpty else {
+                throw OpenCodeAPIError.invalidResponse
+            }
+            serverCursor = decoded
+        } else if let before, before.hasPrefix(Self.cumulativeMessageCursorPrefix) {
+            let value = String(before.dropFirst(Self.cumulativeMessageCursorPrefix.count))
+            guard let previousLimit = Int(value), String(previousLimit) == value,
+                  (1...Self.maximumMessageLimit).contains(previousLimit) else {
+                throw OpenCodeAPIError.invalidResponse
+            }
+            let (nextLimit, overflow) = previousLimit.addingReportingOverflow(max(limit ?? 400, 400))
+            guard !overflow, nextLimit <= Self.maximumMessageLimit else {
+                throw OpenCodeAPIError.invalidResponse
+            }
+            requestLimit = nextLimit
+            serverCursor = nil
+        }
+        var queryItems: [URLQueryItem] = []
+        if let requestLimit {
+            queryItems.append(URLQueryItem(name: "limit", value: String(requestLimit)))
+        }
+        if let serverCursor {
+            queryItems.append(URLQueryItem(name: "before", value: serverCursor))
         }
         if let directory, !directory.isEmpty {
             queryItems.append(URLQueryItem(name: "directory", value: directory))
@@ -1855,9 +1884,22 @@ struct OpenCodeAPIClient: Sendable {
         guard let http = response as? HTTPURLResponse else {
             throw OpenCodeAPIError.invalidResponse
         }
+        let nextCursor: String?
+        if let cursor = http.value(forHTTPHeaderField: "X-Next-Cursor"), !cursor.isEmpty {
+            // A server cursor can use any opaque value, including our local namespace.
+            nextCursor = cursor.hasPrefix(Self.cumulativeMessageCursorPrefix) || cursor.hasPrefix(Self.escapedMessageCursorPrefix)
+                ? Self.escapedMessageCursorPrefix + Data(cursor.utf8).base64EncodedString()
+                : cursor
+        } else if serverCursor == nil, let requestLimit, messages.count >= requestLimit {
+            // Legacy 1.x has no cursor: expand the newest-message window like the web client.
+            // Returning the full cumulative page lets the existing ID merge preserve history.
+            nextCursor = Self.cumulativeMessageCursorPrefix + String(requestLimit)
+        } else {
+            nextCursor = nil
+        }
         return OpenCodeMessagePage(
             messages: messages,
-            nextCursor: http.value(forHTTPHeaderField: "X-Next-Cursor")
+            nextCursor: nextCursor
         )
     }
 

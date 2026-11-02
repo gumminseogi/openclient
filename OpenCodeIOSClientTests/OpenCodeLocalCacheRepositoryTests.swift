@@ -141,8 +141,10 @@ final class OpenCodeLocalCacheRepositoryTests: XCTestCase {
                 messagesPayload: try JSONEncoder().encode(legacyMessages), messagesRefreshedAt: date, messagesWrittenAt: date))
             try context.save()
         }
+        let upgradedSchema = Schema(versionedSchema: OpenCodeLocalCacheSchemaV2.self)
+        let upgradedConfiguration = ModelConfiguration(schema: upgradedSchema, url: url, cloudKitDatabase: .none)
         do {
-            let container = try ModelContainer(for: schema, migrationPlan: OpenCodeLocalCacheMigrationPlan.self, configurations: [configuration])
+            let container = try ModelContainer(for: upgradedSchema, migrationPlan: OpenCodeLocalCacheMigrationPlan.self, configurations: [upgradedConfiguration])
             let repository = SwiftDataOpenCodeLocalCacheRepository(modelContainer: container)
             let loadedProjects = try await repository.loadProjects(serverID: raw)
             let loadedSessions = try await repository.loadDirectorySessions(serverID: raw, directory: nil)
@@ -154,7 +156,7 @@ final class OpenCodeLocalCacheRepositoryTests: XCTestCase {
             try await repository.removeSession(serverID: v2, sessionID: "shared", removedAt: date.addingTimeInterval(2))
         }
         let reopened = SwiftDataOpenCodeLocalCacheRepository(modelContainer:
-            try ModelContainer(for: schema, migrationPlan: OpenCodeLocalCacheMigrationPlan.self, configurations: [configuration]))
+            try ModelContainer(for: upgradedSchema, migrationPlan: OpenCodeLocalCacheMigrationPlan.self, configurations: [upgradedConfiguration]))
         try await reopened.saveChatMessages(v2Messages, serverID: v2, sessionID: "shared", refreshedAt: date, writtenAt: date.addingTimeInterval(1))
         let tombstone = try await reopened.loadChat(serverID: v2, sessionID: "shared")
         XCTAssertNil(tombstone)

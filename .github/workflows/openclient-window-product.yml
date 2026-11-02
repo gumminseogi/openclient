@@ -1,0 +1,177 @@
+name: OpenClient legacy window product regressions
+
+on:
+  push:
+    branches: [legacy-window-loading-product]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openclient-window-product-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    runs-on: xcode-27
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare pinned XcodeGen and an iPhone simulator
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/window-product-results"
+          mkdir -p "$results" "$RUNNER_TEMP/window-product-tools"
+          git rev-parse HEAD > "$results/source-revision.txt"
+          printf '%s\n' LegacyMessagePaginationTests LegacyTranscriptWindowTests OpenCodeLocalCachePreviewTests OpenCodeLocalCacheIntegrationTests OpenCodeLocalCacheRepositoryTests ChatStoreTests ChatFacadeTests InitialChatHydrationTests ForegroundChatRefreshTests OpenCodeAPIClientTests OpenCodeStreamingTests DirectoryStoreTests ActivityFacadeTests > "$results/selected-suites.txt"
+          curl --fail --location --retry 3 https://github.com/yonaskolb/XcodeGen/releases/download/2.44.1/xcodegen.zip -o "$RUNNER_TEMP/window-product-tools/xcodegen.zip"
+          shasum -a 256 "$RUNNER_TEMP/window-product-tools/xcodegen.zip" > "$results/xcodegen-archive-sha256.txt"
+          unzip -q "$RUNNER_TEMP/window-product-tools/xcodegen.zip" -d "$RUNNER_TEMP/window-product-tools/unpacked"
+          python3 - "$RUNNER_TEMP/window-product-tools" <<'PYTHON'
+          from pathlib import Path
+          import shutil,sys
+          root=Path(sys.argv[1]); paths=[p for p in (root/'unpacked').rglob('xcodegen') if p.is_file()]
+          if len(paths)!=1: raise SystemExit('Expected one pinned XcodeGen binary')
+          folder=root/'bin';folder.mkdir();shutil.copy2(paths[0],folder/'xcodegen');(folder/'xcodegen').chmod(0o755)
+          PYTHON
+          "$RUNNER_TEMP/window-product-tools/bin/xcodegen" --version | tee "$results/xcodegen-version.txt"
+          python3 - "$results/xcodegen-version.txt" <<'PYTHON'
+          import sys
+          if open(sys.argv[1]).read().strip()!='Version: 2.44.1': raise SystemExit('Unexpected XcodeGen version')
+          PYTHON
+          printf '%s\n' "$RUNNER_TEMP/window-product-tools/bin" >> "$GITHUB_PATH"
+          xcodebuild -version > "$results/xcode-version.txt"
+          xcrun simctl list devices available --json > "$results/simulators.json"
+          device_id=$(python3 - "$results/simulators.json" <<'PYTHON'
+          import json,re,subprocess,sys
+          sdk=tuple(map(int,subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-version'],text=True).strip().split('.')[:2]))
+          candidates=[]
+          for runtime,rows in json.load(open(sys.argv[1]))['devices'].items():
+              if '.iOS-' not in runtime: continue
+              version=tuple(map(int,re.findall(r'[0-9]+',runtime)))
+              if version[:2]>sdk: continue
+              for device in rows:
+                  model=re.fullmatch(r'iPhone ([0-9]+) Pro Max',device['name'])
+                  if device.get('isAvailable') and model and int(model.group(1))>=16:
+                      candidates.append((version,int(model.group(1)),device['udid']))
+          if not candidates: raise SystemExit('No compatible iPhone Pro Max simulator')
+          print(max(candidates)[2])
+          PYTHON
+          )
+          printf 'OPENCLIENT_TEST_DESTINATION=platform=iOS Simulator,id=%s\n' "$device_id" >> "$GITHUB_ENV"
+          xcrun simctl bootstatus "$device_id" -b
+      - name: Generate the clean product Xcode project
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/window-product-results"
+          INCLUDE_PROJECT_LOCAL_YAML=NO xcodegen generate 2>&1 | tee "$results/xcodegen.log"
+          cp OpenCodeIOSClient.xcodeproj/project.pbxproj "$results/generated-project.pbxproj"
+          python3 - "$results/generated-project.pbxproj" <<'PYTHON'
+          from pathlib import Path
+          import sys
+          project=Path(sys.argv[1]).read_text()
+          for name in ('LegacyTranscriptCoordinator.swift','LegacyMessagePaginationTests.swift','LegacyTranscriptWindowTests.swift','OpenCodeLocalCachePreviewTests.swift'):
+              if name not in project: raise SystemExit('Generated project is missing '+name)
+          PYTHON
+      - name: Build the app and native regression tests
+        timeout-minutes: 27
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/window-product-results"
+          selectors=()
+          while IFS= read -r suite; do
+            selectors+=("-only-testing:OpenCodeIOSClientTests/$suite")
+          done < "$results/selected-suites.txt"
+          xcodebuild build-for-testing -project OpenCodeIOSClient.xcodeproj -scheme OpenCodeIOSClient \
+            -configuration Debug -destination "$OPENCLIENT_TEST_DESTINATION" \
+            -derivedDataPath "$RUNNER_TEMP/window-product-build" DEVELOPMENT_TEAM= \
+            -parallel-testing-enabled NO -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 60 \
+            "${selectors[@]}" 2>&1 | tee "$results/build.log"
+      - name: Run all selected native regression suites
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/window-product-results"
+          selectors=()
+          while IFS= read -r suite; do
+            selectors+=("-only-testing:OpenCodeIOSClientTests/$suite")
+          done < "$results/selected-suites.txt"
+          xcodebuild test-without-building -project OpenCodeIOSClient.xcodeproj -scheme OpenCodeIOSClient \
+            -configuration Debug -destination "$OPENCLIENT_TEST_DESTINATION" \
+            -derivedDataPath "$RUNNER_TEMP/window-product-build" DEVELOPMENT_TEAM= \
+            -resultBundlePath "$results/tests.xcresult" \
+            -parallel-testing-enabled NO -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 60 \
+            "${selectors[@]}" 2>&1 | tee "$results/tests.log"
+      - name: Export and verify executed test evidence
+        if: always()
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/window-product-results"
+          mkdir -p "$results"
+          if [[ ! -d "$results/tests.xcresult" ]]; then
+            printf '%s\n' 'No test result bundle was produced; native validation did not complete.' | tee "$results/missing-result.txt"
+            exit 1
+          fi
+          summary_code=0
+          tests_code=0
+          xcrun xcresulttool get test-results summary --path "$results/tests.xcresult" > "$results/summary.json" 2> "$results/summary-export.log" || summary_code=$?
+          xcrun xcresulttool get test-results tests --path "$results/tests.xcresult" > "$results/tests.json" 2> "$results/tests-export.log" || tests_code=$?
+          printf '{"summary_exit_code": %d, "tests_exit_code": %d}\n' "$summary_code" "$tests_code" > "$results/export-status.json"
+          if (( summary_code != 0 || tests_code != 0 )); then exit 1; fi
+          python3 - "$results" <<'PYTHON'
+          from pathlib import Path
+          import json,sys
+          root=Path(sys.argv[1])
+          summary=json.loads((root/'summary.json').read_text())
+          tree=json.loads((root/'tests.json').read_text())
+          selected=(root/'selected-suites.txt').read_text().splitlines()
+          def walk(nodes):
+              for node in nodes:
+                  yield node
+                  yield from walk(node.get('children',[]))
+          cases=[node for node in walk(tree.get('testNodes',[])) if node.get('nodeType')=='Test Case']
+          counts={suite:0 for suite in selected}
+          failed_cases=[]
+          for case in cases:
+              suite=case.get('nodeIdentifier','').split('/',1)[0]
+              if suite in counts: counts[suite]+=1
+              if case.get('result')!='Passed': failed_cases.append(case.get('nodeIdentifier',case.get('name')))
+          total=summary.get('totalTestCount',0)
+          problems=[]
+          if len(selected)!=13 or len(counts)!=13: problems.append('Expected 13 distinct selected suites')
+          if summary.get('result')!='Passed' or total<=0 or summary.get('passedTests')!=total or summary.get('failedTests')!=0 or summary.get('skippedTests')!=0:
+              problems.append('Selected native regression tests did not all run and pass')
+          if any(count==0 for count in counts.values()): problems.append('Selected suites with no executed cases: '+str([suite for suite,count in counts.items() if count==0]))
+          if len(cases)!=total or sum(counts.values())!=total: problems.append('Executed case tree does not match the selected-test summary')
+          if failed_cases: problems.append('Cases that did not pass: '+str(failed_cases))
+          validation={'passed':not problems,'selected_suite_case_counts':counts,'executed_case_count':len(cases),'summary_total_test_count':total,'problems':problems}
+          (root/'validation.json').write_text(json.dumps(validation,indent=2)+'\n')
+          print(json.dumps(validation,indent=2))
+          if problems: raise SystemExit('Native regression evidence validation failed')
+          PYTHON
+      - name: Retain clean product validation evidence
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openclient-window-product-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/window-product-results/*.pbxproj
+            ${{ runner.temp }}/window-product-results/*.txt
+            ${{ runner.temp }}/window-product-results/*.json
+            ${{ runner.temp }}/window-product-results/*.log
+          if-no-files-found: warn
+          retention-days: 14

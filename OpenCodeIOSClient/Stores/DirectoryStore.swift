@@ -15,6 +15,15 @@ struct DirectorySessionSnapshot {
     let questions: [OpenCodeQuestionRequest]
 }
 
+/// Disk windows are presentable, but only an HTTP snapshot plus an uninterrupted
+/// event stream can make a session reusable without another canonical read.
+struct LegacyTranscriptWindow: Equatable {
+    enum Origin: Equatable { case preview, archive, canonical }
+    var origin: Origin
+    var hasOlderMessages: Bool
+    var continuityEpoch: UInt?
+}
+
 @MainActor
 final class DirectoryStoreRegistry: ObservableObject {
     static let globalKey = "global"
@@ -25,6 +34,33 @@ final class DirectoryStoreRegistry: ObservableObject {
     @Published private(set) var storeCollectionRevision: Int
     private var storesByKey: [String: DirectoryStore]
     private var openedSessionIDs: [String] = []
+    private(set) var legacyContinuityEpoch: UInt = 0
+    private(set) var legacyStreamIsOpen = false
+
+    func interruptLegacyContinuity(streamIsOpen: Bool? = nil) {
+        legacyContinuityEpoch &+= 1
+        if let streamIsOpen { legacyStreamIsOpen = streamIsOpen }
+    }
+
+    func receiveLegacyStreamStatus(_ status: String) {
+        if status.hasPrefix("stream open") {
+            legacyStreamIsOpen = true
+        } else if status.hasPrefix("stream ") {
+            interruptLegacyContinuity(streamIsOpen: false)
+        }
+    }
+
+    func receiveLegacyDroppedEvent(_ message: String) {
+        // Unknown non-transcript extensions do not invalidate message coverage.
+        if message.hasPrefix("drop event: untyped "),
+           !message.contains("untyped message."), !message.contains("untyped session.") { return }
+        interruptLegacyContinuity()
+    }
+
+    func canReuseLegacyTranscript(_ window: LegacyTranscriptWindow?) -> Bool {
+        legacyStreamIsOpen && window?.origin == .canonical
+            && window?.continuityEpoch == legacyContinuityEpoch
+    }
     private(set) var v2PendingSessionIDs: Set<String> = []
     private(set) var v2NeedsReconnectHydration = false
     private var v2LifecycleRevisions: [String: UInt] = [:]
@@ -342,6 +378,7 @@ final class DirectoryStoreRegistry: ObservableObject {
     }
 
     func reset() {
+        interruptLegacyContinuity(streamIsOpen: false)
         openedSessionIDs = []
         v2PendingSessionIDs.removeAll()
         v2NeedsReconnectHydration = false
@@ -454,6 +491,80 @@ final class DirectoryStore: ObservableObject {
     }
     private var sessionSwitcherCandidates: [OpenCodeSession] = []
     private var sessionSwitcherSelectedSessionID: String?
+    private(set) var legacyTranscriptWindows: [String: LegacyTranscriptWindow] = [:]
+    private var legacyReadRevisions: [String: UInt] = [:]
+    private struct LegacyTranscriptRemovalJournal {
+        let revision: UInt
+        var messageIDs: Set<String> = []
+        var partIDsByMessageID: [String: Set<String>] = [:]
+    }
+    // Only retained while a canonical read is in flight. Missing memory rows can
+    // still be removed by SSE before their older HTTP snapshot arrives.
+    private var legacyRemovalJournals: [String: LegacyTranscriptRemovalJournal] = [:]
+
+    func beginLegacyTranscriptRead(sessionID: String) -> UInt {
+        legacyReadRevisions[sessionID, default: 0] &+= 1
+        let revision = legacyReadRevisions[sessionID, default: 0]
+        legacyRemovalJournals[sessionID] = .init(revision: revision)
+        return revision
+    }
+
+    func endLegacyTranscriptRead(sessionID: String, revision: UInt) {
+        guard legacyRemovalJournals[sessionID]?.revision == revision else { return }
+        legacyRemovalJournals[sessionID] = nil
+    }
+
+    func recordLegacyTranscriptRemoval(sessionID: String?, messageID: String, partID: String?) {
+        // Part removal events can omit the session. Message IDs are globally
+        // unique, so remember them for every active read in this routed store.
+        let sessionIDs = sessionID.map { [$0] } ?? Array(legacyRemovalJournals.keys)
+        for sessionID in sessionIDs {
+            guard var journal = legacyRemovalJournals[sessionID] else { continue }
+            if let partID {
+                journal.partIDsByMessageID[messageID, default: []].insert(partID)
+            } else {
+                journal.messageIDs.insert(messageID)
+                journal.partIDsByMessageID[messageID] = nil
+            }
+            legacyRemovalJournals[sessionID] = journal
+        }
+    }
+
+    func applyingLegacyTranscriptRemovals(
+        to messages: [OpenCodeMessageEnvelope], sessionID: String, revision: UInt
+    ) -> [OpenCodeMessageEnvelope] {
+        guard let journal = legacyRemovalJournals[sessionID], journal.revision == revision else { return messages }
+        return messages.compactMap { original in
+            guard !journal.messageIDs.contains(original.id) else { return nil }
+            guard let removedParts = journal.partIDsByMessageID[original.id] else { return original }
+            var message = original
+            message.parts.removeAll { part in part.id.map { removedParts.contains($0) } ?? false }
+            return message
+        }
+    }
+
+    func discardLegacyTranscript(sessionID: String) {
+        // Invalidate suspended reads without reusing their revision on a later
+        // hydration of the same session identity.
+        legacyReadRevisions[sessionID, default: 0] &+= 1
+        legacyTranscriptWindows[sessionID] = nil
+        legacyRemovalJournals[sessionID] = nil
+    }
+
+    func legacyTranscriptReadRevision(sessionID: String) -> UInt {
+        legacyReadRevisions[sessionID, default: 0]
+    }
+
+    func recordLegacyCachedWindow(sessionID: String, hasOlderMessages: Bool, isArchive: Bool = false) {
+        guard legacyTranscriptWindows[sessionID]?.origin != .canonical else { return }
+        legacyTranscriptWindows[sessionID] = .init(origin: isArchive ? .archive : .preview,
+            hasOlderMessages: hasOlderMessages, continuityEpoch: nil)
+    }
+
+    func recordLegacyCanonicalWindow(sessionID: String, hasOlderMessages: Bool, continuityEpoch: UInt?) {
+        legacyTranscriptWindows[sessionID] = .init(origin: .canonical,
+            hasOlderMessages: hasOlderMessages, continuityEpoch: continuityEpoch)
+    }
 
     var syncState: OpenCodeDirectorySyncState {
         get { syncStore.state }
@@ -487,6 +598,9 @@ final class DirectoryStore: ObservableObject {
 
     func reset() {
         isLoadingSessions = false
+        legacyTranscriptWindows = [:]
+        legacyReadRevisions = [:]
+        legacyRemovalJournals = [:]
         sessions = []
         sessionTotal = 0
         sessionLimit = 100
@@ -961,6 +1075,7 @@ final class DirectoryStore: ObservableObject {
         if selectedSession?.id == sessionID { selectedSession = nil }
         sessionStatuses[sessionID] = nil
         syncStore.state.removeMessages(forSessionID: sessionID)
+        discardLegacyTranscript(sessionID: sessionID)
         syncStore.state.sessionStatusesBySessionID[sessionID] = nil
         syncStore.state.todosBySessionID[sessionID] = nil
         syncStore.state.permissionsBySessionID[sessionID] = nil
