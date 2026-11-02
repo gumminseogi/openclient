@@ -2473,7 +2473,7 @@ extension AppViewModel {
             confirmCanonicalPromptAdmission(message.info, connectionID: connection.id)
         }
         if usesWindowPolicy, selectedSession?.id == session.id {
-            flushPendingTranscriptEvents(reason: "before legacy HTTP commit")
+            flushBufferedTranscript(reason: "before legacy HTTP commit")
         }
         let currentMessages = targetStore.syncState.messageEnvelopes(forSessionID: session.id)
         let isCompleteInventory = page.olderCursor == nil
