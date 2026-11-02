@@ -311,12 +311,16 @@ class LabState:
             'canonical_published': {'loaded_messages': int},
             'transcript_reveal_completed': {},
             'bottom_refresh_method_completed': {},
+            'legacy_stream_open': {},
+            'cached_transcript_reused': {'loaded_messages': int},
         }
         phase = event.get('phase')
         if not isinstance(phase, str) or phase not in details:
             raise ValueError('unknown native phase')
         if phase != 'metadata':
             required.add('grouping_actual')
+        if phase == 'cached_transcript_reused':
+            required.add('loaded_messages')
         if required - event.keys() or event.keys() - required - details[phase].keys():
             raise ValueError('unknown or missing native phase field')
         if type(event['schema']) is not int or event['schema'] != 1:

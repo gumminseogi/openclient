@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m unittest test_lab test_stream_edges test_extreme_fixture test_window_results
+          python3 -m unittest test_lab test_stream_edges test_extreme_fixture test_window_results test_window_phase_contract
           python3 -m py_compile prepare-window-instrumentation.py validate-window-results.py compare-window-results.py export-window-evidence.py
           bash -n run-window-session.sh
       - name: Prepare pinned XcodeGen and shared simulator

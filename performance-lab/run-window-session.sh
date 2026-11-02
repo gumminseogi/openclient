@@ -168,10 +168,12 @@ run_test() {
   local output=$1 code=0
   shift
   local selectors=("$@")
+  local allowance=1200
+  if [[ "$canary" == 1 ]]; then allowance=300; fi
   set +e
   xcodebuild test-without-building -xctestrun "$run_file" -destination "$destination" \
     -parallel-testing-enabled NO -test-timeouts-enabled YES \
-    -default-test-execution-time-allowance 1200 -maximum-test-execution-time-allowance 1200 \
+    -default-test-execution-time-allowance "$allowance" -maximum-test-execution-time-allowance "$allowance" \
     -resultBundlePath "$output/tests.xcresult" "${selectors[@]}" \
     2>&1 | tee "$output/xcodebuild.log" | awk '/error:|Test Case|Test Suite|EXTREME |\*\* TEST/ { print; fflush() }'
   code=${PIPESTATUS[0]}
