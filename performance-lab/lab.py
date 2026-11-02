@@ -52,7 +52,8 @@ def summarize(rows):
 
 class LabState:
     def __init__(self, text_bytes=512, tool_bytes=4096, assistants_per_turn=7, log_path=None,
-                 *, profile='standard', extreme_messages=5000, fail_first_startup_phase=False):
+                 *, profile='standard', extreme_messages=5000, fail_first_startup_phase=False,
+                 legacy_cursorless=False):
         self.text_bytes = bounded(text_bytes, 'text_bytes', 0, 16384)
         self.tool_bytes = bounded(tool_bytes, 'tool_bytes', 0, 65536)
         self.assistants_per_turn = bounded(assistants_per_turn, 'assistants_per_turn', 1, 100)
@@ -64,6 +65,9 @@ class LabState:
         if type(fail_first_startup_phase) is not bool or (fail_first_startup_phase and profile != 'extreme'):
             raise ValueError('startup phase fault injection requires the extreme profile')
         self.fail_first_startup_phase = fail_first_startup_phase
+        if type(legacy_cursorless) is not bool:
+            raise ValueError('legacy_cursorless must be a boolean')
+        self.legacy_cursorless = legacy_cursorless
         self.sequence = 0
         self.requests = []
         self.inflight = {}
@@ -87,6 +91,11 @@ class LabState:
                                            'updated': 1720000000000 + size * 1000}}
             self.messages[sid] = [self.seed_extreme_message(index, size) for index in range(size)]
             self.extreme_profile = self.extreme_statistics(self.messages[sid])
+            self.extreme_profile['encoded_page_bytes'] = {
+                str(limit): 2 + max(0, min(limit, size) - 1)
+                    + sum(len(encoded(message)) for message in self.messages[sid][-limit:])
+                for limit in (400, 800)
+            }
             return
         for size in SESSION_SIZES:
             sid = f'ses_{size}'
@@ -271,6 +280,7 @@ class LabState:
     def snapshot(self):
         with self.condition:
             result = {'version': VERSION, 'synthetic': True,
+                    'legacy_cursorless': self.legacy_cursorless,
                     'sessions': {sid: len(messages) for sid, messages in self.messages.items()},
                     'active': sorted(sid for sid, run in self.runs.items() if not run['done'].is_set()),
                     'runs': {sid: {'message_id': run['message_id'],
@@ -598,7 +608,9 @@ class Handler(BaseHTTPRequestHandler):
                     value = message
                 elif kind == 'message':
                     messages = state.messages[sid]
-                    before = query.get('before')
+                    # Official legacy 1.x accepts limit only. Unknown query keys
+                    # are stripped by its route schema, so before has no effect.
+                    before = None if state.legacy_cursorless else query.get('before')
                     if before:
                         if len(before) != 1:
                             raise ValueError('duplicate cursor')
@@ -608,7 +620,8 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         end = len(messages)
                     start = max(0, end - self.limit(query, len(messages)))
-                    headers = {'X-Next-Cursor': messages[start]['info']['id']} if start > 0 else {}
+                    headers = ({'X-Next-Cursor': messages[start]['info']['id']}
+                               if start > 0 and not state.legacy_cursorless else {})
                     value = messages[start:end]
                 else:
                     self.reply({'error': 'unsupported fixture endpoint'}, 404)
@@ -719,6 +732,8 @@ def main():
     serve.add_argument('--assistants-per-turn', type=int, default=7)
     serve.add_argument('--profile', choices=('standard', 'extreme'), default='standard')
     serve.add_argument('--extreme-messages', type=int, default=5000)
+    serve.add_argument('--legacy-cursorless', action='store_true',
+                       help='Match legacy 1.x limit-only message pages without cursor response headers.')
     serve.add_argument('--fail-first-startup-phase', action='store_true',
                        help='Extreme CI only: reject the first valid startup callback to verify transport retry.')
     stream = commands.add_parser('stream')
@@ -749,7 +764,8 @@ def main():
         else:
             state = LabState(args.text_bytes, args.tool_bytes, args.assistants_per_turn, args.log,
                              profile=args.profile, extreme_messages=args.extreme_messages,
-                             fail_first_startup_phase=args.fail_first_startup_phase)
+                             fail_first_startup_phase=args.fail_first_startup_phase,
+                             legacy_cursorless=args.legacy_cursorless)
             server = make_server(args.host, args.port, state=state, password=args.password,
                                  latency_ms=args.latency_ms, detail_latency_ms=args.detail_latency_ms)
             print(json.dumps({'url': server.base_url, 'username': 'opencode', 'password': server.password,

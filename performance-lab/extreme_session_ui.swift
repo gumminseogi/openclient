@@ -16,7 +16,8 @@ extension ToolGroupingUITests {
         let grouped = env["OPENCLIENT_EXTREME_GROUPED"] == "1"
         guard base.scheme == "http", base.host == "127.0.0.1", base.port == 14097,
               base.path.isEmpty, base.query == nil, base.user == nil, base.password == nil,
-              (64...50000).contains(count), ["cold", "seeded-relaunch", "seeded-revisit"].contains(mode) else {
+              (64...50000).contains(count), ["cold", "seeded-relaunch", "seeded-revisit"].contains(mode),
+              ["post-canonical-keyboard", "loading-only"].contains(extremeInputPolicy) else {
             throw labFailure("Invalid owned extreme lab settings.")
         }
         let initial = try await extremeStatus(base, password: password)
@@ -110,14 +111,16 @@ extension ToolGroupingUITests {
 
         let transcript = extremeTranscript(app)
         try await extremeWait("Transcript viewport exists") { transcript.exists }
-        let input = app.textViews["chat.input"]
-        // Use the native interactive keyboard dismissal. No Cmd+A/delete or
-        // assumptions about an empty composer or caret position are made.
-        let origin = app.coordinate(withNormalizedOffset: .zero)
-        origin.withOffset(CGVector(dx: transcript.frame.midX, dy: input.frame.minY - 90))
-            .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: transcript.frame.midX, dy: app.frame.maxY - 30)),
-                   withVelocity: .slow, thenHoldForDuration: 0.1)
-        try await extremeWait("Keyboard dismissed before bottom refresh") { !app.keyboards.firstMatch.exists }
+        if extremeInputPolicy == "post-canonical-keyboard" {
+            let input = app.textViews["chat.input"]
+            // Use the native interactive keyboard dismissal. No Cmd+A/delete or
+            // assumptions about an empty composer or caret position are made.
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            origin.withOffset(CGVector(dx: transcript.frame.midX, dy: input.frame.minY - 90))
+                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: transcript.frame.midX, dy: app.frame.maxY - 30)),
+                       withVelocity: .slow, thenHoldForDuration: 0.1)
+            try await extremeWait("Keyboard dismissed before bottom refresh") { !app.keyboards.firstMatch.exists }
+        }
         let jump = app.buttons["chat.scrollToBottom"]
         if jump.exists && jump.isHittable { jump.tap() }
         try await extremeWait("Transcript at pinned tail") { !jump.exists }
@@ -127,21 +130,27 @@ extension ToolGroupingUITests {
             .press(forDuration: 0.05, thenDragTo: transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)),
                    withVelocity: .slow, thenHoldForDuration: 0.2)
         try extremeAttach(mode: mode, trial: trial, grouped: grouped, profile: profile,
-            actions: actions + [["stage": "bottom_refresh", "operation": refreshOperation, "start_uptime_s": refreshStart]],
+            actions: actions + [["stage": "bottom_refresh", "operation": refreshOperation, "start_uptime_s": refreshStart,
+                "request_id_before_action": baseline]],
             launchStart: launchStart, homeObserved: homeObserved, projectTiming: projectTiming, checkpoint: "refresh-gesture", complete: false)
         let refreshEvent = try await extremeNativePhase(base, password: password, phase: "bottom_refresh_method_completed", operation: refreshOperation)
         let refreshCanonicalEvent = try await extremeNativePhase(base, password: password, phase: "canonical_published", operation: refreshOperation,
             minimumLoaded: expectedMinimum)
         let refreshProof = try await extremeCanonicalProof(base, password: password, after: baseline, minimum: expectedMinimum)
         let refreshCompleteObserved = ProcessInfo.processInfo.systemUptime
-        let refreshToken = tokenPrefix + "_\(refreshOperation)"
-        input.tap(); input.typeText(refreshToken)
-        XCTAssertTrue((input.value as? String ?? "").contains(refreshToken))
-        actions.append(["stage": "bottom_refresh", "operation": refreshOperation,
+        var refreshAction: [String: Any] = ["stage": "bottom_refresh", "operation": refreshOperation,
             "start_uptime_s": refreshStart, "canonical_and_method_observed_uptime_s": refreshCompleteObserved,
-            "typed_token_observed_uptime_s": ProcessInfo.processInfo.systemUptime,
+            "request_id_before_action": baseline,
             "requests": refreshProof, "minimum_expected_loaded": expectedMinimum,
-            "typed_token": refreshToken, "native_probe_status": ["refresh": refreshEvent, "canonical": refreshCanonicalEvent]])
+            "native_probe_status": ["refresh": refreshEvent, "canonical": refreshCanonicalEvent]]
+        if extremeInputPolicy == "post-canonical-keyboard" {
+            let refreshToken = tokenPrefix + "_\(refreshOperation)"
+            try await extremeTypeToken(app: app, input: app.textViews["chat.input"], token: refreshToken)
+            refreshAction["typed_token_observed_uptime_s"] = ProcessInfo.processInfo.systemUptime
+            refreshAction["typed_token"] = refreshToken
+        }
+        refreshAction["request_id_after_action"] = extremeLastRequestID(try await extremeStatus(base, password: password))
+        actions.append(refreshAction)
         try extremeAttach(mode: mode, trial: trial, grouped: grouped, profile: profile,
             actions: actions, launchStart: launchStart, homeObserved: homeObserved, projectTiming: projectTiming, checkpoint: "complete", complete: true)
         try await Task.sleep(for: .seconds(3)) // Background phase writer flush, excluded from timing.
@@ -156,9 +165,8 @@ extension ToolGroupingUITests {
         let opened = ProcessInfo.processInfo.systemUptime
         print("EXTREME selection tap stage=\(stage)")
         row.tap()
-        let input = app.textViews["chat.input"]
-        // HTTP phase polling leaves the app's initial layout alone. Readiness still
-        // requires the real answer on screen and input accepted by the real composer.
+        // HTTP phase polling leaves the app's initial layout alone. Both policies
+        // require the real answer on screen and a complete canonical response.
         let revealEvent = try await extremeNativePhase(base, password: password, phase: "transcript_reveal_completed", operation: operation)
         XCTAssertEqual(revealEvent["grouping_actual"] as? Bool, expectedGrouping)
         let transcript = extremeTranscript(app)
@@ -170,32 +178,38 @@ extension ToolGroupingUITests {
         }
         let contentObserved = ProcessInfo.processInfo.systemUptime
         try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
-            "content_observed_uptime_s": contentObserved, "native_probe_status": revealEvent], stage + "-visible")
-        try await extremeWait("Composer is available") { input.exists && input.isHittable }
-        input.tap(); input.typeText(token)
-        XCTAssertTrue((input.value as? String ?? "").contains(token), "A unique plain token must survive typing.")
-        let typedObserved = ProcessInfo.processInfo.systemUptime
-        try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
-            "content_observed_uptime_s": contentObserved, "typed_token_observed_uptime_s": typedObserved,
-            "typed_token": token, "native_probe_status": revealEvent], stage + "-typed")
+            "content_observed_uptime_s": contentObserved, "request_id_before_action": baseline,
+            "native_probe_status": revealEvent], stage + "-visible")
+        // Keep the native reveal/canonical measurements independent of input.
+        // Exercise the real composer only after the full canonical page is ready.
         let canonicalEvent = try await extremeNativePhase(base, password: password, phase: "canonical_published", operation: operation,
             minimumLoaded: expectedMinimum)
         let proof = try await extremeCanonicalProof(base, password: password, after: baseline, minimum: expectedMinimum)
         let canonicalObserved = ProcessInfo.processInfo.systemUptime
         try checkpoint(["stage": stage, "operation": operation, "start_uptime_s": opened,
-            "content_observed_uptime_s": contentObserved, "typed_token_observed_uptime_s": typedObserved,
+            "content_observed_uptime_s": contentObserved,
             "canonical_observed_uptime_s": canonicalObserved, "requests": proof,
+            "request_id_before_action": baseline,
             "native_probe_status": ["reveal": revealEvent, "canonical": canonicalEvent]], stage + "-canonical")
-        let postToken = token + "_C"
-        input.tap(); input.typeText(postToken)
-        XCTAssertTrue((input.value as? String ?? "").contains(postToken))
-        return ["stage": stage, "operation": operation, "start_uptime_s": opened,
-            "content_observed_uptime_s": contentObserved, "typed_token_observed_uptime_s": typedObserved,
+        var action: [String: Any] = ["stage": stage, "operation": operation, "start_uptime_s": opened,
+            "content_observed_uptime_s": contentObserved,
             "canonical_observed_uptime_s": canonicalObserved,
-            "post_canonical_typed_token_observed_uptime_s": ProcessInfo.processInfo.systemUptime,
-            "post_canonical_typed_token": postToken,
+            "request_id_before_action": baseline,
             "requests": proof, "minimum_expected_loaded": expectedMinimum,
-            "typed_token": token, "native_probe_status": ["reveal": revealEvent, "canonical": canonicalEvent]]
+            "native_probe_status": ["reveal": revealEvent, "canonical": canonicalEvent]]
+        if extremeInputPolicy == "post-canonical-keyboard" {
+            let input = app.textViews["chat.input"]
+            try await extremeTypeToken(app: app, input: input, token: token)
+            action["typed_token_observed_uptime_s"] = ProcessInfo.processInfo.systemUptime
+            action["typed_token"] = token
+            try checkpoint(action, stage + "-typed")
+            let postToken = token + "_C"
+            try await extremeTypeToken(app: app, input: input, token: postToken)
+            action["post_canonical_typed_token_observed_uptime_s"] = ProcessInfo.processInfo.systemUptime
+            action["post_canonical_typed_token"] = postToken
+        }
+        action["request_id_after_action"] = extremeLastRequestID(try await extremeStatus(base, password: password))
+        return action
     }
 
     private func extremeNativePhase(_ base: URL, password: String, phase: String, operation: Int,
@@ -239,6 +253,10 @@ extension ToolGroupingUITests {
         app.descendants(matching: .any).matching(identifier: "chat.scroll").firstMatch
     }
 
+    private var extremeInputPolicy: String {
+        ProcessInfo.processInfo.environment["OPENCLIENT_EXTREME_INPUT_POLICY"] ?? "post-canonical-keyboard"
+    }
+
     private func extremeCanonicalProof(_ base: URL, password: String, after baseline: Int, minimum: Int) async throws -> [[String: Any]] {
         let deadline = ProcessInfo.processInfo.systemUptime + 300
         while ProcessInfo.processInfo.systemUptime < deadline {
@@ -277,8 +295,8 @@ extension ToolGroupingUITests {
             .compactMap { $0["request_id"] as? Int }.max() ?? 0
     }
 
-    private func extremeWait(_ label: String, predicate: () -> Bool) async throws {
-        let deadline = ProcessInfo.processInfo.systemUptime + 300
+    private func extremeWait(_ label: String, timeout: TimeInterval = 300, predicate: () -> Bool) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
         while ProcessInfo.processInfo.systemUptime < deadline {
             if predicate() { return }
             try await Task.sleep(for: .milliseconds(500))
@@ -286,15 +304,34 @@ extension ToolGroupingUITests {
         throw labFailure(label)
     }
 
+    private func extremeTypeToken(app: XCUIApplication, input: XCUIElement, token: String) async throws {
+        try await extremeWait("Composer is available after canonical completion", timeout: 60) { input.exists && input.isHittable }
+        input.tap()
+        try await extremeWait("Real keyboard is ready after composer focus", timeout: 60) {
+            app.keyboards.firstMatch.exists && app.keyboards.firstMatch.isHittable
+        }
+        input.typeText(token)
+        let accepted = (input.value as? String ?? "").contains(token)
+        XCTAssertTrue(accepted, "A unique plain token must survive typing after canonical completion.")
+        guard accepted else { throw labFailure("Composer did not retain the unique typed token.") }
+    }
+
     private func extremeShowProjectSidebar(_ app: XCUIApplication) async throws {
-        for attempt in 0...3 {
+        let deadline = ProcessInfo.processInfo.systemUptime + 180
+        for level in 0...3 {
             let project = app.buttons["projects.project.lab"]
             if project.exists && project.isHittable { return }
-            guard attempt < 3 else { throw labFailure("Native back navigation did not reveal the owned project.") }
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
-                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)),
-                       withVelocity: .slow, thenHoldForDuration: 0.1)
-            try await Task.sleep(for: .milliseconds(500))
+            guard level < 3, ProcessInfo.processInfo.systemUptime < deadline else {
+                throw labFailure("Native back navigation did not reveal the owned project.")
+            }
+            let back = app.navigationBars.buttons.matching(identifier: "BackButton").firstMatch
+            try await extremeWait("Owned project or native BackButton is available",
+                timeout: max(0, deadline - ProcessInfo.processInfo.systemUptime)) {
+                    (project.exists && project.isHittable) || (back.exists && back.isHittable)
+                }
+            if project.exists && project.isHittable { return }
+            print("EXTREME native back tap level=\(level + 1) label=\(back.label)")
+            back.tap()
         }
     }
 
@@ -307,6 +344,11 @@ extension ToolGroupingUITests {
         let evidence: [String: Any] = ["schema": 1, "experiment": "extreme_session_load", "case": mode,
             "trial": trial, "grouping": grouped, "checkpoint": checkpoint, "complete": complete,
             "profile": profile, "actions": actions, "launch_start_uptime_s": launchStart,
+            "input_validation_policy": extremeInputPolicy,
+            "input_validation_performed": extremeInputPolicy == "post-canonical-keyboard",
+            "input_validation_scope": extremeInputPolicy == "loading-only"
+                ? "Loading-only benchmark: no composer taps, keyboard checks or typing; keyboard responsiveness is not measured."
+                : "Real keyboard and unique typed-token checks occur after canonical completion; no typing-during-load measurement.",
             "home_observed_uptime_s": homeObserved, "project_navigation": projectTiming,
             "clock": ["uptime_before_s": before, "epoch_s": epoch, "uptime_after_s": after],
             "scope": "Seeded cases await normal startup publication of the full retained cache before navigation; launch/op0 timings are separate. UI-observed action times include XCTest/Accessibility overhead. Native callbacks are separate; typed acceptance is not earliest readiness or per-key latency."]

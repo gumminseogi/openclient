@@ -2,9 +2,12 @@
 import base64
 import http.client
 import json
+import os
 import re
+import subprocess
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import urlencode
 
@@ -12,6 +15,73 @@ import lab
 
 
 class ExtremeFixtureTests(unittest.TestCase):
+    def test_cursorless_legacy_pages_expand_the_latest_window_without_cursor_headers(self):
+        state = lab.LabState(profile='extreme', extreme_messages=900, legacy_cursorless=True)
+        self.assertTrue(state.snapshot()['legacy_cursorless'])
+        messages = state.messages['ses_extreme']
+        server = lab.make_server(state=state, password='synthetic-contract-only')
+        worker = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .01}, daemon=True)
+        worker.start()
+        auth = 'Basic ' + base64.b64encode(b'opencode:synthetic-contract-only').decode()
+        cases = [({'limit': 400}, messages[-400:]),
+                 ({'limit': 800}, messages[-800:]),
+                 ({'limit': 1200}, messages),
+                 ({'limit': 400, 'before': 'not-a-server-cursor'}, messages[-400:]),
+                 ({}, messages)]
+        try:
+            for query, expected in cases:
+                with self.subTest(query=query):
+                    connection = http.client.HTTPConnection(*server.server_address, timeout=10)
+                    try:
+                        connection.request('GET', '/session/ses_extreme/message?' + urlencode(query),
+                                           headers={'Authorization': auth})
+                        response = connection.getresponse()
+                        body = response.read()
+                        self.assertEqual(response.status, 200)
+                        self.assertIsNone(response.getheader('X-Next-Cursor'))
+                        self.assertEqual(body, lab.encoded(expected))
+                        self.assertEqual(int(response.getheader('Content-Length')), len(body))
+                        limit = query.get('limit')
+                        if limit in (400, 800):
+                            self.assertEqual(len(body), state.extreme_profile['encoded_page_bytes'][str(limit)])
+                    finally:
+                        connection.close()
+            self.assertEqual(state.extreme_profile['encoded_messages_bytes'], len(lab.encoded(messages)))
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=2)
+
+    def test_cursorless_mode_is_explicit_and_boolean(self):
+        state = lab.LabState(profile='extreme', extreme_messages=64)
+        self.assertFalse(state.snapshot()['legacy_cursorless'])
+        for value in (None, 0, 1, 'true'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                lab.LabState(profile='extreme', extreme_messages=64, legacy_cursorless=value)
+
+    def test_paired_baseline_request_contract_preserves_old_and_deduplicated_runs(self):
+        prefix = (Path(__file__).parent / 'run-extreme-session.sh').read_text().split('build_root=', 1)[0]
+        cases = [('baseline', None, '2'),
+                 ('patched', None, '1'),
+                 ('baseline', '37fa58b3ae9957b6e5d95dc9919841b3eaa58421', '1'),
+                 ('patched', '37fa58b3ae9957b6e5d95dc9919841b3eaa58421', '1')]
+        for variant, baseline, expected in cases:
+            with self.subTest(variant=variant, baseline=baseline):
+                env = dict(os.environ, OPENCLIENT_EXTREME_VARIANT=variant)
+                env.pop('OPENCLIENT_EXTREME_PAIRED_BASELINE_SHA', None)
+                if baseline is not None:
+                    env['OPENCLIENT_EXTREME_PAIRED_BASELINE_SHA'] = baseline
+                result = subprocess.run(['bash', '-c', prefix + '\nprintf "%s" "$initial_canonical_reads"',
+                    'contract', 'platform=iOS Simulator,id=unused', 'unused-results'],
+                    env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
+        env = dict(os.environ, OPENCLIENT_EXTREME_PAIRED_BASELINE_SHA='0' * 40)
+        result = subprocess.run(['bash', '-c', prefix, 'contract', 'unused', 'unused-results'],
+            env=env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('Unknown paired baseline', result.stderr)
+
     def test_giant_bound_is_validated_before_generating_payloads(self):
         class GenerationReached(Exception):
             pass

@@ -1,0 +1,144 @@
+name: OpenClient legacy window loading
+
+on:
+  push:
+    branches: [legacy-window-loading]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openclient-window-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  paired-native:
+    runs-on: xcode-27
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: patched
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: e35444a66c150cc8dbb887de9b2c0f3d23cb4837
+          path: baseline
+          persist-credentials: false
+      - name: Verify fixture and evidence contracts
+        working-directory: patched/performance-lab
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest test_lab test_stream_edges test_extreme_fixture test_window_results
+          python3 -m py_compile prepare-window-instrumentation.py validate-window-results.py compare-window-results.py export-window-evidence.py
+          bash -n run-window-session.sh
+      - name: Prepare pinned XcodeGen and shared simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/window-results"
+          mkdir -p "$results" "$RUNNER_TEMP/window-tools"
+          curl --fail --location --retry 3 https://github.com/yonaskolb/XcodeGen/releases/download/2.44.1/xcodegen.zip -o "$RUNNER_TEMP/window-tools/xcodegen.zip"
+          shasum -a 256 "$RUNNER_TEMP/window-tools/xcodegen.zip" > "$results/xcodegen-archive-sha256.txt"
+          unzip -q "$RUNNER_TEMP/window-tools/xcodegen.zip" -d "$RUNNER_TEMP/window-tools/unpacked"
+          python3 - "$RUNNER_TEMP/window-tools" <<'PYTHON'
+          from pathlib import Path
+          import shutil,sys
+          root=Path(sys.argv[1]); paths=[p for p in (root/'unpacked').rglob('xcodegen') if p.is_file()]
+          if len(paths)!=1: raise SystemExit('Expected one pinned XcodeGen binary')
+          folder=root/'bin';folder.mkdir();shutil.copy2(paths[0],folder/'xcodegen');(folder/'xcodegen').chmod(0o755)
+          PYTHON
+          "$RUNNER_TEMP/window-tools/bin/xcodegen" --version | tee "$results/xcodegen-version.txt"
+          python3 - "$results/xcodegen-version.txt" <<'PYTHON'
+          import sys
+          if open(sys.argv[1]).read().strip()!='Version: 2.44.1': raise SystemExit('Unexpected XcodeGen version')
+          PYTHON
+          printf '%s\n' "$RUNNER_TEMP/window-tools/bin" >> "$GITHUB_PATH"
+          xcodebuild -version > "$results/xcode-version.txt"
+          xcrun simctl list devices available --json > "$results/simulators.json"
+          device_id=$(python3 - "$results/simulators.json" <<'PYTHON'
+          import json,re,subprocess,sys
+          sdk=tuple(map(int,subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-version'],text=True).strip().split('.')[:2]))
+          candidates=[]
+          for runtime,rows in json.load(open(sys.argv[1]))['devices'].items():
+              if '.iOS-' not in runtime: continue
+              version=tuple(map(int,re.findall(r'[0-9]+',runtime)))
+              if version[:2]>sdk: continue
+              for device in rows:
+                  model=re.fullmatch(r'iPhone ([0-9]+) Pro Max',device['name'])
+                  if device.get('isAvailable') and model and int(model.group(1))>=16:
+                      candidates.append((version,int(model.group(1)),device['udid']))
+          if not candidates: raise SystemExit('No compatible iPhone Pro Max simulator')
+          print(max(candidates)[2])
+          PYTHON
+          )
+          printf 'OPENCLIENT_TEST_DESTINATION=platform=iOS Simulator,id=%s\n' "$device_id" >> "$GITHUB_ENV"
+          xcrun simctl bootstatus "$device_id" -b
+          # Identical reviewed harness in both product checkouts.
+          rm -rf baseline/performance-lab
+          ditto patched/performance-lab baseline/performance-lab
+          git -C patched rev-parse HEAD > "$results/harness-revision.txt"
+      - name: Patched compile, regression and 64-message preflight
+        shell: bash
+        env:
+          OPENCLIENT_EXTREME_HARNESS_SHA: ${{ github.sha }}
+          OPENCLIENT_EXTREME_VARIANT: patched
+          OPENCLIENT_EXTREME_MESSAGES: '64'
+          OPENCLIENT_EXTREME_VERIFY_TELEMETRY_RETRY: '1'
+          OPENCLIENT_WINDOW_CANARY: '1'
+          OPENCLIENT_WINDOW_REUSE_BUILD: '0'
+          OPENCLIENT_WINDOW_ORDER_LABEL: preflight-patched64
+        run: |
+          set -euo pipefail
+          cd patched
+          bash performance-lab/run-window-session.sh "$OPENCLIENT_TEST_DESTINATION" "$RUNNER_TEMP/window-results/preflight-patched64"
+      - name: Counterbalanced same-host ABBA observations
+        shell: bash
+        env:
+          OPENCLIENT_EXTREME_HARNESS_SHA: ${{ github.sha }}
+          OPENCLIENT_EXTREME_MESSAGES: '20000'
+          OPENCLIENT_EXTREME_VERIFY_TELEMETRY_RETRY: '1'
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/window-results"
+          failures=0
+          run_observation() {
+            local checkout=$1 label=$2 reuse=$3 code=0
+            mkdir -p "$results/$label"
+            if (cd "$checkout" && OPENCLIENT_EXTREME_VARIANT="$checkout" OPENCLIENT_WINDOW_ORDER_LABEL="$label" OPENCLIENT_WINDOW_REUSE_BUILD="$reuse" bash performance-lab/run-window-session.sh "$OPENCLIENT_TEST_DESTINATION" "$results/$label"); then code=0; else code=$?; fi
+            printf '{"exit_code": %d}\n' "$code" > "$results/$label/driver-status.json"
+            if (( code != 0 )); then failures=$((failures+1)); fi
+          }
+          run_observation baseline 01-baseline 0
+          run_observation patched 02-patched 1
+          run_observation patched 03-patched 1
+          run_observation baseline 04-baseline 1
+          python3 patched/performance-lab/compare-window-results.py "$results"
+          (( failures == 0 ))
+      - name: Export readable core evidence
+        if: always()
+        shell: bash
+        run: python3 patched/performance-lab/export-window-evidence.py "$RUNNER_TEMP/window-results"
+      - name: Retain benchmark evidence
+        id: upload
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openclient-window-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/window-results
+            !${{ runner.temp }}/window-results/**/tests.xcresult
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Retry evidence upload
+        if: always() && steps.upload.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openclient-window-retry-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/window-results
+          if-no-files-found: warn
+          retention-days: 14

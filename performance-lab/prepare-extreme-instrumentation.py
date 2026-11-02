@@ -40,6 +40,14 @@ replace(sessions,
     '\n        chatStore.applyMessageHistoryPage(nextCursor: page.olderCursor, forSessionID: session.id)\n',
     '\n        chatStore.applyMessageHistoryPage(nextCursor: page.olderCursor, forSessionID: session.id)\n        OpenClientExtremeSessionProbe.canonicalPublished(sessionID: session.id, count: loadedMessages.count)\n')
 cache = 'OpenCodeIOSClient/ViewModels/AppViewModel/AppViewModel+LocalCache.swift'
+warm_memory_hook = '''            // Memory already owns both slices; decoding the disk transcript would
+            // not replace these messages. This does not make server data fresh.
+            localCacheHydratedChatKeys.insert(runtimeKey)
+            return nil'''
+if warm_memory_hook in Path(cache).read_text():
+    replace(cache, warm_memory_hook,
+        warm_memory_hook.replace('            return nil',
+            '            OpenClientExtremeSessionProbe.record("cache_hydration_skipped_warm_memory", sessionID: session.id, details: ["cache_messages": targetStore.syncStore.messageCount(forSessionID: session.id), "todos_known": initialTodos != nil])\n            return nil'))
 replace(cache,
     '        let snapshot = await localChatSnapshot(\n            serverID: serverID,\n            sessionID: session.id,\n            consumesPrefetch: true\n        )',
     '        OpenClientExtremeSessionProbe.record("cache_hydration_started", sessionID: session.id)\n        let snapshot = await localChatSnapshot(\n            serverID: serverID,\n            sessionID: session.id,\n            consumesPrefetch: true\n        )\n        OpenClientExtremeSessionProbe.record("cache_snapshot_returned", sessionID: session.id, details: ["cache_messages": snapshot?.preparedMessages.messages.count ?? 0])')
