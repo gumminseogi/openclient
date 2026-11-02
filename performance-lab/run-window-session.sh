@@ -78,6 +78,7 @@ if [[ "$reuse_build" == 0 ]]; then
   python3 performance-lab/prepare-window-instrumentation.py
   xcodegen --version | tee "$results/xcodegen-version.txt"
   INCLUDE_PROJECT_LOCAL_YAML=NO xcodegen generate 2>&1 | tee "$results/xcodegen.log"
+  cp OpenCodeIOSClient.xcodeproj/project.pbxproj "$results/generated-project.pbxproj"
   # Generation must register newly added product and regression Swift files.
   python3 - <<'PYTHON'
 from pathlib import Path

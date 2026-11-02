@@ -610,15 +610,18 @@ final class ChatFacadeTests: XCTestCase {
     }
 
     func testObservationRebindsToNewActiveDirectoryStoreAndSyncStore() async {
-        let viewModel = makeViewModel()
+        // Saved metadata/cache hydration can publish unrelated model changes.
+        let viewModel = AppViewModel(backendFactory: HomeTestBackend())
         let facade = viewModel.chatFacade
         let oldStore = viewModel.directoryStoreRegistry.activeStore
         let newStore = viewModel.directoryStoreRegistry.activate("/tmp/other")
 
-        // Rebinding and activation invalidations are queued on main before this checkpoint.
-        let activated = expectation(description: "Active directory observation rebound")
-        DispatchQueue.main.async { activated.fulfill() }
-        await fulfillment(of: [activated], timeout: 1)
+        // receive(on:) and downstream debounce forward activation on separate turns.
+        for _ in 0..<3 {
+            let activated = expectation(description: "Active directory observation rebound")
+            DispatchQueue.main.async { activated.fulfill() }
+            await fulfillment(of: [activated], timeout: 1)
+        }
 
         var changeCount = 0
         var pendingChange: XCTestExpectation?

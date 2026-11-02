@@ -324,8 +324,12 @@ final class LegacyTranscriptWindowTests: XCTestCase {
             continuityEpoch: model.directoryStoreRegistry.legacyContinuityEpoch)
         let window = model.directoryStore.legacyTranscriptWindows[Self.session.id]
         let initialEpoch = model.directoryStoreRegistry.legacyContinuityEpoch
-        let heartbeat = Self.droppedDiagnostic(#"{"directory":"/repo","payload":{"type":"server.unknown-heartbeat","properties":{}}}"#)
-        model.handleBackendEvent(.diagnostic(try XCTUnwrap(heartbeat)))
+        let rawHeartbeat = #"{"directory":"/repo","payload":{"type":"server.unknown-heartbeat","properties":{}}}"#
+        guard case let .event(heartbeat) = OpenCodeEventManager.decodeManagedEvent(from: rawHeartbeat),
+              case .unknown("server.unknown-heartbeat") = heartbeat.typed else {
+            return XCTFail("Unknown extensions must remain valid typed events.")
+        }
+        model.handleManagedEvent(heartbeat)
         XCTAssertEqual(model.directoryStoreRegistry.legacyContinuityEpoch, initialEpoch)
         XCTAssertTrue(model.directoryStoreRegistry.canReuseLegacyTranscript(window))
         let missingPart = Self.droppedDiagnostic(#"{"directory":"/repo","payload":{"type":"message.part.updated","properties":{}}}"#)
